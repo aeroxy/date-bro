@@ -1,0 +1,46 @@
+{
+  "name": "date-bro",
+  "description": "AI dating coach Chrome extension — build a picture of your date, and know what to say next",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.13",
+  "author": "Aero Wang <aero.windwalker@gmail.com>",
+  "license": "MIT",
+  "keywords": [
+    "chrome-extension",
+    "dating",
+    "ai",
+    "coach"
+  ],
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "postinstall": "wxt prepare",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/chrome": "^0.0.287",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.1",
+    "@types/turndown": "^5.0.6",
+    "@typescript/native-preview": "^7.0.0-dev.20260605.1",
+    "@wxt-dev/module-react": "^1.2.2",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.7.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.1.14",
+    "wxt": "^0.20.20"
+  },
+  "dependencies": {
+    "dom-serializer": "^3.1.1",
+    "htmlparser2": "^12.0.0",
+    "idb": "^8.0.3",
+    "jsonrepair": "^3.14.0",
+    "turndown": "^7.2.4"
+  }
+}

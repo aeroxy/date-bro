@@ -1,0 +1,526 @@
+import { useCallback, useRef, useState } from 'react'
+import { AlertCircle, Heart, RotateCw, Settings, Sparkles, Trash2, User, UserRound } from 'lucide-react'
+
+import { ConversationPanel } from '@/components/ConversationPanel'
+import { PersonContextView, SelfContextView } from '@/components/ContextView'
+import { DateRail } from '@/components/DateRail'
+import { FeedbackThread } from '@/components/FeedbackThread'
+import { ProfileModal } from '@/components/ProfileModal'
+import { SettingsModal } from '@/components/SettingsModal'
+import { SuggestionView } from '@/components/SuggestionView'
+import { Button } from '@/components/ui/Button'
+import { Chip, Eyebrow } from '@/components/ui/Card'
+import { Logo } from '@/components/ui/Logo'
+import { Input } from '@/components/ui/Field'
+import { Spinner } from '@/components/ui/Spinner'
+import { rebuildPersonContext, rebuildSelfContext, suggestMove } from '@/coach/run'
+import { useDates } from '@/hooks/useDates'
+import { cn } from '@/lib/cn'
+import { mergeResearchNotes } from '@/lib/research-notes'
+import type { ThinkingSummary } from '@/types/coach'
+import { STAGES, type DateRecord, type Engine } from '@/types/date'
+
+type Tab = Engine
+/** Runs keep going when you switch profiles, so a run is tagged with its date. */
+type Busy = { id: string; tab: Tab } | null
+
+function ago(ts?: number): string {
+  if (!ts) return 'never'
+  const mins = Math.round((Date.now() - ts) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
+}
+
+const FEEDBACK_PLACEHOLDER: Record<Tab, (name: string) => string> = {
+  them: (name) => `e.g. drop the avoidant read — ${name} works nights, that's why the replies land at 2am`,
+  me: () => "e.g. you're reading my short replies wrong — that's just how I text",
+  next: () => 'e.g. stop suggesting bars, and drop the "just checking in" opener',
+}
+
+/** A rebuild is stale the moment a turn is added after it. */
+function isStale(record: DateRecord, generatedAt?: number): boolean {
+  if (!generatedAt) return false
+  return record.updatedAt > generatedAt + 1000
+}
+
+export default function App() {
+  const { dates, active, activeId, setActiveId, loaded, create, update, remove } = useDates()
+  const [tab, setTab] = useState<Tab>('them')
+  const [busy, setBusy] = useState<Busy>(null)
+  const [error, setError] = useState<{ id: string; tab: Tab; message: string } | null>(null)
+  const [situation, setSituation] = useState('')
+  const [showProfile, setShowProfile] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [viewingSuggestion, setViewingSuggestion] = useState<string | null>(null)
+  const [activity, setActivity] = useState<string[]>([])
+  const [thinking, setThinking] = useState<ThinkingSummary | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const run = useCallback(
+    async (which: Tab, note?: string) => {
+      if (!active || busy) return
+      const id = active.id
+      setTab(which)
+      setBusy({ id, tab: which })
+      setError(null)
+      setActivity([])
+      setThinking(null)
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      // A note joins the thread before the run, so this run already sees it and
+      // it survives a failure — feedback shouldn't be lost to a network error.
+      let record = active
+      if (note?.trim()) {
+        const feedback = { ...active.feedback, [which]: [...active.feedback[which], note.trim()] }
+        record = { ...active, feedback }
+        await update(id, { feedback })
+      }
+
+      try {
+        if (which === 'them') {
+          const ctx = await rebuildPersonContext(record, controller.signal, setThinking)
+          await update(id, { themContext: ctx })
+        } else if (which === 'me') {
+          const ctx = await rebuildSelfContext(record, controller.signal, setThinking)
+          await update(id, { meContext: ctx })
+        } else {
+          const suggestion = await suggestMove(
+            record,
+            situation,
+            controller.signal,
+            (label) => setActivity((prev) => [...prev, label]),
+            setThinking,
+          )
+          await update(id, {
+            suggestions: [suggestion, ...record.suggestions].slice(0, 20),
+            researchNotes: mergeResearchNotes(record.researchNotes ?? '', suggestion.research_notes),
+          })
+          setViewingSuggestion(suggestion.id)
+          setSituation('')
+        }
+      } catch (e) {
+        if ((e as Error).name !== 'AbortError') {
+          setError({ id, tab: which, message: (e as Error).message })
+        }
+      } finally {
+        setBusy(null)
+      }
+    },
+    [active, busy, situation, update],
+  )
+
+  if (!loaded) {
+    return (
+      <div className="flex h-full items-center justify-center text-fg-3">
+        <Spinner />
+      </div>
+    )
+  }
+
+  const suggestion =
+    active?.suggestions.find((s) => s.id === viewingSuggestion) ?? active?.suggestions[0]
+  // A run belonging to another profile shouldn't render as this one thinking.
+  const busyTab = busy && busy.id === activeId ? busy.tab : null
+  const shownError = error && error.id === activeId ? error : null
+
+  return (
+    <div className="relative flex h-full overflow-hidden">
+      <div className="grid-bg pointer-events-none absolute inset-0 opacity-60" />
+
+      <DateRail
+        dates={dates}
+        activeId={activeId}
+        onSelect={(id) => {
+          setActiveId(id)
+          setViewingSuggestion(null)
+          setSituation('')
+        }}
+        onCreate={(name) => {
+          create(name).then(() => setShowProfile(true))
+        }}
+      />
+
+      {!active ? (
+        <Welcome onSettings={() => setShowSettings(true)} />
+      ) : (
+        <main className="relative flex min-w-0 flex-1 flex-col">
+          <header className="flex flex-none items-center gap-3 border-b border-border bg-surface px-5 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-[19px] font-bold tracking-[-0.03em]">{active.name}</h1>
+                <Chip tone="live">
+                  {STAGES.find((s) => s.value === active.stage)?.label ?? active.stage}
+                </Chip>
+              </div>
+              <button
+                onClick={() => setShowProfile(true)}
+                className="text-[11.5px] text-fg-3 transition hover:text-action"
+              >
+                {active.seedThem.trim() ? 'Edit profile & context' : 'Add what you know about them →'}
+              </button>
+            </div>
+
+            <span className="flex-1" />
+
+            <Button variant="secondary" size="sm" disabled={!!busy} onClick={() => run('them')}>
+              {busyTab === 'them' ? <Spinner /> : <Heart size={13} />}
+              Rebuild them
+            </Button>
+            <Button variant="secondary" size="sm" disabled={!!busy} onClick={() => run('me')}>
+              {busyTab === 'me' ? <Spinner /> : <UserRound size={13} />}
+              Rebuild you
+            </Button>
+            <Button variant="accent" size="sm" disabled={!!busy} onClick={() => run('next')}>
+              {busyTab === 'next' ? <Spinner /> : <Sparkles size={13} />}
+              What do I say?
+            </Button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="rounded-md p-2 text-fg-3 transition hover:bg-surface-muted hover:text-fg"
+              title="Settings"
+            >
+              <Settings size={15} />
+            </button>
+          </header>
+
+          <div className="flex min-h-0 flex-1">
+            {/* Keyed so drafts and the import box don't follow you to another profile. */}
+          <ConversationPanel
+            key={active.id}
+            record={active}
+            onChange={(turns) => update(active.id, { turns })}
+          />
+
+            <aside className="flex h-full w-[440px] flex-none flex-col border-l border-border bg-surface">
+              <div className="flex flex-none items-center gap-1 border-b border-border px-3 py-2">
+                {(
+                  [
+                    { id: 'them' as Tab, label: 'Them', icon: Heart },
+                    { id: 'me' as Tab, label: 'You', icon: User },
+                    { id: 'next' as Tab, label: 'Next move', icon: Sparkles },
+                  ]
+                ).map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => setTab(id)}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition',
+                      tab === id
+                        ? 'bg-surface-muted text-fg'
+                        : 'text-fg-3 hover:bg-surface-muted/60 hover:text-fg-2',
+                    )}
+                  >
+                    <Icon size={12} />
+                    {label}
+                  </button>
+                ))}
+                <span className="flex-1" />
+                <button
+                  onClick={() => run(tab)}
+                  disabled={!!busy}
+                  className="rounded-md p-1.5 text-fg-3 transition hover:bg-surface-muted hover:text-action disabled:opacity-40"
+                  title="Run again"
+                >
+                  {busyTab === tab ? <Spinner /> : <RotateCw size={13} />}
+                </button>
+              </div>
+
+              <div className="scroll-slim min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                {shownError?.tab === tab ? (
+                  <div className="mb-4 flex gap-2.5 rounded-md border border-no/40 bg-no-soft px-3.5 py-3">
+                    <AlertCircle size={15} className="mt-0.5 flex-none text-no" />
+                    <div className="min-w-0">
+                      <p className="text-[12.5px] font-semibold text-no-strong">That didn't run</p>
+                      <p className="mt-0.5 break-words text-[12px] leading-relaxed text-fg-2">
+                        {shownError.message}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {tab === 'next' ? (
+                  <div className="mb-4">
+                    {/* One-shot, unlike the notes thread in the footer. */}
+                    <Eyebrow className="mb-1.5 block">Anything specific right now?</Eyebrow>
+                    <Input
+                      value={situation}
+                      onChange={(e) => setSituation(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') run('next')
+                      }}
+                      placeholder="e.g. she left me on read for 2 days — optional"
+                    />
+                  </div>
+                ) : null}
+
+                {busyTab === tab ? (
+                  <Thinking tab={tab} name={active.name} activity={activity} thinking={thinking} />
+                ) : tab === 'them' ? (
+                  active.themContext ? (
+                    <>
+                      <Freshness
+                        at={active.themContext.generatedAt}
+                        stale={isStale(active, active.themContext.generatedAt)}
+                        onClear={() => {
+                          if (confirm(`Delete this read on ${active.name}? You can rebuild it any time.`)) {
+                            update(active.id, { themContext: undefined })
+                          }
+                        }}
+                      />
+                      <PersonContextView ctx={active.themContext} name={active.name} />
+                    </>
+                  ) : (
+                    <BlankSlate
+                      title={`No read on ${active.name} yet`}
+                      body="Write what you know in the profile, add some of the conversation, then rebuild. Everything you get back cites the turn it came from."
+                      cta="Rebuild them"
+                      onRun={() => run('them')}
+                    />
+                  )
+                ) : tab === 'me' ? (
+                  active.meContext ? (
+                    <>
+                      <Freshness
+                        at={active.meContext.generatedAt}
+                        stale={isStale(active, active.meContext.generatedAt)}
+                        onClear={() => {
+                          if (confirm('Delete this read on you? You can rebuild it any time.')) {
+                            update(active.id, { meContext: undefined })
+                          }
+                        }}
+                      />
+                      <SelfContextView ctx={active.meContext} />
+                    </>
+                  ) : (
+                    <BlankSlate
+                      title="No read on you yet"
+                      body="This is the half you control — how you're landing, what's working, and what your messages say about what you actually want."
+                      cta="Rebuild you"
+                      onRun={() => run('me')}
+                    />
+                  )
+                ) : suggestion ? (
+                  <>
+                    <Freshness
+                      at={suggestion.generatedAt}
+                      stale={isStale(active, suggestion.generatedAt)}
+                      label="Suggested"
+                      clearLabel="Delete this suggestion"
+                      onClear={() => {
+                        if (confirm("Delete this suggestion? This can't be undone.")) {
+                          const remaining = active.suggestions.filter((s) => s.id !== suggestion.id)
+                          update(active.id, { suggestions: remaining })
+                          setViewingSuggestion(remaining[0]?.id ?? null)
+                        }
+                      }}
+                    />
+                    {active.suggestions.length > 1 ? (
+                      <div className="mb-4 flex flex-wrap gap-1.5">
+                        {active.suggestions.map((s, i) => (
+                          <button
+                            key={s.id}
+                            onClick={() => setViewingSuggestion(s.id)}
+                            className={cn(
+                              'rounded-full border px-2.5 py-0.5 text-[11px] transition',
+                              s.id === suggestion.id
+                                ? 'border-action-300 bg-action-soft text-action-700'
+                                : 'border-border text-fg-3 hover:text-fg',
+                            )}
+                          >
+                            {i === 0 ? 'latest' : ago(s.generatedAt)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <SuggestionView suggestion={suggestion} />
+                  </>
+                ) : (
+                  <BlankSlate
+                    title="Nothing suggested yet"
+                    body="You'll get two or three genuinely different options — with the actual text to send, why it works, and how to read what comes back."
+                    cta="What do I say?"
+                    onRun={() => run('next')}
+                  />
+                )}
+              </div>
+
+              <FeedbackThread
+                key={`${active.id}:${tab}`}
+                notes={active.feedback[tab]}
+                busy={!!busy}
+                placeholder={FEEDBACK_PLACEHOLDER[tab](active.name)}
+                onRemove={(i) =>
+                  update(active.id, {
+                    feedback: {
+                      ...active.feedback,
+                      [tab]: active.feedback[tab].filter((_, j) => j !== i),
+                    },
+                  })
+                }
+                onSend={(note) => run(tab, note)}
+              />
+            </aside>
+          </div>
+        </main>
+      )}
+
+      {active ? (
+        <ProfileModal
+          open={showProfile}
+          record={active}
+          onClose={() => setShowProfile(false)}
+          onSave={(patch) => update(active.id, patch)}
+          onDelete={() => remove(active.id)}
+        />
+      ) : null}
+
+      <SettingsModal
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        onSaved={() => setError(null)}
+      />
+    </div>
+  )
+}
+
+function Freshness({
+  at,
+  stale,
+  onClear,
+  label = 'Rebuilt',
+  clearLabel = 'Delete this rebuild',
+}: {
+  at: number
+  stale: boolean
+  onClear?: () => void
+  label?: string
+  clearLabel?: string
+}) {
+  return (
+    <div className="mb-4 flex items-center gap-2">
+      <Eyebrow>
+        {label} {ago(at)}
+      </Eyebrow>
+      <span className="h-px flex-1 bg-border" />
+      {stale ? <Chip tone="warn">conversation has moved on</Chip> : null}
+      {onClear ? (
+        <button
+          onClick={onClear}
+          className="rounded p-1 text-fg-3 transition hover:bg-no-soft hover:text-no-strong"
+          title={clearLabel}
+        >
+          <Trash2 size={12} />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function Thinking({
+  tab,
+  name,
+  activity,
+  thinking,
+}: {
+  tab: Tab
+  name: string
+  activity: string[]
+  thinking: ThinkingSummary | null
+}) {
+  const line =
+    tab === 'them'
+      ? `Reading everything ${name} has said…`
+      : tab === 'me'
+        ? 'Reading how you come across…'
+        : 'Working out what to do next…'
+
+  // Tool calls when there are any, otherwise the model's own reasoning headings.
+  // On the Anthropic backend both can arrive in one run — the summary has no
+  // headings, so it lands in `thought` below and research keeps the step list.
+  const steps = activity.length ? activity : (thinking?.titles ?? [])
+  const thought = thinking?.thoughts.length ? thinking.thoughts[thinking.thoughts.length - 1] : null
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-20 text-center">
+      <Spinner className="h-5 w-5 text-action" />
+      <p className="animate-breathe text-[13px] text-fg-3">{line}</p>
+      {steps.length ? (
+        <ul className="mt-1 max-w-[320px] space-y-1 text-left">
+          {steps.map((label, i) => (
+            <li
+              key={i}
+              className={cn(
+                'flex items-start gap-1.5 text-[11.5px] leading-relaxed',
+                i === steps.length - 1 ? 'text-fg-2' : 'text-fg-3 line-through decoration-neutral-300',
+              )}
+            >
+              <span className="mt-1 h-1 w-1 flex-none rounded-full bg-neutral-300" />
+              {label}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="max-w-[280px] text-[11.5px] leading-relaxed text-fg-3">
+          This one's a long think — it re-reads the whole transcript against the seed context.
+        </p>
+      )}
+      {thought ? (
+        // Clamped so a long summary can't push the page around while it streams.
+        <p className="line-clamp-4 max-w-[380px] whitespace-pre-line text-left text-[11px] italic leading-relaxed text-fg-3/80">
+          {thought}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function BlankSlate({
+  title,
+  body,
+  cta,
+  onRun,
+}: {
+  title: string
+  body: string
+  cta: string
+  onRun: () => void
+}) {
+  return (
+    <div className="py-14 text-center">
+      <h3 className="text-[14px] font-bold tracking-[-0.02em] text-fg">{title}</h3>
+      <p className="mx-auto mt-2 max-w-[300px] text-[12.5px] leading-relaxed text-fg-3">{body}</p>
+      <Button variant="accent" size="sm" className="mt-4" onClick={onRun}>
+        {cta}
+      </Button>
+    </div>
+  )
+}
+
+function Welcome({ onSettings }: { onSettings: () => void }) {
+  return (
+    <main className="relative flex flex-1 items-center justify-center px-6">
+      <div className="max-w-lg text-center">
+        <Logo size={34} className="mx-auto mb-4" />
+        <Eyebrow>Date Bro</Eyebrow>
+        <h1 className="display mt-3">Know where you stand.</h1>
+        <p className="mx-auto mt-4 max-w-md text-[14px] leading-relaxed text-fg-2">
+          Write down what you know about the person you're seeing, paste in your conversation, and
+          get an evidence-backed read on them, on you, and on what to do next. Everything stays in
+          this browser.
+        </p>
+        <p className="mx-auto mt-3 max-w-md text-[12.5px] leading-relaxed text-fg-3">
+          Add someone in the sidebar to start. First time here, point it at a model in{' '}
+          <button onClick={onSettings} className="font-semibold text-action-700 hover:underline">
+            Settings
+          </button>
+          .
+        </p>
+      </div>
+    </main>
+  )
+}

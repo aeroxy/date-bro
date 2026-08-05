@@ -1,0 +1,832 @@
+import { generateCookies, type CookieResult } from './cookie-generator';
+import { generateDeviceId } from './fingerprint';
+import type { ThinkingSummary } from '@/types/coach';
+
+const QWEN_ORIGIN = 'https://chat.qwen.ai';
+
+// Alibaba anti-bot ("tmd"/x5sec) punish + overload markers. When the
+// completions endpoint answers with one of these instead of an SSE stream, the
+// request was throttled — e.g.
+//   { "ret": ["FAIL_SYS_USER_VALIDATE", "RGV587_ERROR::SM::哎哟喂,被挤爆啦,请稍后重试"],
+//     "data": { "url": ".../_____tmd_____/punish?x5secdata=...&action=captcha" } }
+// ("哎哟喂,被挤爆啦,请稍后重试" = "we're overloaded, please retry later"). The
+// fix is to wait and resend the SAME chat_id — the rejected request never
+// reached the model, so there's no need to POST /chats/new again.
+const QWEN_RATE_LIMIT_RETRIES = 3;
+const QWEN_RATE_LIMIT_DELAY_MS = 30_000;
+
+function isQwenAntiBotChallenge(raw: string): boolean {
+  if (!raw) return false;
+  return /RGV587_ERROR|FAIL_SYS_USER_VALIDATE|_____tmd_____|x5secdata|被挤爆啦,请稍后重试/.test(raw);
+}
+
+// setTimeout that rejects (rather than resolving) when the caller aborts, so a
+// CANCEL_ANALYSIS during the 30s back-off tears the request down immediately.
+// The rejection message matches what sendQwenChat treats as an abort.
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('The user aborted a request.', 'AbortError'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(new DOMException('The user aborted a request.', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort);
+  });
+}
+
+// Format the local timezone offset as `GMT±HHMM` — the exact shape Qwen's
+// `timezone` header expects. `getTimezoneOffset()` returns minutes *behind*
+// UTC (positive west), so negate to get the conventional east-positive sign.
+function formatTimezone(): string {
+  const offset = -new Date().getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const abs = Math.abs(offset);
+  const hours = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mins = String(abs % 60).padStart(2, '0');
+  return `GMT${sign}${hours}${mins}`;
+}
+
+/**
+ * Gets a specific cookie value for chat.qwen.ai.
+ * Throws if the cookies API is unavailable — callers discriminate between
+ * "no such cookie" (null) and "API is broken" (throw) to decide whether to
+ * fall back to localStorage extraction.
+ */
+async function getCookie(name: string): Promise<string | null> {
+  if (typeof chrome === 'undefined' || !chrome.cookies) {
+    throw new Error('Chrome cookies API is not available');
+  }
+  const cookie = await chrome.cookies.get({
+    url: QWEN_ORIGIN,
+    name: name,
+  });
+  return cookie ? cookie.value : null;
+}
+
+/**
+ * Sets a specific cookie for chat.qwen.ai.
+ */
+async function setCookie(name: string, value: string): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.cookies) {
+    throw new Error('Chrome cookies API is not available');
+  }
+  await chrome.cookies.set({
+    url: QWEN_ORIGIN,
+    name: name,
+    value: value,
+    domain: 'chat.qwen.ai',
+    path: '/',
+    secure: true,
+    sameSite: 'lax',
+  });
+}
+
+/**
+ * Retrieves the active JWT token from cookies or localStorage
+ */
+export async function getQwenToken(): Promise<string | null> {
+  // 1. First, check the cookie jar (extremely direct). getCookie throws when
+  // the cookies API is unavailable — treat that as "no cookie" so the
+  // localStorage fallback still runs.
+  let token: string | null = null;
+  try {
+    token = await getCookie('token');
+  } catch (e) {
+    console.warn('[Qwen Service] Cookie lookup failed, falling back to localStorage:', e);
+  }
+  if (token) {
+    return token;
+  }
+
+  // 2. Fallback: Query active chat.qwen.ai tabs and run a script to extract from localStorage
+  try {
+    const tabs = await chrome.tabs.query({ url: `${QWEN_ORIGIN}/*`, discarded: false });
+    if (tabs.length > 0 && tabs[0].id !== undefined) {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: () => {
+          return localStorage.getItem('token');
+        },
+      });
+      if (results && results[0]?.result) {
+        token = results[0].result;
+        if (token) {
+          try {
+            await setCookie('token', token);
+          } catch (cookieErr) {
+            console.warn('[Qwen Service] Failed to persist token cookie, continuing with extracted token:', cookieErr);
+          }
+        }
+        return token;
+      }
+    }
+  } catch (e) {
+    console.error('[Qwen Service] Failed to extract token from localStorage:', e);
+  }
+
+  return null;
+}
+
+/**
+ * Retrieves the device ID Qwen's client-side JS stores in `chat.qwen.ai`
+ * localStorage. Using the real value (rather than fabricating our own) makes
+ * the extension's `ssxmod_itna` fingerprint correlate with Qwen's own cookies
+ * as one legitimate session from the server's perspective — two different
+ * device IDs from the same IP would be a bot signal.
+ *
+ * Resolution order:
+ *   1. Cached value from `chrome.storage.local` (`qwen_device_id`). The device
+ *      ID is stable per browser profile; `refreshQwenDeviceId()` invalidates
+ *      this cache before re-reading from the tab.
+ *   2. Read `qwen_chat_device_id` from an open, non-discarded `chat.qwen.ai`
+ *      tab's localStorage via `chrome.scripting.executeScript`.
+ *   3. Generate a fresh crypto-random UUID (matches the shape
+ *      `fingerprint.ts`'s `generateDeviceId` produces). **Last resort:**
+ *      this creates an identity that diverges from whatever Qwen's JS will
+ *      generate next time it initializes — a bot signal if both end up in
+ *      server logs from the same IP. Only reached when no cache and no tab.
+ *
+ * Whichever path succeeds (2 or 3) is persisted back to
+ * `chrome.storage.local` so subsequent calls hit the cache fast path.
+ */
+
+const DEVICE_STORAGE_KEY = 'qwen_device_id';
+
+// Serializes tab-injection reads so concurrent callers (e.g. a refresh from
+// the Settings UI racing against an analysis's `updateQwenCookies`) can't
+// slip between cache invalidation and the tab read, which would otherwise
+// cause a cache miss to fall through to the random-UUID generator.
+let deviceReadLock: Promise<unknown> | null = null;
+
+export async function getCachedQwenDeviceId(): Promise<string | null> {
+  try {
+    const stored = await chrome.storage.local.get(DEVICE_STORAGE_KEY);
+    if (typeof stored[DEVICE_STORAGE_KEY] === 'string') return stored[DEVICE_STORAGE_KEY] as string;
+  } catch {}
+  return null;
+}
+
+const QWEN_LS_KEY = 'qwen_chat_device_id';
+
+async function readDeviceIdFromTab(tabId: number): Promise<string | null> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (key: string) => {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return null;
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'string') return parsed;
+      } catch {}
+      return raw;
+    },
+    args: [QWEN_LS_KEY],
+  });
+  const raw = results?.[0]?.result;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  return raw;
+}
+
+export async function getQwenDeviceId(): Promise<string> {
+
+  // 1. Cached value from a prior call — fast path. The device ID is stable
+  //    per browser profile; refreshQwenDeviceId() invalidates this cache
+  //    explicitly before re-reading from the tab.
+  try {
+    const stored = await chrome.storage.local.get(DEVICE_STORAGE_KEY);
+    if (typeof stored[DEVICE_STORAGE_KEY] === 'string') return stored[DEVICE_STORAGE_KEY] as string;
+  } catch {
+    // chrome.storage unavailable — fall through to tab read.
+  }
+
+  // 2-3. Slow path (tab read / UUID fallback). Serialized via deviceReadLock
+  //    so concurrent callers can't slip between refreshQwenDeviceId's cache
+  //    invalidation and its subsequent tab read.
+  return acquireReadLock(() => readOrGenerateDeviceId());
+}
+
+// Holds the lock across a critical section. Used by getQwenDeviceId's slow
+// path and by refreshQwenDeviceId (which invalidates + reads as one
+// atomic action so no concurrent call can populate the cache with a
+// random fallback UUID between the two steps).
+async function acquireReadLock<T>(fn: () => Promise<T>): Promise<T> {
+  while (deviceReadLock) await deviceReadLock;
+  const p = fn();
+  deviceReadLock = p;
+  try {
+    return await p;
+  } finally {
+    deviceReadLock = null;
+  }
+}
+
+async function readOrGenerateDeviceId(): Promise<string> {
+  // Re-check cache under the lock — a concurrent first call may have
+  // populated it while we were queued.
+  try {
+    const stored = await chrome.storage.local.get(DEVICE_STORAGE_KEY);
+    if (typeof stored[DEVICE_STORAGE_KEY] === 'string') return stored[DEVICE_STORAGE_KEY] as string;
+  } catch {}
+
+  // 2. Read the authoritative ID from an open chat.qwen.ai tab's localStorage.
+  try {
+    const tabs = await chrome.tabs.query({ url: `${QWEN_ORIGIN}/*`, discarded: false });
+    if (tabs.length > 0 && tabs[0].id !== undefined) {
+      const tabId = tabs[0].id;
+      const id = await readDeviceIdFromTab(tabId);
+      if (id) {
+        await chrome.storage.local.set({ [DEVICE_STORAGE_KEY]: id });
+        return id;
+      }
+      console.warn('[Qwen Service] Device ID key missing in open tab localStorage.');
+    }
+  } catch (e) {
+    console.warn('[Qwen Service] Failed to read device ID from tab localStorage:', e);
+  }
+
+  // 3. Fresh random UUID (last resort — diverges from Qwen's own JS).
+  const id = generateDeviceId();
+  try {
+    await chrome.storage.local.set({ [DEVICE_STORAGE_KEY]: id });
+  } catch {}
+  return id;
+}
+
+/**
+ * Actively refresh the device ID by ensuring a live `chat.qwen.ai` tab is
+ * open, waiting for it to reach `complete` (so Qwen's client-side JS has
+ * initialized `qwen_chat_device_id`), invalidating the extension-storage
+ * cache, and re-reading from the tab's localStorage.
+ *
+ * Called by the Settings UI's Update button so "refresh" genuinely refreshes
+ * rather than re-reading whatever was previously cached.
+ */
+export async function refreshQwenDeviceId(): Promise<string> {
+  // 1. Find a live tab or create one.
+  let tabs = await chrome.tabs.query({ url: `${QWEN_ORIGIN}/*`, discarded: false });
+  let tabId: number | undefined = tabs[0]?.id;
+  if (tabId === undefined) {
+    const tab = await chrome.tabs.create({ url: QWEN_ORIGIN, active: false });
+    tabId = tab.id;
+  } else {
+    // Bring the existing tab to the foreground so the user sees the refresh.
+    try {
+      await chrome.tabs.update(tabId, { active: true });
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.windowId !== undefined) {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+    } catch {
+      // Non-fatal — the tab may still be usable for script injection.
+    }
+  }
+
+  // 2. Wait for the tab to settle. If it's already `complete`, give Qwen's
+  //    JS a brief grace period to write localStorage after DOMContentLoaded;
+  //    otherwise wait for the next `complete` transition.
+  if (tabId !== undefined) {
+    try {
+      const current = await chrome.tabs.get(tabId);
+      if (current.status === 'complete') {
+        await new Promise((r) => setTimeout(r, 1500));
+      } else {
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            chrome.tabs.onUpdated.removeListener(listener);
+            clearTimeout(timer);
+            resolve();
+          };
+          const listener = (id: number, info: chrome.tabs.TabChangeInfo) => {
+            if (id === tabId && info.status === 'complete') finish();
+          };
+          chrome.tabs.onUpdated.addListener(listener);
+          const timer = setTimeout(finish, 15000);
+        });
+      }
+    } catch {
+      // Fall through — readFromTab will still attempt the script injection.
+    }
+  }
+
+  // 3. Invalidate the cache + read fresh. Lock held across both so a
+  //    concurrent getQwenDeviceId can't populate the cache with a random
+  //    fallback UUID between the invalidation and the tab read.
+  return acquireReadLock(async () => {
+    try {
+      await chrome.storage.local.remove(DEVICE_STORAGE_KEY);
+    } catch {}
+    return readOrGenerateDeviceId();
+  });
+}
+
+/**
+ * Generates and updates fresh ssxmod_itna security cookies.
+ *
+ * The device ID is sourced from Qwen's own `qwen_chat_device_id` in
+ * `chat.qwen.ai` localStorage (see `getQwenDeviceId`) so the fingerprint we
+ * build correlates with Qwen's native cookies as one legitimate session.
+ * The hash fields inside the fingerprint still randomize per call; only the
+ * device ID stabilizes.
+ */
+export async function updateQwenCookies(): Promise<CookieResult> {
+  try {
+    console.log('[Qwen Service] Generating fresh security cookies...');
+    const deviceId = await getQwenDeviceId();
+    const result = generateCookies(null, { deviceId });
+    await setCookie('ssxmod_itna', result.ssxmod_itna);
+    await setCookie('ssxmod_itna2', result.ssxmod_itna2);
+    console.log('[Qwen Service] Security cookies updated successfully!');
+    return result;
+  } catch (e) {
+    console.error('[Qwen Service] Failed to update security cookies:', e);
+    throw e;
+  }
+}
+
+/**
+ * Creates a new chat session to generate a fresh chat_id
+ */
+export const QWEN_MODELS = ['qwen3.8-max-preview', 'qwen3.7-max', 'qwen3.7-plus'] as const;
+
+export type QwenModel = (typeof QWEN_MODELS)[number];
+
+export function normalizeQwenModel(input?: string | null): QwenModel {
+  return (QWEN_MODELS as readonly string[]).includes(input ?? '')
+    ? (input as QwenModel)
+    : QWEN_MODELS[0];
+}
+
+export async function createQwenSession(
+  token: string,
+  model: QwenModel = QWEN_MODELS[0],
+): Promise<string | null> {
+  try {
+    // Magic string 'New Chat' perfectly mirrors Qwen Studio's own native frontend
+    // behavior when creating a blank chat, ensuring our requests are indistinguishable
+    // from normal human user sessions on chat.qwen.ai.
+    const title = 'New Chat';
+    console.log('[Qwen Service] Creating fresh chat session...');
+    const response = await fetch(`${QWEN_ORIGIN}/api/v2/chats/new`, {
+      method: 'POST',
+      credentials: 'include',
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        'authorization': `Bearer ${token}`,
+        'content-type': 'application/json',
+        'source': 'web',
+        'version': '0.2.63',
+        'timezone': formatTimezone(),
+        'x-request-id': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        title,
+        models: [model],
+        chat_mode: 'local',
+        chat_type: 't2t',
+        timestamp: Date.now(),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Session creation failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data?.data?.id || null;
+  } catch (e) {
+    console.error('[Qwen Service] Session creation failed:', e);
+    return null;
+  }
+}
+
+export interface QwenMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+}
+
+/**
+ * A snapshot of the model's reasoning so far. Qwen sends these under
+ * `phase: 'thinking_summary'` because we ask for `thinking_format: 'summary'`,
+ * and each event repeats the whole history — so this is replace-state, not
+ * append. `thoughts[i]` is the paragraph belonging to `titles[i]`, though the
+ * thought for the newest title can lag a beat behind the title itself.
+ *
+ * The shape is shared with the Anthropic backend, which streams the same panel.
+ */
+export type QwenThinking = ThinkingSummary;
+
+/** Pulls `{ content: string[] }` out of a summary field, or null if absent. */
+function readSummaryList(field: unknown): string[] | null {
+  const content = (field as { content?: unknown } | undefined)?.content;
+  if (!Array.isArray(content)) return null;
+  return content.filter((entry): entry is string => typeof entry === 'string');
+}
+
+/**
+ * Converts standard ChatMessages into a single Qwen user message payload
+ * combining system instructions and history.
+ */
+function buildQwenMessagesPayload(messages: QwenMessage[], model: QwenModel = QWEN_MODELS[0]) {
+  const userFid = crypto.randomUUID();
+  const assistantFid = crypto.randomUUID();
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+
+  // Combine system prompts and chat history into one giant prompt
+  let combinedPrompt = '';
+  for (const msg of messages) {
+    const content = msg.content ?? '';
+    if (msg.role === 'system') {
+      combinedPrompt += `[System Instruction]\n${content}\n\n`;
+    } else if (msg.role === 'user') {
+      combinedPrompt += `User: ${content}\n\n`;
+    } else if (msg.role === 'assistant') {
+      combinedPrompt += `Assistant: ${content}\n\n`;
+    } else if (msg.role === 'tool') {
+      combinedPrompt += `[Tool Result]: ${content}\n\n`;
+    }
+  }
+
+  return {
+    fid: userFid,
+    parentId: null,
+    childrenIds: [assistantFid],
+    role: 'user',
+    content: combinedPrompt.trim(),
+    user_action: 'chat',
+    files: [],
+    timestamp: nowInSeconds,
+    models: [model],
+    chat_type: 't2t',
+    feature_config: {
+      thinking_enabled: true,
+      output_schema: 'phase',
+      research_mode: 'normal',
+      auto_thinking: false,
+      thinking_mode: 'Thinking',
+      thinking_format: 'summary',
+      auto_search: true, // Native search
+    },
+    extra: {
+      meta: {
+        subChatType: 't2t',
+      },
+    },
+    sub_chat_type: 't2t',
+  };
+}
+
+/**
+ * Sends a non-streaming chat completions request to Qwen using local fetch with spoofed Origin/Referer.
+ * Resolves to the final accumulated string (excluding thinking/search output).
+ */
+export async function sendQwenChat(
+  messages: QwenMessage[],
+  signal?: AbortSignal,
+  model: QwenModel = QWEN_MODELS[0],
+  onThinking?: (thinking: QwenThinking) => void,
+): Promise<string> {
+  if (signal?.aborted) {
+    return Promise.reject(new DOMException('The user aborted a request.', 'AbortError'));
+  }
+  return new Promise((resolve, reject) => {
+    let fullContent = '';
+    const onAbort = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      reject(new DOMException('The user aborted a request.', 'AbortError'));
+    };
+    if (signal) signal.addEventListener('abort', onAbort);
+    sendQwenChatStream(
+      messages,
+      (text) => { fullContent += text; },
+      () => {
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve(fullContent);
+      },
+      (err) => {
+        if (signal) signal.removeEventListener('abort', onAbort);
+        if (signal?.aborted || err === 'The user aborted a request.' || err === 'Request aborted') {
+          reject(new DOMException('The user aborted a request.', 'AbortError'));
+        } else {
+          reject(new Error(err));
+        }
+      },
+      signal,
+      model,
+      onThinking,
+    );
+  });
+}
+
+/**
+ * Sends a streaming chat completions request to Qwen using local fetch with spoofed Origin/Referer
+ */
+export async function sendQwenChatStream(
+  messages: QwenMessage[],
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (err: string) => void,
+  signal?: AbortSignal,
+  model: QwenModel = QWEN_MODELS[0],
+  onThinking?: (thinking: QwenThinking) => void,
+): Promise<void> {
+  model = normalizeQwenModel(model);
+  let keepAliveInterval: ReturnType<typeof setInterval> | undefined;
+
+  try {
+    keepAliveInterval = setInterval(() => {
+      try {
+        chrome.runtime.sendMessage({ type: 'QWEN_PING' }).catch(() => {});
+      } catch {}
+    }, 10000); // 10s keep-alive ping
+  } catch {}
+
+  const cleanupHeartbeat = () => {
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = undefined;
+    }
+  };
+
+  // Only one of wrappedOnDone / wrappedOnError may fire per stream. Idle
+  // watchdog and reader-cancel race: cancelling the reader resolves
+  // reader.read() with { done: true }, which the loop would interpret as a
+  // normal end-of-stream and call wrappedOnDone right after wrappedOnError.
+  let streamEnded = false;
+
+  const wrappedOnDone = () => {
+    if (streamEnded) return;
+    streamEnded = true;
+    cleanupHeartbeat();
+    onDone();
+  };
+
+  const wrappedOnError = (err: string) => {
+    if (streamEnded) return;
+    streamEnded = true;
+    cleanupHeartbeat();
+    onError(err);
+  };
+
+  if (signal && signal.aborted) {
+    cleanupHeartbeat();
+    onError('The user aborted a request.');
+    return;
+  }
+
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = undefined;
+    }
+  };
+
+  try {
+    // 1. Refresh security cookies
+    await updateQwenCookies();
+
+    // 2. Retrieve active token
+    const token = await getQwenToken();
+    if (!token) {
+      wrappedOnError('Authentication token not found. Please log in to chat.qwen.ai first!');
+      return;
+    }
+
+    // 3. Create active session ONCE. On an anti-bot/overload retry we reuse
+    //    this same chat_id — the throttled request never reached the model, so
+    //    the chat is still empty and there's no need to POST /chats/new again.
+    const chatId = await createQwenSession(token, model);
+    if (!chatId) {
+      wrappedOnError('Failed to initialize a Qwen chat session.');
+      return;
+    }
+
+    // One attempt at the completions stream. Returns a discriminated result so
+    // the retry loop can tell an anti-bot/overload throttle apart from a real
+    // error or a clean finish. Content deltas are forwarded to onChunk as they
+    // arrive; the anti-bot "punish" response carries no deltas, so a retry
+    // never double-emits.
+    type AttemptResult = { kind: 'done' } | { kind: 'rate_limited' } | { kind: 'error'; message: string };
+
+    const runCompletionAttempt = async (): Promise<AttemptResult> => {
+      // Build exact Qwen v2.1 Payload aligned with recent Qwen2API commits.
+      // Rebuilt per attempt so the timestamp/x-request-id stay current.
+      const nowInSeconds = Math.floor(Date.now() / 1000);
+      const payload = {
+        stream: true,
+        version: '2.1',
+        incremental_output: true,
+        chat_id: chatId,
+        chat_mode: 'normal',
+        model,
+        parent_id: null,
+        messages: [buildQwenMessagesPayload(messages, model)],
+        timestamp: nowInSeconds,
+      };
+
+      // Send same-origin-spoofed completions request from extension background
+      console.log('[Qwen Service] Initiating completions stream fetch...');
+      const response = await fetch(`${QWEN_ORIGIN}/api/v2/chat/completions?chat_id=${chatId}`, {
+        method: 'POST',
+        credentials: 'include', // Ensure cookies are sent
+        signal, // Thread the abort signal through
+        headers: {
+          'accept': 'text/event-stream',
+          'content-type': 'application/json',
+          'source': 'web',
+          'token': token,
+          'bx-v': '2.5.36',
+          'version': '0.2.63',
+          'timezone': formatTimezone(),
+          'x-request-id': crypto.randomUUID(),
+          'x-accel-buffering': 'no',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        if (isQwenAntiBotChallenge(errorText)) return { kind: 'rate_limited' };
+        return { kind: 'error', message: `Request failed with status ${response.status}: ${errorText}` };
+      }
+
+      if (!response.body) {
+        return { kind: 'error', message: 'No streaming body received from Qwen.' };
+      }
+
+      // Decode stream chunks in real-time
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let emittedAny = false;
+      let idleTimedOut = false;
+      // First bytes of the body, captured only until real content streams. The
+      // anti-bot punish arrives as a non-SSE JSON body with no `data:` lines, so
+      // it never reaches onChunk — we sniff it from the head instead.
+      let rawHead = '';
+      const RAW_HEAD_CAP = 8192;
+
+      // Reasoning arrives on the same stream as the answer, tagged by `phase`
+      // (we request `output_schema: 'phase'`). It goes to onThinking and never
+      // to onChunk — the caller's accumulated string must stay answer-only.
+      const handleDelta = (delta: Record<string, unknown> | undefined) => {
+        if (!delta) return;
+        const phase = typeof delta.phase === 'string' ? delta.phase : undefined;
+        if (phase === 'thinking_summary' || phase === 'think') {
+          if (!onThinking) return;
+          const extra = delta.extra as Record<string, unknown> | undefined;
+          const titles = readSummaryList(extra?.summary_title);
+          const thoughts = readSummaryList(extra?.summary_thought);
+          if (titles || thoughts) onThinking({ titles: titles ?? [], thoughts: thoughts ?? [] });
+          return;
+        }
+        if (typeof delta.content === 'string' && delta.content) {
+          emittedAny = true;
+          onChunk(delta.content);
+        }
+      };
+
+      // Idle watchdog — if no data arrives within this window, treat as stall
+      // and tear the stream down (the 10s QWEN_PING keep-alive does not
+      // protect the reader itself).
+      const IDLE_TIMEOUT_MS = 60_000;
+      const resetIdleTimer = () => {
+        clearIdleTimer();
+        idleTimer = setTimeout(() => {
+          idleTimedOut = true;
+          reader.cancel().catch(() => {});
+        }, IDLE_TIMEOUT_MS);
+      };
+      resetIdleTimer();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        resetIdleTimer();
+
+        let decoded = '';
+        if (value) {
+          decoded = decoder.decode(value, { stream: true });
+          buffer += decoded;
+        }
+        if (!emittedAny && rawHead.length < RAW_HEAD_CAP) rawHead += decoded;
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+          const dataStr = trimmed.slice(6);
+          if (dataStr === '[DONE]') {
+            clearIdleTimer();
+            reader.cancel().catch(() => {});
+            return { kind: 'done' };
+          }
+
+          try {
+            const chunkPayload = JSON.parse(dataStr);
+            if (chunkPayload.error) {
+              clearIdleTimer();
+              reader.cancel().catch(() => {});
+              const message =
+                typeof chunkPayload.error.message === 'string'
+                  ? chunkPayload.error.message
+                  : JSON.stringify(chunkPayload.error);
+              return (isQwenAntiBotChallenge(message) && !emittedAny) ? { kind: 'rate_limited' } : { kind: 'error', message };
+            }
+            handleDelta(chunkPayload.choices?.[0]?.delta);
+          } catch {
+            // Ignore parsing errors
+          }
+        }
+      }
+
+      clearIdleTimer();
+
+      if (idleTimedOut) {
+        return { kind: 'error', message: 'Stream idle timeout: no data received for 60s' };
+      }
+
+      // Flush decoder + leftover buffer. No-op for well-formed streams that
+      // ended on a `data: [DONE]\n` boundary (which the loop above handled).
+      buffer += decoder.decode();
+      const leftover = buffer.trim();
+      if (!emittedAny && leftover && rawHead.length < RAW_HEAD_CAP) rawHead += leftover;
+      if (leftover && leftover.startsWith('data: ')) {
+        const dataStr = leftover.slice(6);
+        if (dataStr !== '[DONE]') {
+          try {
+            const chunkPayload = JSON.parse(dataStr);
+            if (chunkPayload.error) {
+              const message =
+                typeof chunkPayload.error.message === 'string'
+                  ? chunkPayload.error.message
+                  : JSON.stringify(chunkPayload.error);
+              return (isQwenAntiBotChallenge(message) && !emittedAny) ? { kind: 'rate_limited' } : { kind: 'error', message };
+            }
+            handleDelta(chunkPayload?.choices?.[0]?.delta);
+          } catch {
+            // Ignore — truncated final event.
+          }
+        }
+      }
+
+      // A 200 response whose body was the anti-bot/overload JSON ("被挤爆啦,
+      // 请稍后重试") yields no content deltas — detect it from the sniffed head.
+      if (!emittedAny && isQwenAntiBotChallenge(rawHead)) return { kind: 'rate_limited' };
+
+      return { kind: 'done' };
+    };
+
+    // Retry the SAME chat_id up to QWEN_RATE_LIMIT_RETRIES times, 30s apart,
+    // when Qwen answers with its anti-bot/overload throttle.
+    for (let attempt = 0; attempt <= QWEN_RATE_LIMIT_RETRIES; attempt++) {
+      if (attempt > 0) {
+        // Regenerate fresh ssxmod_itna fingerprint cookies (new timestamp)
+        // before re-sending — the chat_id is reused, only the cookies refresh.
+        await updateQwenCookies();
+      }
+
+      const result = await runCompletionAttempt();
+
+      if (result.kind === 'done') {
+        wrappedOnDone();
+        return;
+      }
+
+      if (result.kind === 'rate_limited' && attempt < QWEN_RATE_LIMIT_RETRIES) {
+        console.warn(
+          `[Qwen Service] Anti-bot/overload response — retrying in ${
+            QWEN_RATE_LIMIT_DELAY_MS / 1000
+          }s (attempt ${attempt + 1}/${QWEN_RATE_LIMIT_RETRIES})`
+        );
+        await abortableDelay(QWEN_RATE_LIMIT_DELAY_MS, signal);
+        continue;
+      }
+
+      wrappedOnError(
+        result.kind === 'rate_limited'
+          ? 'Qwen is overloaded or rate-limiting requests (anti-bot challenge). Please try again later.'
+          : result.message
+      );
+      return;
+    }
+  } catch (e) {
+    clearIdleTimer();
+    console.error('[Qwen Service] Exception in streaming execution:', e);
+    wrappedOnError(e instanceof Error ? e.message : String(e));
+  }
+}
