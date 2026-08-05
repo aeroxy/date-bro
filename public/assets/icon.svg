@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Date Bro toolbar icon — a quotation mark, one comma per voice.
+    Tiled in brand terracotta because Chrome has no theme-aware manifest icons:
+    the field has to clear both the light (#dee1e6) and dark (#292a2d) toolbar.
+    Source of truth for the PNG exports in this folder. Bare (untiled) two-tone
+    version for in-app use lives in src/components/ui/Logo.tsx.
+  -->
+  <rect width="64" height="64" rx="14" fill="#d85a30"/>
+  <!-- Gap between the commas is 6.8 units ≈ 1.7 px at 16, so they stay two shapes there. -->
+  <g transform="translate(17.8 28.5) scale(1.03)" fill="#fcfcf9">
+    <circle r="10.5"/>
+    <path d="M-9.2 5C-9.6 10-8.4 14.6-6 18.4-2 14 1 11 3.6 7Z"/>
+  </g>
+  <g transform="translate(46.2 28.5) scale(1.03)" fill="#0b0b0b">
+    <circle r="10.5"/>
+    <path d="M-9.2 5C-9.6 10-8.4 14.6-6 18.4-2 14 1 11 3.6 7Z"/>
+  </g>
+</svg>
