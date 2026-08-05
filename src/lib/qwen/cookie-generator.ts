@@ -1,4 +1,4 @@
-import { generateFingerprint, generateDeviceId, generateHash as randomHash, type FingerprintOptions } from './fingerprint';
+import { generateFingerprint, generateHash as randomHash, type FingerprintOptions } from './fingerprint';
 
 export interface CookieResult {
     ssxmod_itna: string;
@@ -343,22 +343,8 @@ function generateCookies(realData: string | null = null, fingerprintOptions: Fin
     };
 }
 
-function generateBatch(count: number = 10, realData: string | null = null, fingerprintOptions: FingerprintOptions = {}): CookieResult[] {
-    const results: CookieResult[] = [];
-    for (let i = 0; i < count; i++) {
-        results.push(generateCookies(realData, fingerprintOptions));
-    }
-    return results;
-}
-
 // ==================== Exports ====================
 
-export {
-    generateCookies,
-    generateBatch,
-    customEncode,
-    randomHash,
-    generateDeviceId,
-    parseRealData,
-    generateFingerprint
-};
+// `generateCookies` is the whole public surface — `qwen-service.ts` is the only
+// consumer, and everything above is machinery it doesn't need to see.
+export { generateCookies };

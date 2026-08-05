@@ -43,5 +43,5 @@ do next. All input is manual — there is no scraping, no site integration, no c
 - **No Chrome built-in AI.** Gemini Nano can't hold a transcript plus a knowledge base and return
   structured judgement. Deliberately omitted rather than offered and broken.
 - **Everything is local.** Nothing leaves the browser except the model call the user triggers.
-- **The knowledge base is versioned as prose.** `docs/dating-research.md` is the source;
-  `src/coach/knowledge.ts` is its condensed prompt-injected form. Edit the doc first.
+- **The knowledge base is versioned as prose.** `src/coach/knowledge.ts` is the source of record —
+  what you read there is verbatim what the model is told. No separate research document.

@@ -128,7 +128,9 @@ export async function runAgent(
   messages: ChatMessage[],
   options: AgentOptions,
 ): Promise<{ content: string; messages: ChatMessage[] }> {
-  const { tools, executeTool, signal, onToolCall, onThinking, maxIterations = MAX_AGENT_ITERATIONS, jsonSchema, verdictName } = options
+  // `exec`, not `executeTool` — that name is the module-level default export
+  // just above, and shadowing it here reads as a recursive call.
+  const { tools, executeTool: exec, signal, onToolCall, onThinking, maxIterations = MAX_AGENT_ITERATIONS, jsonSchema, verdictName } = options
   const working: ChatMessage[] = [...messages]
 
   const hasVerdict = !!verdictName && tools.some((t) => t.function.name === verdictName)
@@ -176,7 +178,7 @@ export async function runAgent(
         onToolCall?.(call)
         let result: string
         try {
-          result = await executeTool(call, signal)
+          result = await exec(call, signal)
         } catch (e) {
           result = `Error: ${e instanceof Error ? e.message : String(e)}`
         }

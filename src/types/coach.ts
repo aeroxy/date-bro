@@ -35,8 +35,20 @@ export interface Flag {
   evidence: string
 }
 
+/**
+ * The record's `turnsUpdatedAt` at the moment this read was built — i.e. the
+ * transcript the model actually saw. `isStale` compares the record's current
+ * value against it, so a read goes stale exactly when a turn is added or
+ * edited (including mid-run) and never merely because something else was
+ * written. Optional: records stored before the field existed read back without
+ * it, and `isStale` treats a missing value as "nothing to compare".
+ */
+interface TurnBasis {
+  turnsAt?: number
+}
+
 /** Output of "rebuild their context". */
-export interface PersonContext {
+export interface PersonContext extends TurnBasis {
   generatedAt: number
   headline: string
   who_they_are: Claim[]
@@ -65,7 +77,7 @@ export interface PersonContext {
 }
 
 /** Output of "rebuild my context". */
-export interface SelfContext {
+export interface SelfContext extends TurnBasis {
   generatedAt: number
   headline: string
   how_you_come_across: Claim[]
@@ -101,7 +113,7 @@ export interface SuggestionOption {
 }
 
 /** Output of "what should I say or do". */
-export interface Suggestion {
+export interface Suggestion extends TurnBasis {
   id: string
   generatedAt: number
   /** Optional situation the user typed in alongside the request. */

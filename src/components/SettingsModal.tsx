@@ -46,7 +46,11 @@ export function SettingsModal({
   const [profiles, setProfiles] = useState<LLMProfile[]>([])
   const [activeId, setActive] = useState<string>('')
   const [customPrompt, setCustomPrompt] = useState('')
-  const [deviceStatus, setDeviceStatus] = useState<'idle' | 'working' | string>('idle')
+  // A bare `'idle' | 'working' | string` collapses to `string`, which stops the
+  // compiler from checking the sentinels the render below switches on.
+  const [deviceStatus, setDeviceStatus] = useState<
+    { state: 'idle' } | { state: 'working' } | { state: 'done'; message: string }
+  >({ state: 'idle' })
 
   useEffect(() => {
     if (!open) return
@@ -93,12 +97,12 @@ export function SettingsModal({
   }
 
   const refreshDevice = async () => {
-    setDeviceStatus('working')
+    setDeviceStatus({ state: 'working' })
     try {
       const id = await refreshQwenDeviceId()
-      setDeviceStatus(`Device ID: ${id.slice(0, 12)}…`)
+      setDeviceStatus({ state: 'done', message: `Device ID: ${id.slice(0, 12)}…` })
     } catch (e) {
-      setDeviceStatus((e as Error).message)
+      setDeviceStatus({ state: 'done', message: (e as Error).message })
     }
   }
 
@@ -206,12 +210,12 @@ export function SettingsModal({
                   />
                 </Field>
                 <Button variant="secondary" size="sm" onClick={refreshDevice}>
-                  {deviceStatus === 'working' ? <Spinner /> : <RefreshCw size={13} />}
+                  {deviceStatus.state === 'working' ? <Spinner /> : <RefreshCw size={13} />}
                   Refresh device ID
                 </Button>
               </div>
-              {deviceStatus !== 'idle' && deviceStatus !== 'working' ? (
-                <p className="font-mono text-[11px] text-fg-3">{deviceStatus}</p>
+              {deviceStatus.state === 'done' ? (
+                <p className="font-mono text-[11px] text-fg-3">{deviceStatus.message}</p>
               ) : null}
             </div>
           ) : (
@@ -279,10 +283,13 @@ export function SettingsModal({
                 />
                 <span className="text-[12.5px] leading-relaxed text-fg-2">
                   <span className="font-semibold text-fg">Web research</span> — lets "What do I
-                  say?" search the web and read pages for date ideas, venues, and general facts. It
-                  is scoped to never search for the specific person you're dating. Turn off for
-                  local servers that don't support function-calling (small models, llama.cpp, older
-                  Ollama).
+                  say?" search the web and read pages. Two lanes only: date logistics (venues,
+                  hours, etiquette), and checking one specific thing they've told you, for your own
+                  safety — whether their stated job checks out, whether their photos turn up
+                  elsewhere. That kind of check does use their name. What it won't do is look them
+                  up in general, go through their social media, or track where they are. Turn off
+                  for local servers that don't support function-calling (small models, llama.cpp,
+                  older Ollama).
                 </span>
               </label>
               <label className="flex cursor-pointer items-start gap-2.5">

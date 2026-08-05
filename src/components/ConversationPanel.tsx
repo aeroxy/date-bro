@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ClipboardPaste, Pencil, Phone, Trash2, Users } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
@@ -390,7 +390,11 @@ function ImportModal({
   onImport: (turns: Turn[], mode: 'append' | 'replace') => void
 }) {
   const [raw, setRaw] = useState('')
-  const parsed = raw.trim() ? parsePastedLog(raw, record.name) : []
+  // Memoised: this runs on every keystroke, and a pasted thread can be long.
+  const parsed = useMemo(
+    () => (raw.trim() ? parsePastedLog(raw, record.name) : []),
+    [raw, record.name],
+  )
 
   return (
     <Modal

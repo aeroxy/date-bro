@@ -161,49 +161,6 @@ function generateFingerprint(options: FingerprintOptions = {}): string {
     return fields.join('^');
 }
 
-function generateFingerprintBatch(count: number, options: FingerprintOptions = {}): string[] {
-    return Array.from({ length: count }, () => generateFingerprint(options));
-}
-
-interface ParsedFingerprint {
-  deviceId: string;
-  sdkVersion: string;
-  initTimestamp: string;
-  language: string;
-  timezoneOffset: string;
-  platform: string;
-  webglRenderer: string;
-  mode: string;
-  vendor: string;
-  timestamp: string;
-  raw: string[];
-}
-
-function parseFingerprint(fingerprint: string): ParsedFingerprint {
-    const fields = fingerprint.split('^');
-    return {
-        deviceId: fields[0],
-        sdkVersion: fields[1],
-        initTimestamp: fields[2],
-        language: fields[5],
-        timezoneOffset: fields[6],
-        platform: fields[10],
-        webglRenderer: fields[12],
-        mode: fields[23],
-        vendor: fields[28],
-        timestamp: fields[33],
-        raw: fields
-    };
-}
-
-export {
-    generateFingerprint,
-    generateFingerprintBatch,
-    parseFingerprint,
-    generateDeviceId,
-    generateHash,
-    DEFAULT_TEMPLATE,
-    SCREEN_PRESETS,
-    PLATFORM_PRESETS,
-    LANGUAGE_PRESETS
-};
+// Only what `cookie-generator.ts` and `qwen-service.ts` actually consume. The
+// preset tables and the template stay module-local.
+export { generateFingerprint, generateDeviceId, generateHash };

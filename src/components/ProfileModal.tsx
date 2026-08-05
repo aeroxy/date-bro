@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 
 import { Button } from './ui/Button'
@@ -26,12 +26,19 @@ export function ProfileModal({
   onDelete: () => void
 }) {
   const [draft, setDraft] = useState(record)
+  // What `researchNotes` looked like when this modal opened. "What do I say?"
+  // writes to the same field while the modal can be open, so on save we need to
+  // tell "the user left it alone" apart from "the user edited it" — see `save`.
+  const seededNotes = useRef(record.researchNotes)
 
   // Seeded on open only. `record` is replaced wholesale whenever a background
   // rebuild lands, and re-seeding on that would wipe whatever the user is
   // part-way through typing.
   useEffect(() => {
-    if (open) setDraft(record)
+    if (open) {
+      setDraft(record)
+      seededNotes.current = record.researchNotes
+    }
   }, [open])
 
   const set = <K extends keyof DateRecord>(key: K, value: DateRecord[K]) =>
@@ -40,6 +47,7 @@ export function ProfileModal({
     setDraft((d) => ({ ...d, meta: { ...d.meta, [key]: value } }))
 
   const save = () => {
+    const notes = draft.researchNotes ?? ''
     onSave({
       name: draft.name.trim() || 'Untitled',
       stage: draft.stage,
@@ -47,7 +55,10 @@ export function ProfileModal({
       seedThem: draft.seedThem,
       seedMe: draft.seedMe,
       goal: draft.goal,
-      researchNotes: draft.researchNotes ?? '',
+      // Omitted when untouched, so saving the profile can't roll back notes a
+      // run merged in while this was open. An actual edit still wins — that's
+      // the user overruling the model on purpose.
+      ...(notes === seededNotes.current ? {} : { researchNotes: notes }),
     })
     onClose()
   }

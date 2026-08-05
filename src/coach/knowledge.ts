@@ -1,8 +1,10 @@
 /**
- * The coach's knowledge base — a token-budgeted rendering of
- * `docs/dating-research.md`. That file carries the citations, the caveats, and
- * the reasoning for what's in and what's out; this one is what actually goes
- * into a prompt.
+ * The coach's knowledge base, and the source of record for it — there is no
+ * separate research document. Everything here is token-budgeted prose that goes
+ * verbatim into a prompt, so it reads as instructions rather than as a survey:
+ * findings are stated as the rule they imply, and the things deliberately left
+ * out (MBTI, love languages as a typology, misattribution-of-arousal, Gottman's
+ * prediction percentages) are absent rather than argued with.
  *
  * Split into modules so each engine only pays for what it uses:
  *   KB_ETHICS    — every call

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { AlertCircle, Heart, RotateCw, Settings, Sparkles, Trash2, User, UserRound } from 'lucide-react'
+import { AlertCircle, Heart, RotateCw, Settings, Sparkles, Square, Trash2, User, UserRound } from 'lucide-react'
 
 import { ConversationPanel } from '@/components/ConversationPanel'
 import { PersonContextView, SelfContextView } from '@/components/ContextView'
@@ -40,10 +40,15 @@ const FEEDBACK_PLACEHOLDER: Record<Tab, (name: string) => string> = {
   next: () => 'e.g. stop suggesting bars, and drop the "just checking in" opener',
 }
 
-/** A rebuild is stale the moment a turn is added after it. */
-function isStale(record: DateRecord, generatedAt?: number): boolean {
-  if (!generatedAt) return false
-  return record.updatedAt > generatedAt + 1000
+/**
+ * A read is stale the moment the transcript moves under it — and only then.
+ * Both sides of the comparison are `turnsUpdatedAt` values, so rebuilding the
+ * other tab, editing the profile, or leaving a note doesn't count, and a turn
+ * added *while* the run was in flight does.
+ */
+function isStale(record: DateRecord, basis?: number): boolean {
+  if (basis === undefined) return false
+  return record.turnsUpdatedAt > basis
 }
 
 export default function App() {
@@ -59,17 +64,21 @@ export default function App() {
   const [activity, setActivity] = useState<string[]>([])
   const [thinking, setThinking] = useState<ThinkingSummary | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  // The real mutex. `busy` drives the UI, but it only lands on the next render,
+  // so two calls in one tick (a fast double-click, Enter held down) would both
+  // read it as null and start. A ref is set synchronously.
+  const runningRef = useRef(false)
 
   const run = useCallback(
     async (which: Tab, note?: string) => {
-      if (!active || busy) return
+      if (!active || runningRef.current) return
+      runningRef.current = true
       const id = active.id
       setTab(which)
       setBusy({ id, tab: which })
       setError(null)
       setActivity([])
       setThinking(null)
-      abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
 
@@ -81,9 +90,11 @@ export default function App() {
         // error. Inside the try because a failed write here still has to clear
         // `busy`, or every button stays disabled for good.
         if (note?.trim()) {
-          const feedback = { ...active.feedback, [which]: [...active.feedback[which], note.trim()] }
-          record = { ...active, feedback }
-          await update(id, { feedback })
+          const trimmed = note.trim()
+          const written = await update(id, (current) => ({
+            feedback: { ...current.feedback, [which]: [...current.feedback[which], trimmed] },
+          }))
+          if (written) record = written
         }
 
         if (which === 'them') {
@@ -100,10 +111,13 @@ export default function App() {
             (label) => setActivity((prev) => [...prev, label]),
             setThinking,
           )
-          await update(id, {
-            suggestions: [suggestion, ...record.suggestions].slice(0, 20),
-            researchNotes: mergeResearchNotes(record.researchNotes ?? '', suggestion.research_notes),
-          })
+          // Against `current`, not the snapshot this run started from: the user
+          // can edit the research notes or delete a suggestion while the model
+          // is thinking, and a snapshot-derived patch would undo them.
+          await update(id, (current) => ({
+            suggestions: [suggestion, ...current.suggestions].slice(0, 20),
+            researchNotes: mergeResearchNotes(current.researchNotes, suggestion.research_notes),
+          }))
           setViewingSuggestion(suggestion.id)
           setSituation('')
         }
@@ -112,11 +126,16 @@ export default function App() {
           setError({ id, tab: which, message: (e as Error).message })
         }
       } finally {
+        runningRef.current = false
+        abortRef.current = null
         setBusy(null)
       }
     },
-    [active, busy, situation, update],
+    [active, situation, update],
   )
+
+  /** Tear down the in-flight run. `run`'s catch swallows the AbortError. */
+  const stop = useCallback(() => abortRef.current?.abort(), [])
 
   if (!loaded) {
     return (
@@ -240,14 +259,29 @@ export default function App() {
                   </button>
                 ))}
                 <span className="flex-1" />
-                <button
-                  onClick={() => run(tab)}
-                  disabled={!!busy}
-                  className="rounded-md p-1.5 text-fg-3 transition hover:bg-surface-muted hover:text-action disabled:opacity-40"
-                  title="Run again"
-                >
-                  {busyTab === tab ? <Spinner /> : <RotateCw size={13} />}
-                </button>
+                {/* Becomes the only way out of a long run — a Qwen anti-bot
+                    back-off is three 30s waits, and every other control is
+                    disabled while one is in flight. */}
+                {busyTab === tab ? (
+                  <button
+                    onClick={stop}
+                    className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] font-semibold text-fg-3 transition hover:bg-no-soft hover:text-no-strong"
+                    title="Stop this run"
+                  >
+                    <Spinner className="group-hover:hidden" />
+                    <Square size={11} className="hidden fill-current group-hover:block" />
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => run(tab)}
+                    disabled={!!busy}
+                    className="rounded-md p-1.5 text-fg-3 transition hover:bg-surface-muted hover:text-action disabled:opacity-40"
+                    title="Run again"
+                  >
+                    <RotateCw size={13} />
+                  </button>
+                )}
               </div>
 
               <div className="scroll-slim min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -269,6 +303,7 @@ export default function App() {
                     <Eyebrow className="mb-1.5 block">Anything specific right now?</Eyebrow>
                     <Input
                       value={situation}
+                      disabled={!!busy}
                       onChange={(e) => setSituation(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') run('next')
@@ -285,7 +320,7 @@ export default function App() {
                     <>
                       <Freshness
                         at={active.themContext.generatedAt}
-                        stale={isStale(active, active.themContext.generatedAt)}
+                        stale={isStale(active, active.themContext.turnsAt)}
                         onClear={() => {
                           if (confirm(`Delete this read on ${active.name}? You can rebuild it any time.`)) {
                             update(active.id, { themContext: undefined })
@@ -307,7 +342,7 @@ export default function App() {
                     <>
                       <Freshness
                         at={active.meContext.generatedAt}
-                        stale={isStale(active, active.meContext.generatedAt)}
+                        stale={isStale(active, active.meContext.turnsAt)}
                         onClear={() => {
                           if (confirm('Delete this read on you? You can rebuild it any time.')) {
                             update(active.id, { meContext: undefined })
@@ -328,7 +363,7 @@ export default function App() {
                   <>
                     <Freshness
                       at={suggestion.generatedAt}
-                      stale={isStale(active, suggestion.generatedAt)}
+                      stale={isStale(active, suggestion.turnsAt)}
                       label="Suggested"
                       clearLabel="Delete this suggestion"
                       onClear={() => {

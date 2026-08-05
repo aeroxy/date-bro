@@ -32,6 +32,10 @@ function normalize(record: DateRecord): DateRecord {
   return {
     ...record,
     researchNotes: record.researchNotes ?? '',
+    // 0, not `updatedAt`: a record written before turn tracking existed has no
+    // honest answer here, and 0 is the one that can't produce a false "the
+    // conversation has moved on" — it just waits for the next real turn edit.
+    turnsUpdatedAt: record.turnsUpdatedAt ?? 0,
     suggestions: record.suggestions ?? [],
     feedback: {
       them: record.feedback?.them ?? [],
@@ -44,11 +48,6 @@ function normalize(record: DateRecord): DateRecord {
 export async function listDates(): Promise<DateRecord[]> {
   const all = await (await db()).getAllFromIndex('dates', 'by-updated')
   return all.reverse().map(normalize)
-}
-
-export async function getDate(id: string): Promise<DateRecord | undefined> {
-  const record = await (await db()).get('dates', id)
-  return record ? normalize(record) : undefined
 }
 
 export async function saveDate(record: DateRecord): Promise<void> {

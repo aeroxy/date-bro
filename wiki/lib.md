@@ -135,7 +135,7 @@ agent loop intercepts the call and returns its arguments as the final JSON. Surv
 
 | Export | Purpose |
 |---|---|
-| `webSearch(query)` / `readPage(url)` (`tools/handlers.ts`) | Fetch (20s timeout) → `parseHtmlToMarkdown`. `web_search` hits DuckDuckGo's HTML endpoint and strips its redirect-wrapper hrefs down to the real URL; a bot-verification page opens a `chat.qwen.ai`-style challenge tab via `chrome.tabs` (available directly — the app page isn't a service worker, so no offscreen bridge is needed) and throws so the model knows to retry after the user clears it. |
+| `webSearch(query)` / `readPage(url)` (`tools/handlers.ts`) | Fetch (20s timeout, 4MB body cap) → `parseHtmlToMarkdown`. `web_search` hits DuckDuckGo's HTML endpoint and strips its redirect-wrapper hrefs down to the real URL; a bot-verification page opens a `chat.qwen.ai`-style challenge tab via `chrome.tabs` (available directly — the app page isn't a service worker, so no offscreen bridge is needed) and throws so the model knows to retry after the user clears it. |
 | `parseHtmlToMarkdown(html)` (`lib/html-to-markdown.ts`) | `htmlparser2` + `dom-serializer` + `turndown` — deliberately not the DOM's own `DOMParser`, so parsing arbitrary fetched HTML can't trigger a subresource load. Strips scripts/styles/nav/forms before converting. |
 | `createCachedExecutor()` | Wraps the executor with a per-run cache keyed by normalized query/URL, so the model re-searching the same thing across loop iterations hits one fetch, not several. |
 | `ALL_TOOLS` | `[WEB_SEARCH_TOOL, READ_PAGE_TOOL]` — both descriptions carry the same privacy scope note as the prompt (see below), so the model sees the boundary twice. |
@@ -149,8 +149,9 @@ it in a browser tab anyway. The line isn't whether a search includes their name 
 checks often do — it's specific-claim-verification versus fishing for an open-ended profile
 ("everything about \[name]", their social media, their whereabouts) or monitoring someone already
 trusted. That boundary is stated in three places on purpose: the tool descriptions themselves,
-`KB_RESEARCH` in `coach/knowledge.ts` (injected only when tools are actually attached), and item 9 of
-`docs/dating-research.md` §11.
+`KB_RESEARCH` in `coach/knowledge.ts` (injected only when tools are actually attached), and the
+"Web research" checkbox in `SettingsModal` — the last one matters most, because it's the only one
+the user reads, and it's read at the moment they turn the capability on.
 
 ## `research-notes.ts`
 
@@ -201,7 +202,10 @@ first run and repairs a dangling active id; `getActiveConfig()` is what `coach/r
 ## `db.ts`
 
 IndexedDB via `idb`. Database `date-bro` v1, one store `dates` keyed by `id` with a `by-updated`
-index. `listDates()` returns newest-first. `saveDate()` stamps `updatedAt` on write.
+index. `listDates()` returns newest-first. `saveDate()` stamps `updatedAt` on write. `normalize()`
+runs on every read instead of a migration step, filling fields that post-date a stored record —
+including `turnsUpdatedAt`, which defaults to `0` rather than `updatedAt` because 0 is the value that
+can't produce a false staleness chip.
 
 ## `transcript.ts`
 
