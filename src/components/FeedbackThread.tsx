@@ -43,6 +43,7 @@ export function FeedbackThread({
         <div className="mb-2.5">
           <button
             onClick={() => setOpen(!open)}
+            aria-expanded={open}
             className="flex w-full items-center gap-2 text-left"
             title={open ? 'Hide your notes' : 'Show your notes'}
           >
@@ -64,9 +65,11 @@ export function FeedbackThread({
                 >
                   <span className="mt-1.5 h-1 w-1 flex-none rounded-full bg-neutral-300" />
                   <span className="min-w-0 flex-1 break-words">{note}</span>
+                  {/* Hidden until hover, so it also has to appear on keyboard focus. */}
                   <button
                     onClick={() => onRemove(i)}
-                    className="mt-0.5 flex-none rounded p-0.5 text-fg-3 opacity-0 transition hover:text-no-strong group-hover:opacity-100"
+                    aria-label={`Drop note ${i + 1}`}
+                    className="mt-0.5 flex-none rounded p-0.5 text-fg-3 opacity-0 transition hover:text-no-strong focus-visible:opacity-100 group-hover:opacity-100"
                     title="Drop this note"
                   >
                     <X size={11} />

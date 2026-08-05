@@ -143,7 +143,9 @@ not as fact — if the newer turns contradict it, the transcript wins.`)
   if (record.meContext) {
     parts.push(`<previous_read_of_the_user>
 ${summariseSelf(record.meContext)}
-</previous_read_of_the_user>`)
+</previous_read_of_the_user>
+Same caveat: a prior, not fact. People change how they show up — where the newer
+turns contradict this, the transcript wins.`)
   }
   return parts.join('\n\n')
 }

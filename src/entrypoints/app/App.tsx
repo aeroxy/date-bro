@@ -47,7 +47,8 @@ function isStale(record: DateRecord, generatedAt?: number): boolean {
 }
 
 export default function App() {
-  const { dates, active, activeId, setActiveId, loaded, create, update, remove } = useDates()
+  const { dates, active, activeId, setActiveId, loaded, loadError, create, update, remove } =
+    useDates()
   const [tab, setTab] = useState<Tab>('them')
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<{ id: string; tab: Tab; message: string } | null>(null)
@@ -72,16 +73,19 @@ export default function App() {
       const controller = new AbortController()
       abortRef.current = controller
 
-      // A note joins the thread before the run, so this run already sees it and
-      // it survives a failure — feedback shouldn't be lost to a network error.
       let record = active
-      if (note?.trim()) {
-        const feedback = { ...active.feedback, [which]: [...active.feedback[which], note.trim()] }
-        record = { ...active, feedback }
-        await update(id, { feedback })
-      }
 
       try {
+        // A note joins the thread before the run, so this run already sees it
+        // and it survives a failure — feedback shouldn't be lost to a network
+        // error. Inside the try because a failed write here still has to clear
+        // `busy`, or every button stays disabled for good.
+        if (note?.trim()) {
+          const feedback = { ...active.feedback, [which]: [...active.feedback[which], note.trim()] }
+          record = { ...active, feedback }
+          await update(id, { feedback })
+        }
+
         if (which === 'them') {
           const ctx = await rebuildPersonContext(record, controller.signal, setThinking)
           await update(id, { themContext: ctx })
@@ -118,6 +122,22 @@ export default function App() {
     return (
       <div className="flex h-full items-center justify-center text-fg-3">
         <Spinner />
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex h-full items-center justify-center px-6">
+        <div className="max-w-md text-center">
+          <AlertCircle size={20} className="mx-auto mb-3 text-no" />
+          <h1 className="text-[15px] font-bold tracking-[-0.02em]">Couldn't open your data</h1>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-fg-2">
+            Everything is stored in this browser's IndexedDB, and it didn't open. Reloading usually
+            fixes it; if it doesn't, the store may be blocked by another tab of this extension.
+          </p>
+          <p className="mt-3 break-words font-mono text-[11px] text-fg-3">{loadError}</p>
+        </div>
       </div>
     )
   }

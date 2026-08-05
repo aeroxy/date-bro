@@ -14,6 +14,7 @@ export function useDates() {
   const [dates, setDates] = useState<DateRecord[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Mirror of `dates` for the mutation helpers — reading state inside a
   // setState updater and assigning out of it isn't safe under StrictMode's
@@ -21,13 +22,21 @@ export function useDates() {
   const datesRef = useRef<DateRecord[]>([])
   datesRef.current = dates
 
+  // `loaded` is set in `finally` on purpose: a failed open (blocked IndexedDB,
+  // a corrupt store) would otherwise leave the app on its loading spinner
+  // forever with nothing on screen to explain why.
   useEffect(() => {
     ;(async () => {
-      const all = await listDates()
-      setDates(all)
-      const last = (await chrome.storage.local.get(LAST_KEY))[LAST_KEY] as string | undefined
-      setActiveId(all.find((d) => d.id === last)?.id ?? all[0]?.id ?? null)
-      setLoaded(true)
+      try {
+        const all = await listDates()
+        setDates(all)
+        const last = (await chrome.storage.local.get(LAST_KEY))[LAST_KEY] as string | undefined
+        setActiveId(all.find((d) => d.id === last)?.id ?? all[0]?.id ?? null)
+      } catch (e) {
+        setLoadError((e as Error).message)
+      } finally {
+        setLoaded(true)
+      }
     })()
   }, [])
 
@@ -56,14 +65,14 @@ export function useDates() {
   const remove = useCallback(
     async (id: string) => {
       await deleteDate(id)
-      setDates((prev) => {
-        const next = prev.filter((d) => d.id !== id)
-        if (id === activeId) setActiveId(next[0]?.id ?? null)
-        return next
-      })
+      // Computed off the mirror rather than inside the updater — see above;
+      // a setState updater has to stay pure.
+      const next = datesRef.current.filter((d) => d.id !== id)
+      if (id === activeId) setActiveId(next[0]?.id ?? null)
+      setDates(next)
     },
     [activeId],
   )
 
-  return { dates, active, activeId, setActiveId, loaded, create, update, remove }
+  return { dates, active, activeId, setActiveId, loaded, loadError, create, update, remove }
 }

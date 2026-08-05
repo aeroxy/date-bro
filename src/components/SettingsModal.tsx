@@ -338,18 +338,28 @@ export function SettingsModal({
                     }
                   />
                 </Field>
+                {/* Blank means "use the default" — storing 0 would be taken
+                    literally and sent to the provider. */}
                 <Field label="Max tokens">
                   <Input
                     type="number"
-                    value={current.config.max_tokens ?? 8192}
-                    onChange={(e) => patch({ max_tokens: Number(e.target.value) })}
+                    value={current.config.max_tokens ?? ''}
+                    placeholder="8192"
+                    onChange={(e) =>
+                      patch({
+                        max_tokens: e.target.value === '' ? undefined : Number(e.target.value),
+                      })
+                    }
                   />
                 </Field>
                 <Field label="Timeout (s)">
                   <Input
                     type="number"
-                    value={current.config.timeout ?? 120}
-                    onChange={(e) => patch({ timeout: Number(e.target.value) })}
+                    value={current.config.timeout ?? ''}
+                    placeholder="120"
+                    onChange={(e) =>
+                      patch({ timeout: e.target.value === '' ? undefined : Number(e.target.value) })
+                    }
                   />
                 </Field>
               </div>

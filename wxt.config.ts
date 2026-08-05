@@ -22,6 +22,9 @@ export default defineConfig({
       __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     },
     build: {
+      // Deliberate. This is loaded unpacked, never from the Web Store, so
+      // bundle size buys nothing — and readable output means anyone can audit
+      // what the extension does with their conversations before running it.
       minify: false,
     },
   }),

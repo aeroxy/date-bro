@@ -284,15 +284,19 @@ export function ConversationPanel({
         </div>
       </div>
 
-      <EditTurnModal
-        turn={editing}
-        record={record}
-        onClose={() => setEditing(null)}
-        onSave={(updated) => {
-          onChange(record.turns.map((t) => (t.id === updated.id ? updated : t)))
-          setEditing(null)
-        }}
-      />
+      {/* Keyed by turn, so reopening one you cancelled starts from the saved text. */}
+      {editing ? (
+        <EditTurnModal
+          key={editing.id}
+          turn={editing}
+          record={record}
+          onClose={() => setEditing(null)}
+          onSave={(updated) => {
+            onChange(record.turns.map((t) => (t.id === updated.id ? updated : t)))
+            setEditing(null)
+          }}
+        />
+      ) : null}
 
       {/* Mounted only while open, so each open starts with an empty box. */}
       {importing ? (
@@ -315,14 +319,12 @@ function EditTurnModal({
   onClose,
   onSave,
 }: {
-  turn: Turn | null
+  turn: Turn
   record: DateRecord
   onClose: () => void
   onSave: (turn: Turn) => void
 }) {
-  const [draft, setDraft] = useState<Turn | null>(turn)
-  if (turn && draft?.id !== turn.id) setDraft(turn)
-  if (!turn || !draft) return null
+  const [draft, setDraft] = useState<Turn>(turn)
 
   return (
     <Modal
