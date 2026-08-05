@@ -33,8 +33,21 @@ const THEM_PREFIXES = ['them', 'they', 'her', 'him', 'she', 'he', 'date', 'match
 const LINE_PATTERN = /^([^:\n[]{1,30}?)\s*(?:\[([^\]]*)\])?\s*:\s*(.*)$/
 
 // One normalisation, used for both the labels we recognise and the label read
-// off a line, so the two can't drift apart.
-const asLabel = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim()
+// off a line, so the two can't drift apart. Three deliberate rules:
+//   - accents fold, so a profile saying "María" still matches a log that says
+//     "Maria:";
+//   - apostrophes close up rather than split, keeping "O'Brien" one part;
+//   - every other separator becomes a space, so "Mary-Jane" is two parts.
+// `\p{L}` rather than `a-z`: a name in any script has to survive this, or a
+// log labelled with it parses as zero turns.
+const asLabel = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/['’`]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
 
 /**
  * Parse a pasted chat log into turns. Handles `Name: text` lines with the
