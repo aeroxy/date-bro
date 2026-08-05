@@ -33,6 +33,13 @@ export interface DateRecord {
   name: string
   createdAt: number
   updatedAt: number
+  /**
+   * Stamped only when `turns` changes — not on any other write. Staleness is a
+   * statement about the transcript, so it can't be read off `updatedAt`, which
+   * every mutation bumps (rebuilding the other tab, saving the profile, adding
+   * a feedback note). Compared against a context's `turnsAt` — see `isStale`.
+   */
+  turnsUpdatedAt: number
   stage: Stage
   meta: {
     age?: string
@@ -73,6 +80,7 @@ export function newDate(name: string): DateRecord {
     name,
     createdAt: now,
     updatedAt: now,
+    turnsUpdatedAt: now,
     stage: 'talking',
     meta: {},
     seedThem: '',

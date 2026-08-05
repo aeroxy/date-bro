@@ -38,10 +38,11 @@ Encoded as hard constraints in the system prompt, not as suggestions:
 - No invented facts about you. Drafts use your voice and your actual history, or they don't exist.
 
 The reasoning behind those, and everything else the coach knows, is in
-[docs/dating-research.md](docs/dating-research.md) — attachment theory, Gottman's bids and
-horsemen, perceived partner responsiveness, self-disclosure reciprocity, the question-asking
-speed-dating work, Big Five over MBTI, and the modern romance-scam patterns worth flagging.
-Citations and caveats included, along with what was deliberately left out and why.
+[src/coach/knowledge.ts](src/coach/knowledge.ts) — attachment markers held as hypotheses rather
+than labels, Gottman's bids and turning-toward, perceived partner responsiveness, self-disclosure
+reciprocity, the question-asking speed-dating work, Big Five over MBTI, and the romance-scam
+patterns worth flagging. It's plain prose, and it's exactly what gets injected into the prompt, so
+what you read is what the model is told.
 
 ## Models
 

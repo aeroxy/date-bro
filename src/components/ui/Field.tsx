@@ -4,7 +4,10 @@ import { cn } from '@/lib/cn'
 const base =
   'w-full rounded-md border border-border bg-surface px-3 py-2 text-sm ' +
   'text-fg placeholder:text-fg-3 transition focus:outline-none ' +
-  'focus:border-action focus:shadow-focus'
+  'focus:border-action focus:shadow-focus ' +
+  // Matches Button's disabled treatment, so a disabled field next to a disabled
+  // button doesn't look like the odd one still taking input.
+  'disabled:cursor-not-allowed disabled:opacity-50'
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   ({ className, ...rest }, ref) => <input ref={ref} className={cn(base, className)} {...rest} />,

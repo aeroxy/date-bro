@@ -11,20 +11,104 @@ const FETCH_TIMEOUT_MS = 20_000
 // straight into the next request as a tool message. Without a ceiling one
 // oversized page blows the context window and fails the run.
 const MAX_PAGE_CHARS = 100_000
+
+// The ceiling on what we'll pull off the wire at all. MAX_PAGE_CHARS bounds the
+// markdown we keep, but it can only be applied *after* the whole body has been
+// buffered and parsed — so a model-chosen URL serving a 200MB text/plain dump
+// would be read and walked in full before 99.9% of it was thrown away. HTML
+// shrinks heavily on the way to markdown, so 4MB of source comfortably covers
+// 100k chars of output.
+const MAX_PAGE_BYTES = 4_000_000
 const READABLE_TYPES = /^(?:text\/html|text\/plain|application\/xhtml\+xml)/i
 
-function fetchWithTimeout(
-  url: string,
-  signal?: AbortSignal,
-  credentials: RequestCredentials = 'omit',
-): Promise<Response> {
+interface Fetched {
+  res: Response
+  /**
+   * Reads the body, capped at MAX_PAGE_BYTES. Separate from the fetch so the
+   * caller can reject on `content-type` or status *before* paying for a body,
+   * and `discard()` exists for when it does.
+   */
+  read: () => Promise<{ text: string; truncated: boolean }>
+  discard: () => Promise<void>
+}
+
+/**
+ * Fetch under one timeout that spans the body read, not just the headers: a
+ * server that answers instantly and then trickles bytes would otherwise hold
+ * the request open indefinitely (`FETCH_TIMEOUT_MS` was previously cleared the
+ * moment headers arrived).
+ *
+ * `credentials: 'include'` on both callers — web_search needs DuckDuckGo's
+ * bot-verification cookie, and read_page acts as the user against their own
+ * sessions (see its comment below for the tradeoff).
+ */
+async function fetchWithTimeout(url: string, signal?: AbortSignal): Promise<Fetched> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(new DOMException('Fetch timed out', 'TimeoutError')), FETCH_TIMEOUT_MS)
+  let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(
+    () => controller.abort(new DOMException('Fetch timed out', 'TimeoutError')),
+    FETCH_TIMEOUT_MS,
+  )
+  const done = () => {
+    clearTimeout(timer)
+    timer = undefined
+  }
   const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
-  // 'include' on both current callers: web_search needs DuckDuckGo's bot-
-  // verification cookie; read_page acts as the user against their own
-  // sessions (see its comment below for the tradeoff).
-  return fetch(url, { signal: combined, redirect: 'follow', credentials }).finally(() => clearTimeout(timer))
+
+  let res: Response
+  try {
+    res = await fetch(url, { signal: combined, redirect: 'follow', credentials: 'include' })
+  } catch (e) {
+    done()
+    throw e
+  }
+
+  // Advertised oversize: refuse before spending the bandwidth. A missing or
+  // lying header just falls through to the streaming cap in `read`.
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_PAGE_BYTES) {
+    done()
+    await res.body?.cancel().catch(() => {})
+    throw new Error(
+      `Page is too large to read (${Math.round(declared / 1_000_000)}MB). Find a more specific source.`,
+    )
+  }
+
+  return {
+    res,
+    read: async () => {
+      try {
+        return await readCapped(res)
+      } finally {
+        done()
+      }
+    },
+    discard: async () => {
+      done()
+      await res.body?.cancel().catch(() => {})
+    },
+  }
+}
+
+/** Read a body incrementally, stopping once MAX_PAGE_BYTES have arrived. */
+async function readCapped(res: Response): Promise<{ text: string; truncated: boolean }> {
+  if (!res.body) return { text: '', truncated: false }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  let bytes = 0
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    bytes += value.byteLength
+    text += decoder.decode(value, { stream: true })
+    if (bytes >= MAX_PAGE_BYTES) {
+      await reader.cancel().catch(() => {})
+      return { text: text + decoder.decode(), truncated: true }
+    }
+  }
+
+  return { text: text + decoder.decode(), truncated: false }
 }
 
 // DDG serves its anti-bot page with HTTP 200, so detect it by content.
@@ -52,9 +136,12 @@ export async function webSearch(query: string, ctx: ToolHandlerContext = {}): Pr
   const q = encodeURIComponent(query.trim().replace(/\s+/g, ' '))
   // DuckDuckGo's HTML endpoint — no JS required, no rate-limit wall.
   const url = `https://html.duckduckgo.com/html?q=${q}`
-  const res = await fetchWithTimeout(url, ctx.signal, 'include')
-  if (!res.ok) throw new Error(`DuckDuckGo returned HTTP ${res.status}`)
-  const html = await res.text()
+  const { res, read, discard } = await fetchWithTimeout(url, ctx.signal)
+  if (!res.ok) {
+    await discard()
+    throw new Error(`DuckDuckGo returned HTTP ${res.status}`)
+  }
+  const { text: html } = await read()
   if (isDdgBotChallenge(html)) {
     await openDdgChallengeTab(url)
     throw new Error(
@@ -104,19 +191,25 @@ export async function readPage(url: string, ctx: ToolHandlerContext = {}): Promi
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Unsupported protocol: ${parsed.protocol}`)
   }
-  const res = await fetchWithTimeout(parsed.toString(), ctx.signal, 'include')
-  if (!res.ok) throw new Error(`Fetch returned HTTP ${res.status}`)
+  const { res, read, discard } = await fetchWithTimeout(parsed.toString(), ctx.signal)
+  if (!res.ok) {
+    await discard()
+    throw new Error(`Fetch returned HTTP ${res.status}`)
+  }
 
   // Refuse binaries up front rather than running a PDF or an image through the
-  // HTML parser and handing the model the wreckage.
+  // HTML parser and handing the model the wreckage. Checked before `read()`, so
+  // a binary costs the headers and nothing else.
   const contentType = res.headers.get('content-type')
   if (contentType && !READABLE_TYPES.test(contentType.trim())) {
+    await discard()
     throw new Error(`Not a readable page (content type: ${contentType.split(';')[0]!.trim()})`)
   }
 
-  const markdown = parseHtmlToMarkdown(await res.text())
-  if (markdown.length <= MAX_PAGE_CHARS) return markdown
+  const { text: html, truncated } = await read()
+  const markdown = parseHtmlToMarkdown(html)
+  if (markdown.length <= MAX_PAGE_CHARS && !truncated) return markdown
   // Says so explicitly, so the model treats it as a partial read instead of
   // concluding the page simply ends there.
-  return `${markdown.slice(0, MAX_PAGE_CHARS)}\n\n[Truncated: the page exceeded ${MAX_PAGE_CHARS} characters. Search for a more specific source if what you need isn't above.]`
+  return `${markdown.slice(0, MAX_PAGE_CHARS)}\n\n[Truncated: the page was longer than this tool returns. Search for a more specific source if what you need isn't above.]`
 }

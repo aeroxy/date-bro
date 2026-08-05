@@ -67,7 +67,7 @@ export async function rebuildPersonContext(
     validatePerson,
     { signal, jsonSchema: PERSON_SCHEMA, onThinking },
   )
-  return { ...result, generatedAt: Date.now() }
+  return { ...result, generatedAt: Date.now(), turnsAt: record.turnsUpdatedAt }
 }
 
 /** Rebuild the read of the user, in this specific connection. */
@@ -83,7 +83,7 @@ export async function rebuildSelfContext(
     validateSelf,
     { signal, jsonSchema: SELF_SCHEMA, onThinking },
   )
-  return { ...result, generatedAt: Date.now() }
+  return { ...result, generatedAt: Date.now(), turnsAt: record.turnsUpdatedAt }
 }
 
 /**
@@ -123,6 +123,7 @@ export async function suggestMove(
     ...result,
     id: crypto.randomUUID(),
     generatedAt: Date.now(),
+    turnsAt: record.turnsUpdatedAt,
     question: question.trim() || undefined,
   }
 }

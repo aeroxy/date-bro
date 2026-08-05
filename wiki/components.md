@@ -34,7 +34,7 @@ low-confidence guess can never look like a finding.
 | Component | Role |
 |---|---|
 | `DateRail` | Left rail — people list, inline add, stage/turn-count/last-updated summary |
-| `ProfileModal` | The seed context: name, stage, meta, what you know about them, research notes (auto-filled by "What do I say?", with a `Clear` button riding in the field's hint slot), you in this one, what you want. Placeholders do real work here — they're the instructions for writing a useful seed. |
+| `ProfileModal` | The seed context: name, stage, meta, what you know about them, research notes (auto-filled by "What do I say?", with a `Clear` button riding in the field's hint slot), you in this one, what you want. Placeholders do real work here — they're the instructions for writing a useful seed. The draft is seeded on open only, so `save` omits `researchNotes` from the patch when it's untouched — otherwise saving the profile would roll back notes a run merged in while the modal was open. An actual edit still wins. |
 | `ConversationPanel` | Turn list (numbered, side-aligned, hover edit/delete), composer that auto-flips speaker after each add, `EditTurnModal`, and `ImportModal` with a live parse preview |
 | `ContextView` | `PersonContextView` and `SelfContextView`. Shared `Block` / `ClaimList` / `Bullets` / `HonestNote` internals. |
 | `SuggestionView` | The read, the priority callout, option cards with a copyable draft, `avoid`, `timing`, and the honest note on an inverted panel |
@@ -44,7 +44,8 @@ low-confidence guess can never look like a finding.
 ## `App.tsx`
 
 Three columns: rail | conversation | insight. The three actions live in the header; each switches
-the insight tab and runs. The insight column's tab strip has its own re-run button, so a tab can be
+the insight tab and runs. The insight column's tab strip has its own re-run button — which becomes a
+**Stop** button while that tab is the one running, the only way to cancel — so a tab can be
 refreshed without leaving it.
 
 State worth knowing about:
@@ -53,8 +54,17 @@ State worth knowing about:
   *date id* alongside the tab, and only `busyTab` (the id matching `activeId`) renders as thinking. A
   run keeps going when you switch people, and writes to the id captured when it started; it just
   doesn't make the profile you switched to look like it's loading.
+- `runningRef` is the actual mutex, not `busy`. State lands on the next render, so two calls in the
+  same tick — a fast double-click, or Enter held down on the situation field — both read `busy` as
+  null and both start. When that happened, the second aborted the first, and the *first*'s `finally`
+  cleared `busy` while the second was still running: spinner gone, buttons live, a third run one
+  click away. A ref is set synchronously, so it can't happen.
 - `error` is tagged the same way, so a failure shows only on the panel and person that caused it.
-- `abortRef` holds the in-flight controller; starting a new action aborts the previous one.
+- `abortRef` holds the in-flight controller, and the tab strip's Stop button is what reaches it.
+  Without that button the whole abort chain — the `AbortSignal` threaded through `postJSON`/`postSSE`,
+  `QWEN_CHAT_CANCEL` back to the controller the background holds, `abortableDelay` collapsing the
+  anti-bot back-off — was unreachable, and a Qwen throttle (three 30s waits) had no exit but closing
+  the tab.
 - `activity` and `thinking` are the two live-progress feeds, and they're mutually exclusive by
   backend: `activity` accumulates one line per tool call (keyed backends), `thinking` is Qwen's
   reasoning summary, replaced wholesale on each event. `Thinking` renders whichever it has as the
@@ -62,10 +72,15 @@ State worth knowing about:
   streaming think can't shove the page around. Both reset at the top of `run`.
 - `run(tab, note?)` appends `note` to that tab's `feedback` thread *before* the call, so the run sees
   it and a network failure doesn't eat what the user typed.
+- **Writes derived from a pre-call snapshot go through `update`'s function form.** A model call takes
+  half a minute, and the user can edit the profile or delete a suggestion while it runs — a patch
+  built from the snapshot `run` started with silently reverts them. `suggestMove`'s write was doing
+  exactly that to `researchNotes`, which is the one field both the model and the user write.
 - `ConversationPanel` is keyed on `active.id`: its drafts and import box are per-person, and a key is
   cheaper than lifting five pieces of draft state into `App`.
-- `isStale` compares the record's `updatedAt` against a context's `generatedAt` to show the
-  "conversation has moved on" chip.
+- `isStale` compares the record's `turnsUpdatedAt` against the context's `turnsAt` — two turn-stamps,
+  so only a transcript edit trips the "conversation has moved on" chip. See
+  [architecture.md](architecture.md#freshness) for why `updatedAt` couldn't carry this.
 - `Freshness` (the "Rebuilt/Suggested Xh ago" bar above a context) takes an optional `onClear` (plus
   `label`/`clearLabel` to match the wording to what's being deleted) — wired up on all three tabs:
   Them/You call it with no args beyond the default ("Rebuilt" / "Delete this rebuild"), clearing

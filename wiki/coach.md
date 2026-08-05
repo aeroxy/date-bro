@@ -8,8 +8,8 @@ the mechanics.
 
 ## `knowledge.ts`
 
-A token-budgeted rendering of [`docs/dating-research.md`](../docs/dating-research.md). Split so each
-engine only pays for what it uses:
+The evidence base, and the source of record for it — token-budgeted prose that goes verbatim into
+the prompt. Split so each engine only pays for what it uses:
 
 | Module | Used by | Contents |
 |---|---|---|
@@ -20,10 +20,11 @@ engine only pays for what it uses:
 | `KB_MOVES` | suggest | The PPR recipe (understanding → validation → caring → then your own), the depth ladder, cheap well-evidenced wins, texting pragmatics, set pieces (asking out, exclusivity, repair, taking a no, ending it), calibration rules |
 | `KB_RESEARCH` | suggest, only when tools are attached | Scopes web research to logistics plus specific-claim safety verification (not open-ended profiling), and says to check `<research_notes>` before searching again |
 
-**Editing rule:** change the research doc first, then condense into the knowledge module. The doc
-carries the citations and — more importantly — the record of what was deliberately excluded
-(Dutton & Aron's misattribution study, MBTI, love languages as a typology, Gottman's prediction
-percentages) and why.
+**Editing rule:** edit the module directly — it is the source, not a rendering of one. Two things
+to preserve when you do. Keep it written as instructions rather than as a survey: the model needs
+the rule a finding implies, not the finding. And keep the exclusions excluded — Dutton & Aron's
+misattribution study, MBTI, love languages as a typology, and Gottman's prediction percentages are
+absent on purpose, so a well-meaning addition is a regression.
 
 ## `prompts.ts`
 
@@ -100,7 +101,9 @@ whatever's already landed in `<research_notes>`); only `suggestMove` ever initia
   `runAgentWithValidation`. An optional `onActivity` callback fires a human-readable line
   (`"Searching: …"` / `"Reading: …"`) per tool call, which `App.tsx` shows live under the spinner.
 
-Each stamps `generatedAt`; `suggestMove` also mints an id and records the situation the user typed.
+Each stamps `generatedAt` and `turnsAt` (the record's `turnsUpdatedAt` as the run saw it — see
+[architecture.md](architecture.md#freshness)); `suggestMove` also mints an id and records the
+situation the user typed.
 Suggestion history is capped at 20 per person, newest first.
 
 ## Output contracts

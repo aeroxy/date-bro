@@ -46,13 +46,38 @@ export function useDates() {
 
   const active = dates.find((d) => d.id === activeId) ?? null
 
-  const update = useCallback(async (id: string, patch: Partial<DateRecord>) => {
-    const current = datesRef.current.find((d) => d.id === id)
-    if (!current) return
-    const next: DateRecord = { ...current, ...patch, updatedAt: Date.now() }
-    setDates((prev) => prev.map((d) => (d.id === id ? next : d)))
-    await saveDate(next)
-  }, [])
+  /**
+   * `patch` may be a function of the record as it stands right now. Use that
+   * form whenever the new value is derived from the old one and time has passed
+   * since you last read it — a model call takes half a minute, and a plain
+   * object patch built from a snapshot silently overwrites anything written in
+   * the meantime.
+   *
+   * Returns the record as written, so a caller that needs to keep working with
+   * it doesn't have to reconstruct the merge itself.
+   */
+  const update = useCallback(
+    async (
+      id: string,
+      patch: Partial<DateRecord> | ((current: DateRecord) => Partial<DateRecord>),
+    ): Promise<DateRecord | null> => {
+      const current = datesRef.current.find((d) => d.id === id)
+      if (!current) return null
+      const resolved = typeof patch === 'function' ? patch(current) : patch
+      const now = Date.now()
+      const next: DateRecord = {
+        ...current,
+        ...resolved,
+        updatedAt: now,
+        // Only a write that touches the transcript moves the staleness clock.
+        ...(resolved.turns ? { turnsUpdatedAt: now } : {}),
+      }
+      setDates((prev) => prev.map((d) => (d.id === id ? next : d)))
+      await saveDate(next)
+      return next
+    },
+    [],
+  )
 
   const create = useCallback(async (name: string) => {
     const record = newDate(name.trim() || 'Untitled')

@@ -20,6 +20,7 @@ Enriched project context:
 
 ## Research
 
-- [docs/dating-research.md](docs/dating-research.md) — the evidence base behind the coach, with
-  citations and caveats. `src/coach/knowledge.ts` is its condensed, prompt-injected form. Change
-  the research doc first, then the knowledge module.
+- [src/coach/knowledge.ts](src/coach/knowledge.ts) — the evidence base behind the coach, and the
+  source of record for it. There is no separate research document: the module is prose, it is what
+  gets injected into the prompt, and it carries its own reasoning. When you change what the coach
+  believes, change it there and say why in the comment above the module you touched.

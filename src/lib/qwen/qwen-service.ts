@@ -166,14 +166,6 @@ const DEVICE_STORAGE_KEY = 'qwen_device_id';
 // cause a cache miss to fall through to the random-UUID generator.
 let deviceReadLock: Promise<unknown> | null = null;
 
-export async function getCachedQwenDeviceId(): Promise<string | null> {
-  try {
-    const stored = await chrome.storage.local.get(DEVICE_STORAGE_KEY);
-    if (typeof stored[DEVICE_STORAGE_KEY] === 'string') return stored[DEVICE_STORAGE_KEY] as string;
-  } catch {}
-  return null;
-}
-
 const QWEN_LS_KEY = 'qwen_chat_device_id';
 
 async function readDeviceIdFromTab(tabId: number): Promise<string | null> {
@@ -545,12 +537,18 @@ export async function sendQwenChatStream(
   model = normalizeQwenModel(model);
   let keepAliveInterval: ReturnType<typeof setInterval> | undefined;
 
+  // This runs *in* the service worker, so the keep-alive can't be a message —
+  // chrome.runtime.sendMessage from the worker never reaches the worker's own
+  // listener, and no other context is listening. What actually resets the 30s
+  // idle timer is making an extension API call at all, so make a cheap one and
+  // say so. (The in-flight fetch below extends the lifetime too; this is belt
+  // and braces for the gaps between chunks.)
   try {
     keepAliveInterval = setInterval(() => {
       try {
-        chrome.runtime.sendMessage({ type: 'QWEN_PING' }).catch(() => {});
+        chrome.runtime.getPlatformInfo().catch(() => {});
       } catch {}
-    }, 10000); // 10s keep-alive ping
+    }, 10000);
   } catch {}
 
   const cleanupHeartbeat = () => {
@@ -700,8 +698,8 @@ export async function sendQwenChatStream(
       };
 
       // Idle watchdog — if no data arrives within this window, treat as stall
-      // and tear the stream down (the 10s QWEN_PING keep-alive does not
-      // protect the reader itself).
+      // and tear the stream down. The 10s keep-alive above only stops the worker
+      // being evicted; it does nothing for a reader that has gone quiet.
       const IDLE_TIMEOUT_MS = 60_000;
       const resetIdleTimer = () => {
         clearIdleTimer();

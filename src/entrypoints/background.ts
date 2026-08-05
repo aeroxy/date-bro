@@ -119,11 +119,6 @@ export default defineBackground(() => {
         return false
       }
 
-      // Keep-alive ping from sendQwenChatStream — answering it is the point.
-      case 'QWEN_PING':
-        sendResponse({ ok: true })
-        return false
-
       default:
         return false
     }
