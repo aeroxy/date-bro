@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useId, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Eyebrow } from './Card'
@@ -20,6 +20,8 @@ export function Modal({
   footer?: ReactNode
   wide?: boolean
 }) {
+  const titleId = useId()
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -34,6 +36,9 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/25 p-6 backdrop-blur-[2px]">
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={cn(
           'my-8 w-full overflow-hidden rounded-xl border border-border bg-surface shadow-lg',
           wide ? 'max-w-3xl' : 'max-w-lg',
@@ -42,7 +47,9 @@ export function Modal({
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div>
             {eyebrow ? <Eyebrow className="block">{eyebrow}</Eyebrow> : null}
-            <h2 className="text-[17px] font-bold tracking-[-0.02em]">{title}</h2>
+            <h2 id={titleId} className="text-[17px] font-bold tracking-[-0.02em]">
+              {title}
+            </h2>
           </div>
           <button
             onClick={onClose}

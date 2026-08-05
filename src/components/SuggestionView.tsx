@@ -12,10 +12,15 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={() => {
-        navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1600)
-        })
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1600)
+          })
+          // Rejects when the document isn't focused. Nothing to say about it —
+          // the tick just doesn't appear, and the text is still on screen.
+          .catch(() => {})
       }}
       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-fg-3 transition hover:bg-surface-muted hover:text-fg"
     >

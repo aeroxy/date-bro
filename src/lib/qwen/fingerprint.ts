@@ -82,8 +82,13 @@ const LANGUAGE_PRESETS: Record<string, LanguagePreset> = {
     'ko-KR': { language: 'ko-KR', timezoneOffset: '-540' }
 };
 
+// Qwen's own `qwen_chat_device_id` is 20 lowercase hex characters with no
+// dashes — see DEFAULT_TEMPLATE.deviceId, captured from a real session. A UUID
+// here would be the wrong shape for the field it lands in.
 function generateDeviceId(): string {
-    return crypto.randomUUID();
+    const bytes = new Uint8Array(10);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function generateHash(): number {

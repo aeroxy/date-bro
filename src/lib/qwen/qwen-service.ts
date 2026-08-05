@@ -148,7 +148,7 @@ export async function getQwenToken(): Promise<string | null> {
  *      this cache before re-reading from the tab.
  *   2. Read `qwen_chat_device_id` from an open, non-discarded `chat.qwen.ai`
  *      tab's localStorage via `chrome.scripting.executeScript`.
- *   3. Generate a fresh crypto-random UUID (matches the shape
+ *   3. Generate a fresh random 20-hex-character ID (the shape
  *      `fingerprint.ts`'s `generateDeviceId` produces). **Last resort:**
  *      this creates an identity that diverges from whatever Qwen's JS will
  *      generate next time it initializes — a bot signal if both end up in
@@ -218,7 +218,9 @@ export async function getQwenDeviceId(): Promise<string> {
 // atomic action so no concurrent call can populate the cache with a
 // random fallback UUID between the two steps).
 async function acquireReadLock<T>(fn: () => Promise<T>): Promise<T> {
-  while (deviceReadLock) await deviceReadLock;
+  // Waiting on the previous holder must not adopt its failure — a waiter has
+  // its own callback to run either way.
+  while (deviceReadLock) await deviceReadLock.catch(() => {});
   const p = fn();
   deviceReadLock = p;
   try {
@@ -252,7 +254,7 @@ async function readOrGenerateDeviceId(): Promise<string> {
     console.warn('[Qwen Service] Failed to read device ID from tab localStorage:', e);
   }
 
-  // 3. Fresh random UUID (last resort — diverges from Qwen's own JS).
+  // 3. Fresh random ID (last resort — diverges from Qwen's own JS).
   const id = generateDeviceId();
   try {
     await chrome.storage.local.set({ [DEVICE_STORAGE_KEY]: id });

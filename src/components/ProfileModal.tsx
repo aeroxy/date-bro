@@ -27,9 +27,12 @@ export function ProfileModal({
 }) {
   const [draft, setDraft] = useState(record)
 
+  // Seeded on open only. `record` is replaced wholesale whenever a background
+  // rebuild lands, and re-seeding on that would wipe whatever the user is
+  // part-way through typing.
   useEffect(() => {
     if (open) setDraft(record)
-  }, [open, record])
+  }, [open])
 
   const set = <K extends keyof DateRecord>(key: K, value: DateRecord[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))

@@ -7,6 +7,12 @@ import type { ToolHandlerContext } from './types'
 
 const FETCH_TIMEOUT_MS = 20_000
 
+// read_page follows a URL the *model* chose, and whatever comes back is fed
+// straight into the next request as a tool message. Without a ceiling one
+// oversized page blows the context window and fails the run.
+const MAX_PAGE_CHARS = 100_000
+const READABLE_TYPES = /^(?:text\/html|text\/plain|application\/xhtml\+xml)/i
+
 function fetchWithTimeout(
   url: string,
   signal?: AbortSignal,
@@ -100,5 +106,17 @@ export async function readPage(url: string, ctx: ToolHandlerContext = {}): Promi
   }
   const res = await fetchWithTimeout(parsed.toString(), ctx.signal, 'include')
   if (!res.ok) throw new Error(`Fetch returned HTTP ${res.status}`)
-  return parseHtmlToMarkdown(await res.text())
+
+  // Refuse binaries up front rather than running a PDF or an image through the
+  // HTML parser and handing the model the wreckage.
+  const contentType = res.headers.get('content-type')
+  if (contentType && !READABLE_TYPES.test(contentType.trim())) {
+    throw new Error(`Not a readable page (content type: ${contentType.split(';')[0]!.trim()})`)
+  }
+
+  const markdown = parseHtmlToMarkdown(await res.text())
+  if (markdown.length <= MAX_PAGE_CHARS) return markdown
+  // Says so explicitly, so the model treats it as a partial read instead of
+  // concluding the page simply ends there.
+  return `${markdown.slice(0, MAX_PAGE_CHARS)}\n\n[Truncated: the page exceeded ${MAX_PAGE_CHARS} characters. Search for a more specific source if what you need isn't above.]`
 }

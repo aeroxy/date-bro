@@ -32,6 +32,10 @@ const THEM_PREFIXES = ['them', 'they', 'her', 'him', 'she', 'he', 'date', 'match
 // `Speaker: text` still works exactly as before.
 const LINE_PATTERN = /^([^:\n[]{1,30}?)\s*(?:\[([^\]]*)\])?\s*:\s*(.*)$/
 
+// One normalisation, used for both the labels we recognise and the label read
+// off a line, so the two can't drift apart.
+const asLabel = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim()
+
 /**
  * Parse a pasted chat log into turns. Handles `Name: text` lines with the
  * common label variants plus the date's own name, and an optional bracketed
@@ -40,12 +44,13 @@ const LINE_PATTERN = /^([^:\n[]{1,30}?)\s*(?:\[([^\]]*)\])?\s*:\s*(.*)$/
  * the first recognised label is dropped.
  */
 export function parsePastedLog(raw: string, theirName: string): Turn[] {
+  // Both the whole name and each of its parts, so "Jane Doe:", "Jane:" and
+  // "Doe:" all resolve to them — the UI tells the user to label lines with the
+  // full name, so that has to be the one form that definitely works.
+  const fullName = asLabel(theirName)
   const theirs = new Set([
     ...THEM_PREFIXES,
-    ...theirName
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean),
+    ...(fullName ? [fullName, ...fullName.split(/\s+/)] : []),
   ])
   const mine = new Set(ME_PREFIXES)
 
@@ -57,7 +62,7 @@ export function parsePastedLog(raw: string, theirName: string): Turn[] {
     if (!trimmed) continue
 
     const match = trimmed.match(LINE_PATTERN)
-    const label = match?.[1]?.trim().toLowerCase().replace(/[^a-z\s]/g, '').trim()
+    const label = match?.[1] ? asLabel(match[1]) : undefined
 
     let speaker: Speaker | null = null
     if (label) {

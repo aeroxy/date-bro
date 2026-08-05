@@ -13,7 +13,14 @@ export function mergeResearchNotes(existing: string, additions: string[]): strin
       .map((line) => line.replace(/^-\s*/, '').trim().toLowerCase())
       .filter(Boolean),
   )
-  const toAdd = fresh.filter((a) => !seen.has(a.toLowerCase()))
+  // `seen` grows as we go, so a fact repeated twice within one run is caught
+  // as well as one already on the record.
+  const toAdd = fresh.filter((a) => {
+    const key = a.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
   if (!toAdd.length) return existing
 
   const bullets = toAdd.map((a) => `- ${a}`).join('\n')
