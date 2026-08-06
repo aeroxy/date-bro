@@ -41,6 +41,7 @@ export function SettingsModal({
   const [activeId, setActive] = useState<string>('')
   const [customPrompt, setCustomPrompt] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   // A bare `'idle' | 'working' | string` collapses to `string`, which stops the
   // compiler from checking the sentinels the render below switches on.
   const [deviceStatus, setDeviceStatus] = useState<
@@ -52,15 +53,22 @@ export function SettingsModal({
     // StrictMode runs this twice on mount, and close-then-reopen leaves the first
     // load in flight — so the loser could land after the winner and overwrite it.
     let cancelled = false
+    setLoadError(null)
     ;(async () => {
-      const [{ profiles: p, activeId: id }, settings] = await Promise.all([
-        ensureActiveProfile(),
-        getSettings(),
-      ])
-      if (cancelled) return
-      setProfiles(p)
-      setActive(id)
-      setCustomPrompt(settings.customPrompt)
+      try {
+        const [{ profiles: p, activeId: id }, settings] = await Promise.all([
+          ensureActiveProfile(),
+          getSettings(),
+        ])
+        if (cancelled) return
+        setProfiles(p)
+        setActive(id)
+        setCustomPrompt(settings.customPrompt)
+      } catch (e) {
+        // Without this the modal is just blank forever, with the reason only in
+        // the console as an unhandled rejection.
+        if (!cancelled) setLoadError((e as Error).message)
+      }
     })()
     return () => {
       cancelled = true
@@ -139,7 +147,18 @@ export function SettingsModal({
         </>
       }
     >
-      {!current ? null : (
+      {loadError ? (
+        <div className="py-6 text-center">
+          <p className="text-[13px] leading-relaxed text-fg-2">
+            Couldn't read your settings, so there's nothing safe to edit here yet.
+          </p>
+          <p className="mt-2 break-words font-mono text-[11px] text-fg-3">{loadError}</p>
+        </div>
+      ) : !current ? (
+        <div className="flex justify-center py-8">
+          <Spinner />
+        </div>
+      ) : (
         <div className="space-y-5">
           <div>
             <Eyebrow className="mb-1.5 block">Profiles</Eyebrow>
