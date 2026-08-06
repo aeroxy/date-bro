@@ -202,7 +202,10 @@ first run and repairs a dangling active id; `getActiveConfig()` is what `coach/r
 ## `db.ts`
 
 IndexedDB via `idb`. Database `date-bro` v1, one store `dates` keyed by `id` with a `by-updated`
-index. `listDates()` returns newest-first. `saveDate()` stamps `updatedAt` on write. `normalize()`
+index. `listDates()` returns newest-first. `saveDate()` stores `updatedAt` **as given** rather than
+re-stamping it — both callers already set it, and a second stamp landed a millisecond or two after the
+value the in-memory list was ordered on, so the rail's order and `listDates()`'s order were computed
+from different numbers. `normalize()`
 runs on every read instead of a migration step, filling fields that post-date a stored record —
 including `turnsUpdatedAt`, which defaults to `0` rather than `updatedAt` because 0 is the value that
 can't produce a false staleness chip.

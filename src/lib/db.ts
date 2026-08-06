@@ -50,8 +50,12 @@ export async function listDates(): Promise<DateRecord[]> {
   return all.reverse().map(normalize)
 }
 
+// Stores `updatedAt` as given rather than re-stamping it. Both callers already
+// set it, and the second stamp landed a millisecond or two later than the value
+// the in-memory list was ordered on — so the order the rail showed and the order
+// `listDates()` would return were computed from different numbers.
 export async function saveDate(record: DateRecord): Promise<void> {
-  await (await db()).put('dates', { ...record, updatedAt: Date.now() })
+  await (await db()).put('dates', record)
 }
 
 export async function deleteDate(id: string): Promise<void> {

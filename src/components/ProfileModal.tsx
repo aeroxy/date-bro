@@ -26,10 +26,13 @@ export function ProfileModal({
   onDelete: () => void
 }) {
   const [draft, setDraft] = useState(record)
-  // What `researchNotes` looked like when this modal opened. "What do I say?"
-  // writes to the same field while the modal can be open, so on save we need to
-  // tell "the user left it alone" apart from "the user edited it" — see `save`.
-  const seededNotes = useRef(record.researchNotes)
+  // Whether the user has touched `researchNotes` this time the modal was open.
+  // "What do I say?" writes the same field while the modal can be open, so on
+  // save we need to tell "left it alone" from "edited it" — and that has to be
+  // tracked as intent, not inferred by comparing against the opening value: a
+  // user who edits and then deliberately reverts is *not* untouched, and
+  // treating them as such silently drops the revert. See `save`.
+  const notesDirty = useRef(false)
 
   // Seeded on open only. `record` is replaced wholesale whenever a background
   // rebuild lands, and re-seeding on that would wipe whatever the user is
@@ -37,7 +40,7 @@ export function ProfileModal({
   useEffect(() => {
     if (open) {
       setDraft(record)
-      seededNotes.current = record.researchNotes
+      notesDirty.current = false
     }
   }, [open])
 
@@ -45,9 +48,13 @@ export function ProfileModal({
     setDraft((d) => ({ ...d, [key]: value }))
   const setMeta = (key: keyof DateRecord['meta'], value: string) =>
     setDraft((d) => ({ ...d, meta: { ...d.meta, [key]: value } }))
+  /** Every path that lets the user change the notes goes through here. */
+  const setNotes = (value: string) => {
+    notesDirty.current = true
+    set('researchNotes', value)
+  }
 
   const save = () => {
-    const notes = draft.researchNotes ?? ''
     onSave({
       name: draft.name.trim() || 'Untitled',
       stage: draft.stage,
@@ -55,10 +62,11 @@ export function ProfileModal({
       seedThem: draft.seedThem,
       seedMe: draft.seedMe,
       goal: draft.goal,
-      // Omitted when untouched, so saving the profile can't roll back notes a
-      // run merged in while this was open. An actual edit still wins — that's
-      // the user overruling the model on purpose.
-      ...(notes === seededNotes.current ? {} : { researchNotes: notes }),
+      // Omitted unless the user actually touched the field, so saving the profile
+      // can't roll back notes a run merged in while this was open. Once they have
+      // touched it their value wins outright — including a revert to what the
+      // field said when the modal opened, which is a real edit, not a no-op.
+      ...(notesDirty.current ? { researchNotes: draft.researchNotes ?? '' } : {}),
     })
     onClose()
   }
@@ -155,7 +163,7 @@ export function ProfileModal({
             (draft.researchNotes ?? '').trim() ? (
               <button
                 type="button"
-                onClick={() => set('researchNotes', '')}
+                onClick={() => setNotes('')}
                 className="font-semibold text-fg-3 hover:text-no"
               >
                 Clear
@@ -168,7 +176,7 @@ export function ProfileModal({
           <Textarea
             rows={4}
             value={draft.researchNotes ?? ''}
-            onChange={(e) => set('researchNotes', e.target.value)}
+            onChange={(e) => setNotes(e.target.value)}
             placeholder="Facts the coach has looked up and confirmed — venue hours, a checked claim — show up here so it doesn't re-search them. Edit or delete anything freely."
           />
         </Field>
