@@ -419,7 +419,18 @@ function ImportModal({
             variant="secondary"
             size="sm"
             disabled={!parsed.length}
-            onClick={() => onImport(parsed, 'replace')}
+            onClick={() => {
+              // Same guard as Clear, for the same reason: this discards the
+              // recorded conversation and nothing gets it back.
+              if (
+                !record.turns.length ||
+                confirm(
+                  `Replace all ${record.turns.length} recorded turns with these ${parsed.length}? This can't be undone.`,
+                )
+              ) {
+                onImport(parsed, 'replace')
+              }
+            }}
           >
             Replace all
           </Button>

@@ -147,8 +147,12 @@ export function buildAnthropicBody(
   }
   if (system) body.system = system
   // Omitted when unset so the provider's default applies. Recent Claude models
-  // (Opus 5, Sonnet 5, Opus 4.7+) reject an explicit temperature outright.
-  if (options.temperature !== undefined) body.temperature = options.temperature
+  // (Opus 5, Sonnet 5, Opus 4.7+) reject an explicit temperature outright, and
+  // *any* model rejects one alongside thinking — that pairing (a temperature
+  // set once, "show reasoning" left on) otherwise 400s every single call.
+  if (options.temperature !== undefined && !options.thinkingSummary) {
+    body.temperature = options.temperature
+  }
 
   if (options.stream) body.stream = true
   // Thinking is left unset otherwise: that keeps every model and proxy happy,

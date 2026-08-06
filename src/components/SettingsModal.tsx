@@ -28,6 +28,28 @@ const PRESETS: Record<'openai' | 'anthropic', Preset[]> = {
   ],
 }
 
+/** Mirrors what `withCustomHeaders` will accept, so the warning can't disagree. */
+function headersProblem(raw?: string): string | null {
+  if (!raw?.trim()) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return 'Not valid JSON — keys and values both need double quotes. Ignored as written.'
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return 'Needs to be a JSON object of header names to values. Ignored as written.'
+  }
+  const bad = Object.entries(parsed).find(([, v]) => typeof v !== 'string')
+  return bad ? `"${bad[0]}" must be a string. Ignored as written.` : null
+}
+
+/** Blank, zero, or negative all mean the same thing here: leave it unset. */
+function positiveOrDefault(raw: string): number | undefined {
+  const n = Number(raw)
+  return raw === '' || !Number.isFinite(n) || n <= 0 ? undefined : n
+}
+
 export function SettingsModal({
   open,
   onClose,
@@ -77,6 +99,7 @@ export function SettingsModal({
 
   const current = profiles.find((p) => p.id === activeId)
   const isAnthropic = current?.config.backend === 'anthropic'
+  const headersError = headersProblem(current?.config.custom_headers)
 
   const patch = (change: Partial<LLMConfig>) =>
     setProfiles((prev) =>
@@ -106,6 +129,9 @@ export function SettingsModal({
 
   const removeProfile = () => {
     if (profiles.length <= 1) return
+    // The other destructive controls all confirm, and this one throws away a
+    // key and base URL that are tedious to reconstruct.
+    if (!confirm(`Delete "${current?.name}"? Its key and settings go with it.`)) return
     const remaining = profiles.filter((p) => p.id !== activeId)
     setProfiles(remaining)
     setActive(remaining[0]!.id)
@@ -301,12 +327,18 @@ export function SettingsModal({
                   placeholder={isAnthropic ? 'sk-ant-…' : 'sk-…'}
                 />
               </Field>
+              {/* The client drops headers it can't parse rather than blocking
+                  the call, so an unquoted key would otherwise show up as a
+                  baffling auth failure and nothing else. Say it here instead. */}
               <Field label="Extra headers" hint="JSON, optional">
                 <Input
                   value={current.config.custom_headers ?? ''}
                   onChange={(e) => patch({ custom_headers: e.target.value })}
                   placeholder='{"HTTP-Referer": "https://example.com"}'
                 />
+                {headersError ? (
+                  <p className="mt-1 text-[11.5px] leading-snug text-no">{headersError}</p>
+                ) : null}
               </Field>
               <label className="flex cursor-pointer items-start gap-2.5">
                 <input
@@ -371,6 +403,8 @@ export function SettingsModal({
                   <Input
                     type="number"
                     step="0.1"
+                    min={0}
+                    max={2}
                     value={current.config.temperature ?? ''}
                     onChange={(e) =>
                       patch({
@@ -379,28 +413,26 @@ export function SettingsModal({
                     }
                   />
                 </Field>
-                {/* Blank means "use the default" — storing 0 would be taken
-                    literally and sent to the provider. */}
+                {/* Blank means "use the default", and so does anything that
+                    isn't a positive number: 0 here is not a value the provider
+                    can honour — a 0s timeout fails every request before it
+                    starts, and 0 max tokens truncates every answer. */}
                 <Field label="Max tokens">
                   <Input
                     type="number"
+                    min={1}
                     value={current.config.max_tokens ?? ''}
                     placeholder="8192"
-                    onChange={(e) =>
-                      patch({
-                        max_tokens: e.target.value === '' ? undefined : Number(e.target.value),
-                      })
-                    }
+                    onChange={(e) => patch({ max_tokens: positiveOrDefault(e.target.value) })}
                   />
                 </Field>
                 <Field label="Timeout (s)">
                   <Input
                     type="number"
+                    min={1}
                     value={current.config.timeout ?? ''}
                     placeholder="120"
-                    onChange={(e) =>
-                      patch({ timeout: e.target.value === '' ? undefined : Number(e.target.value) })
-                    }
+                    onChange={(e) => patch({ timeout: positiveOrDefault(e.target.value) })}
                   />
                 </Field>
               </div>
