@@ -54,15 +54,22 @@ export function SettingsModal({
 
   useEffect(() => {
     if (!open) return
+    // StrictMode runs this twice on mount, and close-then-reopen leaves the first
+    // load in flight — so the loser could land after the winner and overwrite it.
+    let cancelled = false
     ;(async () => {
       const [{ profiles: p, activeId: id }, settings] = await Promise.all([
         ensureActiveProfile(),
         getSettings(),
       ])
+      if (cancelled) return
       setProfiles(p)
       setActive(id)
       setCustomPrompt(settings.customPrompt)
     })()
+    return () => {
+      cancelled = true
+    }
   }, [open])
 
   const current = profiles.find((p) => p.id === activeId)

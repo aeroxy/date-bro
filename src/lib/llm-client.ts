@@ -148,6 +148,11 @@ async function qwenCompletion(
     const send = chrome.runtime.sendMessage(payload)
     if (!options.signal) return unwrapQwen(await send)
 
+    // Once the abort promise wins the race below, nothing is awaiting `send` any
+    // more — and it will usually reject (the worker tore the request down). Mark
+    // it handled so cancelling doesn't log an unhandled rejection every time.
+    send.catch(() => {})
+
     const signal = options.signal
     let onAbort: (() => void) | undefined
     const aborted = new Promise<never>((_, reject) => {
@@ -391,12 +396,15 @@ async function postJSON<T>(url: string, options: PostJSONOptions): Promise<T> {
         body: JSON.stringify(body),
         signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
       })
-      clearTimeout(timer)
+      // Timer deliberately still armed: the body reads below are part of the
+      // request, and a server that sends headers and then trickles would
+      // otherwise hang forever. Cleared in `finally`, on every exit path.
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error')
         if (RETRYABLE_STATUS.includes(response.status) && canRetry) {
           lastError = new Error(`HTTP ${response.status}: ${errorText}`)
+          clearTimeout(timer)
           await delay(RETRY_DELAYS[attempt]!)
           continue
         }
@@ -405,13 +413,16 @@ async function postJSON<T>(url: string, options: PostJSONOptions): Promise<T> {
 
       return (await response.json()) as T
     } catch (e) {
-      clearTimeout(timer)
       if (isTransient(e, signal) && canRetry) {
         lastError = e instanceof Error ? e : new Error(String(e))
+        clearTimeout(timer)
         await delay(RETRY_DELAYS[attempt]!)
         continue
       }
       throw e instanceof Error ? e : new Error(String(e))
+    } finally {
+      // Every exit path: returned body, thrown error, or `continue` into a retry.
+      clearTimeout(timer)
     }
   }
 

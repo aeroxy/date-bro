@@ -1,4 +1,4 @@
-import { useEffect, useId, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Eyebrow } from './Card'
@@ -21,6 +21,7 @@ export function Modal({
   wide?: boolean
 }) {
   const titleId = useId()
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -31,14 +32,28 @@ export function Modal({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  // Focus moves in on open and back to whatever opened it on close. Deliberately
+  // *not* a full focus trap — Tab can still reach the page behind, which is a
+  // known limit rather than an oversight; the concrete bug it used to cause (the
+  // profile draft saving onto whoever the rail switched to) is fixed by keying
+  // the modal on the record instead.
+  useEffect(() => {
+    if (!open) return
+    const opener = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    return () => opener?.focus?.()
+  }, [open])
+
   if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/25 p-6 backdrop-blur-[2px]">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         className={cn(
           'my-8 w-full overflow-hidden rounded-xl border border-border bg-surface shadow-lg',
           wide ? 'max-w-3xl' : 'max-w-lg',

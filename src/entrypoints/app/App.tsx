@@ -137,6 +137,23 @@ export default function App() {
   /** Tear down the in-flight run. `run`'s catch swallows the AbortError. */
   const stop = useCallback(() => abortRef.current?.abort(), [])
 
+  /**
+   * For writes that aren't inside `run`'s try/catch. `update` and `remove` await
+   * IndexedDB, so a rejected write — blocked store, quota, a corrupt db — was an
+   * unhandled rejection: the UI had already re-rendered from state, so the change
+   * looked saved and silently wasn't. Surfaces it on the panel instead.
+   */
+  const persist = useCallback(
+    (work: Promise<unknown>, tab: Tab) => {
+      const id = activeId
+      if (!id) return
+      work.catch((e: unknown) => {
+        setError({ id, tab, message: `Couldn't save that: ${(e as Error).message}` })
+      })
+    },
+    [activeId],
+  )
+
   if (!loaded) {
     return (
       <div className="flex h-full items-center justify-center text-fg-3">
@@ -180,7 +197,12 @@ export default function App() {
           setSituation('')
         }}
         onCreate={(name) => {
-          create(name).then(() => setShowProfile(true))
+          // Surfaces on the current panel when there is one. On a genuinely empty
+          // first run there's nowhere to put it — the rail has no error slot.
+          persist(
+            create(name).then(() => setShowProfile(true)),
+            tab,
+          )
         }}
       />
 
@@ -232,7 +254,7 @@ export default function App() {
           <ConversationPanel
             key={active.id}
             record={active}
-            onChange={(turns) => update(active.id, { turns })}
+            onChange={(turns) => persist(update(active.id, { turns }), tab)}
           />
 
             <aside className="flex h-full w-[440px] flex-none flex-col border-l border-border bg-surface">
@@ -323,7 +345,7 @@ export default function App() {
                         stale={isStale(active, active.themContext.turnsAt)}
                         onClear={() => {
                           if (confirm(`Delete this read on ${active.name}? You can rebuild it any time.`)) {
-                            update(active.id, { themContext: undefined })
+                            persist(update(active.id, { themContext: undefined }), 'them')
                           }
                         }}
                       />
@@ -345,7 +367,7 @@ export default function App() {
                         stale={isStale(active, active.meContext.turnsAt)}
                         onClear={() => {
                           if (confirm('Delete this read on you? You can rebuild it any time.')) {
-                            update(active.id, { meContext: undefined })
+                            persist(update(active.id, { meContext: undefined }), 'me')
                           }
                         }}
                       />
@@ -369,7 +391,7 @@ export default function App() {
                       onClear={() => {
                         if (confirm("Delete this suggestion? This can't be undone.")) {
                           const remaining = active.suggestions.filter((s) => s.id !== suggestion.id)
-                          update(active.id, { suggestions: remaining })
+                          persist(update(active.id, { suggestions: remaining }), 'next')
                           setViewingSuggestion(remaining[0]?.id ?? null)
                         }
                       }}
@@ -410,12 +432,15 @@ export default function App() {
                 busy={!!busy}
                 placeholder={FEEDBACK_PLACEHOLDER[tab](active.name)}
                 onRemove={(i) =>
-                  update(active.id, {
-                    feedback: {
-                      ...active.feedback,
-                      [tab]: active.feedback[tab].filter((_, j) => j !== i),
-                    },
-                  })
+                  persist(
+                    update(active.id, (current) => ({
+                      feedback: {
+                        ...current.feedback,
+                        [tab]: current.feedback[tab].filter((_, j) => j !== i),
+                      },
+                    })),
+                    tab,
+                  )
                 }
                 onSend={(note) => run(tab, note)}
               />
@@ -425,12 +450,17 @@ export default function App() {
       )}
 
       {active ? (
+        // Keyed on the person, like ConversationPanel and FeedbackThread. The
+        // overlay blocks pointer input on the rail but not Tab, so a keyboard
+        // switch while this was open left the draft holding person A's data and
+        // `onSave` writing it to person B. Remounting discards the stale draft.
         <ProfileModal
+          key={active.id}
           open={showProfile}
           record={active}
           onClose={() => setShowProfile(false)}
-          onSave={(patch) => update(active.id, patch)}
-          onDelete={() => remove(active.id)}
+          onSave={(patch) => persist(update(active.id, patch), tab)}
+          onDelete={() => persist(remove(active.id), tab)}
         />
       ) : null}
 

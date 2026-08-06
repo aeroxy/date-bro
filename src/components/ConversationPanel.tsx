@@ -194,7 +194,9 @@ export function ConversationPanel({
                         {turn.channel === 'irl' ? 'in person' : 'call'}
                       </span>
                     ) : null}
-                    <span className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                    {/* Hidden until hover, so it also has to appear on keyboard
+                        focus — same rule as FeedbackThread's drop button. */}
+                    <span className="flex items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
                       <button
                         onClick={() => setEditing(turn)}
                         className="rounded p-0.5 hover:text-fg"

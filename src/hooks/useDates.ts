@@ -16,11 +16,29 @@ export function useDates() {
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Mirror of `dates` for the mutation helpers — reading state inside a
-  // setState updater and assigning out of it isn't safe under StrictMode's
-  // double-invocation, and every mutation needs the current record to merge.
+  /**
+   * Mirror of `dates` for the mutation helpers — reading state inside a
+   * `setState` updater and assigning out of it isn't safe under StrictMode's
+   * double-invocation, and every mutation needs the current record to merge.
+   *
+   * The mirror is the authority the helpers read, and each of them assigns the
+   * list it computed **before** calling `setDates`. Two things follow. Writing a
+   * ref during render is the unsafe thing this mirror exists to avoid — React may
+   * render and throw the result away, so the sync belongs in an effect. And
+   * because state lands a render later, syncing *only* in the effect would leave
+   * two mutations in one tick both merging into the pre-first-mutation record,
+   * silently dropping the first one's fields.
+   */
   const datesRef = useRef<DateRecord[]>([])
-  datesRef.current = dates
+  useEffect(() => {
+    datesRef.current = dates
+  }, [dates])
+
+  /** Single writer: keeps the mirror and the state in step. */
+  const commit = useCallback((list: DateRecord[]) => {
+    datesRef.current = list
+    setDates(list)
+  }, [])
 
   // `loaded` is set in `finally` on purpose: a failed open (blocked IndexedDB,
   // a corrupt store) would otherwise leave the app on its loading spinner
@@ -29,7 +47,7 @@ export function useDates() {
     ;(async () => {
       try {
         const all = await listDates()
-        setDates(all)
+        commit(all)
         const last = (await chrome.storage.local.get(LAST_KEY))[LAST_KEY] as string | undefined
         setActiveId(all.find((d) => d.id === last)?.id ?? all[0]?.id ?? null)
       } catch (e) {
@@ -38,7 +56,7 @@ export function useDates() {
         setLoaded(true)
       }
     })()
-  }, [])
+  }, [commit])
 
   useEffect(() => {
     if (activeId) chrome.storage.local.set({ [LAST_KEY]: activeId })
@@ -81,20 +99,23 @@ export function useDates() {
       // Front, not a re-sort: `next.updatedAt` is `now`, so it is by definition
       // the newest. Sorting would paper over a broken invariant instead of
       // keeping it.
-      setDates((prev) => [next, ...prev.filter((d) => d.id !== id)])
+      commit([next, ...datesRef.current.filter((d) => d.id !== id)])
       await saveDate(next)
       return next
     },
-    [],
+    [commit],
   )
 
-  const create = useCallback(async (name: string) => {
-    const record = newDate(name.trim() || 'Untitled')
-    await saveDate(record)
-    setDates((prev) => [record, ...prev])
-    setActiveId(record.id)
-    return record
-  }, [])
+  const create = useCallback(
+    async (name: string) => {
+      const record = newDate(name.trim() || 'Untitled')
+      await saveDate(record)
+      commit([record, ...datesRef.current])
+      setActiveId(record.id)
+      return record
+    },
+    [commit],
+  )
 
   const remove = useCallback(
     async (id: string) => {
@@ -103,9 +124,9 @@ export function useDates() {
       // a setState updater has to stay pure.
       const next = datesRef.current.filter((d) => d.id !== id)
       if (id === activeId) setActiveId(next[0]?.id ?? null)
-      setDates(next)
+      commit(next)
     },
-    [activeId],
+    [activeId, commit],
   )
 
   return { dates, active, activeId, setActiveId, loaded, loadError, create, update, remove }

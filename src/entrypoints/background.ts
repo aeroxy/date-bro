@@ -78,8 +78,12 @@ export default defineBackground(() => {
 
   chrome.runtime.onMessage.addListener((message: { type?: string } & Record<string, unknown>, _sender, sendResponse) => {
     switch (message?.type) {
-      // The app page delegates Qwen calls here: the worker is the one context
-      // with a keep-alive during a long stream, and it owns the cookie jar.
+      // The app page delegates Qwen calls here because this is the context that
+      // owns the cookie jar, and the one whose lifetime needs managing at all.
+      // Nothing here guarantees the worker survives a long stream: Chrome extends
+      // its life while a fetch is in flight, and `sendQwenChatStream` pokes an
+      // extension API every 10s to reset the idle timer. Both are Chrome
+      // behaviours we're leaning on, not a contract.
       case 'QWEN_CHAT_REQUEST': {
         const requestId = message.requestId as string | undefined
         const controller = new AbortController()

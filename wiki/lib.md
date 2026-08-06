@@ -120,8 +120,10 @@ error goes back to the model as something it can act on. Dropping the block woul
 ## `agent.ts` + `tools/`
 
 Only `suggestMove` uses this — the two rebuild engines are pure transcript analysis and deliberately
-never get tools (see [coach.md](coach.md) for why). `runAgent` drives an OpenAI-style tool-calling
-loop for the `openai` backend: model → tool calls → append results → loop, capped at
+never get tools (see [coach.md](coach.md) for why). `runAgent` drives an OpenAI-shaped tool-calling
+loop on **both** keyed backends — Anthropic participates for real, with `anthropic-messages.ts`
+translating the tool calls and results in each direction, which is the whole reason the loop is
+written against one shape: model → tool calls → append results → loop, capped at
 `MAX_AGENT_ITERATIONS` (10), with research tools stripped after `MAX_TOOL_ROUNDS` (5) so the model is
 forced to answer instead of researching forever. `runAgentWithValidation<T>` wraps it with the same
 parse-validate-retry contract as `completeJSON`.
