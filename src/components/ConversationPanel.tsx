@@ -195,8 +195,10 @@ export function ConversationPanel({
                       </span>
                     ) : null}
                     {/* Hidden until hover, so it also has to appear on keyboard
-                        focus — same rule as FeedbackThread's drop button. */}
-                    <span className="flex items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+                        focus — same rule as FeedbackThread's drop button.
+                        Invisible isn't gone: without pointer-events-none, delete
+                        stays clickable under the cursor while it reads as absent. */}
+                    <span className="pointer-events-none flex items-center gap-1 opacity-0 transition focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
                       <button
                         onClick={() => setEditing(turn)}
                         className="rounded p-0.5 hover:text-fg"
