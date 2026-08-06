@@ -6,6 +6,10 @@ be concise
 
 read and update wiki below when needed
 
+one user, one browser, no server — the operator is the owner, and the coach's LLM
+is you. judge findings against that, not a multi-tenant product: no hostile input,
+no untrusted callers, no data anyone else can see.
+
 ---
 
 ## Wiki

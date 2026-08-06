@@ -9,6 +9,14 @@ const LAST_KEY = 'dateBroLastOpened'
  * All dates live in memory once loaded — the whole dataset is a few hundred KB
  * of text at most — and every mutation writes straight through to IndexedDB.
  * No optimistic-update machinery, because there's no server to disagree with.
+ *
+ * `create` and `remove` write first, then commit. `update` commits first and
+ * writes after, and has to: the mirror it commits to is what a second mutation
+ * in the same tick merges from, so deferring the commit behind the await drops
+ * the first one's fields. The cost is that a rejected `saveDate` leaves memory
+ * ahead of the store; it isn't rolled back, because a rollback would also undo
+ * whatever landed during the await. Callers surface the failure instead — see
+ * `persist` in App.tsx.
  */
 export function useDates() {
   const [dates, setDates] = useState<DateRecord[]>([])
