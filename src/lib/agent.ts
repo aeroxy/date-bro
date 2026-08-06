@@ -103,6 +103,12 @@ function toolCacheKey(call: ToolCall): string | null {
 // Wrap a ToolExecutor with a per-run cache. Promises are cached (not just
 // results), so concurrent identical calls share one in-flight fetch; a
 // rejected call is evicted so a transient failure can be retried.
+//
+// A cache hit returns the *first* caller's promise, signal and all. That's only
+// sound because the cache is per-run and every call in a run shares that run's
+// signal — aborting the run cancels the one fetch all of them are waiting on.
+// Don't reuse an executor across runs: a later run would inherit an earlier
+// run's abort.
 export function createCachedExecutor(base: ToolExecutor = executeTool): ToolExecutor {
   const inflight = new Map<string, Promise<string>>()
   return (call, signal) => {

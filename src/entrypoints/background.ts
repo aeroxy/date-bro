@@ -72,7 +72,7 @@ export default defineBackground(() => {
 
   chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
-      openApp().catch(() => {})
+      openApp().catch((e) => console.error('[Date Bro] Failed to open the app tab on install:', e))
     }
   })
 

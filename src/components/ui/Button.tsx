@@ -33,7 +33,14 @@ const variants: Record<Variant, string> = {
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', ...rest }, ref) => (
-    <button ref={ref} className={cn(base, sizes[size], variants[variant], className)} {...rest} />
+    // `type` before the spread, so a caller can still ask for a submit button.
+    // The HTML default is submit, which is never what these are used for.
+    <button
+      ref={ref}
+      type="button"
+      className={cn(base, sizes[size], variants[variant], className)}
+      {...rest}
+    />
   ),
 )
 Button.displayName = 'Button'

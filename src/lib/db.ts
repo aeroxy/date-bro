@@ -20,6 +20,12 @@ function db() {
         store.createIndex('by-updated', 'updatedAt')
       },
     })
+    // A cached rejection would be permanent: the usual reason an open fails is
+    // another tab of this extension blocking an upgrade, which clears on its
+    // own. Drop the failed promise so the next call actually retries.
+    dbPromise.catch(() => {
+      dbPromise = null
+    })
   }
   return dbPromise
 }

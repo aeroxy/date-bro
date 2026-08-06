@@ -485,24 +485,30 @@ async function postSSE(
       const decoder = new TextDecoder()
       let buffer = ''
 
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        rearm()
-        buffer += decoder.decode(value, { stream: true })
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          rearm()
+          buffer += decoder.decode(value, { stream: true })
 
-        // Events are separated by a blank line; the regex tolerates CRLF.
-        let boundary: RegExpExecArray | null
-        while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
-          const block = buffer.slice(0, boundary.index)
-          buffer = buffer.slice(boundary.index + boundary[0].length)
-          const event = parseSSEBlock(block)
-          if (!event) continue
-          // `delivered` is set after the handler returns, so an `error` event
-          // arriving first still throws from a retryable position.
-          onEvent(event)
-          delivered = true
+          // Events are separated by a blank line; the regex tolerates CRLF.
+          let boundary: RegExpExecArray | null
+          while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
+            const block = buffer.slice(0, boundary.index)
+            buffer = buffer.slice(boundary.index + boundary[0].length)
+            const event = parseSSEBlock(block)
+            if (!event) continue
+            // `delivered` is set after the handler returns, so an `error` event
+            // arriving first still throws from a retryable position.
+            onEvent(event)
+            delivered = true
+          }
         }
+      } finally {
+        // Leaving mid-stream — a throw from `onEvent`, or a retry — otherwise
+        // leaves the body open holding the connection. A no-op once `done`.
+        reader.cancel().catch(() => {})
       }
 
       clearTimeout(timer)

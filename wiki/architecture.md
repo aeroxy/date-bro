@@ -2,7 +2,7 @@
 
 ## Directory Structure
 
-```
+```text
 date-bro/
 ├── src/
 │   ├── entrypoints/
@@ -26,7 +26,7 @@ date-bro/
 
 There are only two contexts, and almost everything happens in the first.
 
-```
+```text
 Toolbar click ──► background.ts ──► opens/focuses app.html (one tab, reused)
 
 app.html (extension page — full chrome.* access, no lifetime limit)
