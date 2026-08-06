@@ -34,7 +34,7 @@ low-confidence guess can never look like a finding.
 | Component | Role |
 |---|---|
 | `DateRail` | Left rail — people list, inline add, stage/turn-count/last-updated summary |
-| `ProfileModal` | The seed context: name, stage, meta, what you know about them, research notes (auto-filled by "What do I say?", with a `Clear` button riding in the field's hint slot), you in this one, what you want. Placeholders do real work here — they're the instructions for writing a useful seed. The draft is seeded on open only, so `save` omits `researchNotes` from the patch when it's untouched — otherwise saving the profile would roll back notes a run merged in while the modal was open. An actual edit still wins. |
+| `ProfileModal` | The seed context: name, stage, meta, what you know about them, research notes (auto-filled by "What do I say?", with a `Clear` button riding in the field's hint slot), you in this one, what you want. Placeholders do real work here — they're the instructions for writing a useful seed. The draft is seeded on open only, so `save` omits `researchNotes` from the patch unless the user touched it — otherwise saving the profile would roll back notes a run merged in while the modal was open. "Touched" is a `notesDirty` ref set by `setNotes`, which every edit path routes through, **not** a comparison against the opening value: a user who edits and then deliberately reverts is not untouched, and inferring it from equality silently dropped the revert. |
 | `ConversationPanel` | Turn list (numbered, side-aligned, hover edit/delete), composer that auto-flips speaker after each add, `EditTurnModal`, and `ImportModal` with a live parse preview |
 | `ContextView` | `PersonContextView` and `SelfContextView`. Shared `Block` / `ClaimList` / `Bullets` / `HonestNote` internals. |
 | `SuggestionView` | The read, the priority callout, option cards with a copyable draft, `avoid`, `timing`, and the honest note on an inverted panel |
@@ -97,3 +97,11 @@ Loads every record once, keeps a `datesRef` mirror, and writes each mutation str
 IndexedDB. The mirror exists because reading state inside a `setState` updater and assigning out of
 it isn't safe under StrictMode's double-invocation — every mutation needs the current record to
 merge into.
+
+**Order is an invariant, not a coincidence.** `listDates()` reads through the `by-updated` index
+newest-first, `create()` prepends, and `update()` moves the touched record to the front — the rail
+renders `dates` as given, so all three paths have to agree or the visible order drifts from what a
+reload produces. `update()` was replacing in place, which left a record showing "just now" from
+below people last touched days ago until you reloaded. It moves to the front rather than re-sorting:
+the written record's `updatedAt` is `Date.now()`, so it *is* the newest, and a defensive sort would
+hide a broken invariant instead of keeping one.

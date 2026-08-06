@@ -55,6 +55,12 @@ export function useDates() {
    *
    * Returns the record as written, so a caller that needs to keep working with
    * it doesn't have to reconstruct the merge itself.
+   *
+   * Also maintains the rail's order. `listDates()` reads through the
+   * `by-updated` index newest-first and `create()` prepends, so newest-updated-
+   * first is the invariant — but this was replacing in place, so a record touched
+   * mid-session kept its old slot and showed "just now" from below people last
+   * touched days ago, then jumped on reload.
    */
   const update = useCallback(
     async (
@@ -72,7 +78,10 @@ export function useDates() {
         // Only a write that touches the transcript moves the staleness clock.
         ...(resolved.turns ? { turnsUpdatedAt: now } : {}),
       }
-      setDates((prev) => prev.map((d) => (d.id === id ? next : d)))
+      // Front, not a re-sort: `next.updatedAt` is `now`, so it is by definition
+      // the newest. Sorting would paper over a broken invariant instead of
+      // keeping it.
+      setDates((prev) => [next, ...prev.filter((d) => d.id !== id)])
       await saveDate(next)
       return next
     },
