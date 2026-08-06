@@ -146,7 +146,12 @@ export default function App() {
   const persist = useCallback(
     (work: Promise<unknown>, tab: Tab) => {
       const id = activeId
-      if (!id) return
+      // No panel to put it on (first run, before anything is selected) — still
+      // has to be caught here, or the failure is an unhandled rejection.
+      if (!id) {
+        work.catch((e: unknown) => console.error('[Date Bro] Save failed:', e))
+        return
+      }
       work.catch((e: unknown) => {
         setError({ id, tab, message: `Couldn't save that: ${(e as Error).message}` })
       })

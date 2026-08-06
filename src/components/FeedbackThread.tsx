@@ -69,7 +69,7 @@ export function FeedbackThread({
                   <button
                     onClick={() => onRemove(i)}
                     aria-label={`Drop note ${i + 1}`}
-                    className="mt-0.5 flex-none rounded p-0.5 text-fg-3 opacity-0 transition hover:text-no-strong focus-visible:opacity-100 group-hover:opacity-100"
+                    className="pointer-events-none mt-0.5 flex-none rounded p-0.5 text-fg-3 opacity-0 transition hover:text-no-strong focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
                     title="Drop this note"
                   >
                     <X size={11} />
