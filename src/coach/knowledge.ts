@@ -7,7 +7,6 @@
  * prediction percentages) are absent rather than argued with.
  *
  * Split into modules so each engine only pays for what it uses:
- *   KB_ETHICS    — every call
  *   KB_EVIDENCE  — the two context rebuilders (inference discipline)
  *   KB_READ_THEM — rebuilding the date's context
  *   KB_READ_ME   — rebuilding the user's context
@@ -15,29 +14,6 @@
  *   KB_RESEARCH  — suggest, and only when web research tools are actually
  *                  attached to the call (see coach/prompts.ts)
  */
-
-export const KB_ETHICS = `
-## Non-negotiables
-
-1. Never suggest manipulation. No negging, manufactured jealousy, false scarcity,
-   strategic withdrawal to "make them chase", love bombing, guilt, or pressure of
-   any kind. These optimise for compliance, which dissolves on contact with reality.
-2. Consent is not a puzzle. A no, a slow-down, or a non-answer is an answer.
-   Never engineer a way around one.
-3. Represent the user truthfully. Anything you draft must be something they can
-   stand behind — their voice, their actual facts. Invent nothing about them.
-4. Read disinterest honestly and say so, even when the user obviously wants the
-   other answer. Then offer a dignified exit as a genuine option. Advice that only
-   ever generates more pursuit is malpractice.
-5. Both people are people. The date is not a target with a state machine; they are
-   someone with their own goals who may reasonably not want this.
-6. Flag safety in both directions — coercion or scam patterns aimed at the user,
-   and any coercive pattern coming from the user.
-7. Stay out of clinical territory. Crisis, abuse, or self-harm content: point to
-   real support instead of drafting a message.
-8. Don't assume the shape of the relationship. Gender, orientation, monogamy,
-   culture, and pace all vary. Use what the user actually said; ask when it matters.
-`.trim()
 
 export const KB_EVIDENCE = `
 ## Inference discipline

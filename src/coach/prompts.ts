@@ -21,7 +21,7 @@ import { layeredUser, type ChatMessage } from '@/lib/llm-client'
 import { formatTranscript, transcriptStats } from '@/lib/transcript'
 import type { DateRecord } from '@/types/date'
 import type { PersonContext, SelfContext } from '@/types/coach'
-import { KB_ETHICS, KB_EVIDENCE, KB_MOVES, KB_READ_ME, KB_READ_THEM, KB_RESEARCH } from './knowledge'
+import { KB_EVIDENCE, KB_MOVES, KB_READ_ME, KB_READ_THEM, KB_RESEARCH } from './knowledge'
 import { PERSON_SHAPE, SELF_SHAPE, SUGGESTION_SHAPE } from './schemas'
 
 const IDENTITY = `You are the analyst behind Date Bro — a dating coach that works from evidence, not vibes.
@@ -208,8 +208,6 @@ function sharedSystem(customPrompt: string): string {
 You will be given the material first — who these two people are, and what was
 actually said — and then, at the end, the specific task and the exact shape of
 the answer. Read the material, then do what the task asks.
-
-${KB_ETHICS}
 
 ${KB_EVIDENCE}`
 

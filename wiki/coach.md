@@ -13,7 +13,6 @@ the prompt. Split so each engine only pays for what it uses:
 
 | Module | Used by | Contents |
 |---|---|---|
-| `KB_ETHICS` | all three | The eight non-negotiables — no manipulation, consent isn't a puzzle, represent the user truthfully, read disinterest honestly, both people are people, flag safety both ways, stay out of clinical territory, don't assume the relationship's shape |
 | `KB_EVIDENCE` | both rebuilders | Inference discipline: separate observation from inference, confidence is part of the claim, one message is never a pattern, prefer the boring explanation, unknowns are output |
 | `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), Big Five over MBTI/love-languages, bids for connection, honest interest signals ranked by diagnostic value, red/amber/green flags |
 | `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, voice, stated vs revealed goals |
@@ -33,7 +32,7 @@ design: it's what makes the transcript — nearly all of the request — a stabl
 
 | | Stratum | Contents | Changes when |
 |---|---|---|---|
-| `system` | L0 | `IDENTITY` + orientation line + `KB_ETHICS` + `KB_EVIDENCE` + the user's standing instructions | app release / settings edit |
+| `system` | L0 | `IDENTITY` + orientation line + `KB_EVIDENCE` + the user's standing instructions | app release / settings edit |
 | `user[0]` | L1 | `<the_person>`, `<the_user>` | the profile is edited |
 | `user[1]` | L2 **[cache]** | `<transcript>` + `<counts>` | a turn is added — append-only |
 | `user[2]` | L3 **[cache]** | `<task>` + this engine's knowledge modules + `OUTPUT_RULES` + shape sketch | never (constant per engine) |
