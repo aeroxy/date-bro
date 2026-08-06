@@ -130,7 +130,10 @@ export function SettingsModal({
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="accent" size="sm" onClick={save}>
+          {/* Nothing loaded yet means `profiles` is still the empty initial
+              state, and saving writes all three keys at once — one click would
+              overwrite the stored profiles with nothing. */}
+          <Button variant="accent" size="sm" onClick={save} disabled={!current}>
             Save
           </Button>
         </>
