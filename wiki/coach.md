@@ -96,7 +96,7 @@ whatever's already landed in `<research_notes>`); only `suggestMove` ever initia
 `suggestMove` branches on `resolveSuggestionOutput(config)`:
 
 - **Qwen, or `tools_enabled: false`** → the same `completeJSON` path as the rebuild engines.
-- **`openai` with tools on (the default)** → `ALL_TOOLS` (`web_search`, `read_page`) plus
+- **Either keyed backend (`openai` or `anthropic`) with tools on (the default)** → `ALL_TOOLS` (`web_search`, `read_page`) plus
   `buildVerdictSchema(SUGGESTION_SCHEMA)` as the `provide_verdict` channel, run through
   `runAgentWithValidation`. An optional `onActivity` callback fires a human-readable line
   (`"Searching: …"` / `"Reading: …"`) per tool call, which `App.tsx` shows live under the spinner.

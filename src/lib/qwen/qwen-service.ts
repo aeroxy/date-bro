@@ -15,6 +15,11 @@ const QWEN_ORIGIN = 'https://chat.qwen.ai';
 const QWEN_RATE_LIMIT_RETRIES = 3;
 const QWEN_RATE_LIMIT_DELAY_MS = 30_000;
 
+// How long to wait for the completions endpoint to answer at all. Covers headers
+// only — a stream that has started is governed by the reader's idle watchdog, and
+// a thinking model can legitimately go quiet for a while before the first delta.
+const QWEN_HEADER_TIMEOUT_MS = 60_000;
+
 function isQwenAntiBotChallenge(raw: string): boolean {
   if (!raw) return false;
   return /RGV587_ERROR|FAIL_SYS_USER_VALIDATE|_____tmd_____|x5secdata|被挤爆啦,请稍后重试/.test(raw);
@@ -635,25 +640,43 @@ export async function sendQwenChatStream(
         timestamp: nowInSeconds,
       };
 
+      // Header timeout only — disarmed the moment the response object exists.
+      // `AbortSignal.timeout` can't be composed in directly: it would also fire
+      // mid-stream and cut a working answer short, and Qwen streams run minutes.
+      // Once headers are in, the reader's own 60s idle watchdog takes over.
+      const headerAbort = new AbortController();
+      const headerTimer = setTimeout(
+        () => headerAbort.abort(new DOMException('Qwen did not respond in time', 'TimeoutError')),
+        QWEN_HEADER_TIMEOUT_MS
+      );
+      const requestSignal = signal
+        ? AbortSignal.any([signal, headerAbort.signal])
+        : headerAbort.signal;
+
       // Send same-origin-spoofed completions request from extension background
       console.log('[Qwen Service] Initiating completions stream fetch...');
-      const response = await fetch(`${QWEN_ORIGIN}/api/v2/chat/completions?chat_id=${chatId}`, {
-        method: 'POST',
-        credentials: 'include', // Ensure cookies are sent
-        signal, // Thread the abort signal through
-        headers: {
-          'accept': 'text/event-stream',
-          'content-type': 'application/json',
-          'source': 'web',
-          'token': token,
-          'bx-v': '2.5.36',
-          'version': '0.2.63',
-          'timezone': formatTimezone(),
-          'x-request-id': crypto.randomUUID(),
-          'x-accel-buffering': 'no',
-        },
-        body: JSON.stringify(payload),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${QWEN_ORIGIN}/api/v2/chat/completions?chat_id=${chatId}`, {
+          method: 'POST',
+          credentials: 'include', // Ensure cookies are sent
+          signal: requestSignal,
+          headers: {
+            'accept': 'text/event-stream',
+            'content-type': 'application/json',
+            'source': 'web',
+            'token': token,
+            'bx-v': '2.5.36',
+            'version': '0.2.63',
+            'timezone': formatTimezone(),
+            'x-request-id': crypto.randomUUID(),
+            'x-accel-buffering': 'no',
+          },
+          body: JSON.stringify(payload),
+        });
+      } finally {
+        clearTimeout(headerTimer);
+      }
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');

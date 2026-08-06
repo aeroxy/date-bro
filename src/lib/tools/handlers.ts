@@ -89,11 +89,27 @@ async function fetchWithTimeout(url: string, signal?: AbortSignal): Promise<Fetc
   }
 }
 
+/**
+ * The declared charset, or utf-8. Pages in iso-8859-1, windows-1252 and the CJK
+ * encodings are still out there, and decoding them as utf-8 hands the model
+ * mojibake it will happily quote back. An unknown label throws in `TextDecoder`,
+ * so fall back rather than fail the read.
+ */
+function decoderFor(res: Response): TextDecoder {
+  const declared = /charset=["']?([^"';,\s]+)/i.exec(res.headers.get('content-type') ?? '')?.[1]
+  if (!declared) return new TextDecoder()
+  try {
+    return new TextDecoder(declared)
+  } catch {
+    return new TextDecoder()
+  }
+}
+
 /** Read a body incrementally, stopping once MAX_PAGE_BYTES have arrived. */
 async function readCapped(res: Response): Promise<{ text: string; truncated: boolean }> {
   if (!res.body) return { text: '', truncated: false }
   const reader = res.body.getReader()
-  const decoder = new TextDecoder()
+  const decoder = decoderFor(res)
   let text = ''
   let bytes = 0
 
@@ -164,7 +180,12 @@ function cleanDdgRedirects(md: string): string {
       const target = new URL(urlString).searchParams.get('uddg')
       if (!target) return match
       const targetUrl = new URL(target)
-      if (targetUrl.hostname.endsWith('duckduckgo.com') && targetUrl.pathname === '/y.js') {
+      // Suffix-matched on a label boundary, not a bare `endsWith` — that also
+      // matched `notduckduckgo.com`, so an attacker-controlled host could get its
+      // `u3` param unwrapped instead of being handed to the model as-is.
+      const host = targetUrl.hostname.toLowerCase()
+      const isDdg = host === 'duckduckgo.com' || host.endsWith('.duckduckgo.com')
+      if (isDdg && targetUrl.pathname === '/y.js') {
         return targetUrl.searchParams.get('u3') ?? ''
       }
       return target

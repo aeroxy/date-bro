@@ -350,6 +350,13 @@ export function validateSuggestion(r: object): string | null {
 
   const options = (r as { options: Array<Record<string, unknown>> }).options
   for (const [i, opt] of options.entries()) {
+    // Checked before `missing` reads through it: a `null` entry would throw a
+    // TypeError instead of returning a complaint, and while the callers catch it,
+    // what goes back to the model is "Cannot read properties of null" rather than
+    // something it can act on.
+    if (!opt || typeof opt !== 'object' || Array.isArray(opt)) {
+      return `options[${i}] must be an object`
+    }
     const err = missing(opt, ['label', 'kind', 'risk', 'draft', 'why', 'then'])
     if (err) return `options[${i}]: ${err}`
     if (typeof opt.draft !== 'string' || !opt.draft.trim()) {
