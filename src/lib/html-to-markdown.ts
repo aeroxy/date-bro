@@ -28,6 +28,17 @@ function stripNonContent(html: string): string {
 
 function htmlToMarkdown(html: string): string {
   const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+  // Images keep their alt text and lose their src. Turndown's default renders
+  // `![alt](src)`, and a `data:` URI is tens of kilobytes of base64 that costs
+  // the model context and tells it nothing; even a real URL is one it can only
+  // fetch as HTML.
+  td.addRule('imageAltOnly', {
+    filter: 'img',
+    replacement: (_content, node) => {
+      const alt = (node as Element).getAttribute?.('alt')?.trim()
+      return alt ? alt : ''
+    },
+  })
   return td.turndown(html)
 }
 

@@ -157,7 +157,7 @@ export async function webSearch(query: string, ctx: ToolHandlerContext = {}): Pr
     await discard()
     throw new Error(`DuckDuckGo returned HTTP ${res.status}`)
   }
-  const { text: html } = await read()
+  const { text: html, truncated } = await read()
   if (isDdgBotChallenge(html)) {
     await openDdgChallengeTab(url)
     throw new Error(
@@ -165,7 +165,7 @@ export async function webSearch(query: string, ctx: ToolHandlerContext = {}): Pr
         'ask the user to complete the verification there, then retry this search.',
     )
   }
-  return cleanDdgRedirects(parseHtmlToMarkdown(html))
+  return capped(cleanDdgRedirects(parseHtmlToMarkdown(html)), truncated)
 }
 
 // DDG wraps every result href in a redirector: //duckduckgo.com/l/?uddg=<encoded
@@ -228,9 +228,14 @@ export async function readPage(url: string, ctx: ToolHandlerContext = {}): Promi
   }
 
   const { text: html, truncated } = await read()
-  const markdown = parseHtmlToMarkdown(html)
+  return capped(parseHtmlToMarkdown(html), truncated)
+}
+
+// Says so explicitly, so the model treats it as a partial read instead of
+// concluding the page simply ends there. Both tools go through this: a search
+// results page is normally small, but "normally" isn't a bound, and a silently
+// clipped result reads to the model as the complete set.
+function capped(markdown: string, truncated: boolean): string {
   if (markdown.length <= MAX_PAGE_CHARS && !truncated) return markdown
-  // Says so explicitly, so the model treats it as a partial read instead of
-  // concluding the page simply ends there.
   return `${markdown.slice(0, MAX_PAGE_CHARS)}\n\n[Truncated: the page was longer than this tool returns. Search for a more specific source if what you need isn't above.]`
 }

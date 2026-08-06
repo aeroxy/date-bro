@@ -1,22 +1,12 @@
 import { useState } from 'react'
 import { Plus, Heart } from 'lucide-react'
 
+import { ago } from '@/lib/ago'
 import { cn } from '@/lib/cn'
 import { Button } from './ui/Button'
 import { Input } from './ui/Field'
 import { Eyebrow } from './ui/Card'
 import { STAGES, type DateRecord } from '@/types/date'
-
-function relative(ts: number): string {
-  const mins = Math.round((Date.now() - ts) / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.round(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.round(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return `${Math.round(days / 30)}mo ago`
-}
 
 const stageLabel = (record: DateRecord) =>
   STAGES.find((s) => s.value === record.stage)?.label ?? record.stage
@@ -26,11 +16,14 @@ export function DateRail({
   activeId,
   onSelect,
   onCreate,
+  createError,
 }: {
   dates: DateRecord[]
   activeId: string | null
   onSelect: (id: string) => void
   onCreate: (name: string) => void
+  /** Only ever set on a first-ever create, when there's no panel to show it on. */
+  createError?: string | null
 }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
@@ -74,6 +67,12 @@ export function DateRail({
         </div>
       ) : null}
 
+      {createError ? (
+        <p className="px-3 pb-3 text-[11.5px] leading-snug text-no">
+          Couldn't add them: {createError}
+        </p>
+      ) : null}
+
       <div className="scroll-slim flex-1 overflow-y-auto px-2 pb-4">
         {dates.length === 0 ? (
           <p className="px-2 py-6 text-[12.5px] leading-relaxed text-fg-3">
@@ -111,7 +110,7 @@ export function DateRail({
                   {d.name}
                 </span>
                 <span className="block truncate text-[11px] text-fg-3">
-                  {stageLabel(d)} · {d.turns.length} turns · {relative(d.updatedAt)}
+                  {stageLabel(d)} · {d.turns.length} turns · {ago(d.updatedAt)}
                 </span>
               </span>
             </button>

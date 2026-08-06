@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
-import { AlertCircle, Heart, RotateCw, Settings, Sparkles, Square, Trash2, User, UserRound } from 'lucide-react'
+import { AlertCircle, Heart, RotateCw, Settings, Sparkles, Square, Trash2, User, UserRound, X } from 'lucide-react'
 
+import { ago } from '@/lib/ago'
 import { ConversationPanel } from '@/components/ConversationPanel'
 import { PersonContextView, SelfContextView } from '@/components/ContextView'
 import { DateRail } from '@/components/DateRail'
@@ -24,15 +25,7 @@ type Tab = Engine
 /** Runs keep going when you switch profiles, so a run is tagged with its date. */
 type Busy = { id: string; tab: Tab } | null
 
-function ago(ts?: number): string {
-  if (!ts) return 'never'
-  const mins = Math.round((Date.now() - ts) / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.round(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.round(hours / 24)}d ago`
-}
+const TAB_LABEL: Record<Tab, string> = { them: 'Them', me: 'You', next: 'Next move' }
 
 const FEEDBACK_PLACEHOLDER: Record<Tab, (name: string) => string> = {
   them: (name) => `e.g. drop the avoidant read — ${name} works nights, that's why the replies land at 2am`,
@@ -57,6 +50,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('them')
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<{ id: string; tab: Tab; message: string } | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [situation, setSituation] = useState('')
   const [showProfile, setShowProfile] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -146,10 +140,11 @@ export default function App() {
   const persist = useCallback(
     (work: Promise<unknown>, tab: Tab) => {
       const id = activeId
-      // No panel to put it on (first run, before anything is selected) — still
-      // has to be caught here, or the failure is an unhandled rejection.
+      // First run, before anything is selected: there's no panel to put this
+      // on, so it goes to the rail's own slot. Without somewhere to land, a
+      // failed first create cleared the box and looked like a dead button.
       if (!id) {
-        work.catch((e: unknown) => console.error('[Date Bro] Save failed:', e))
+        work.catch((e: unknown) => setCreateError((e as Error).message))
         return
       }
       work.catch((e: unknown) => {
@@ -187,6 +182,13 @@ export default function App() {
     active?.suggestions.find((s) => s.id === viewingSuggestion) ?? active?.suggestions[0]
   // A run belonging to another profile shouldn't render as this one thinking.
   const busyTab = busy && busy.id === activeId ? busy.tab : null
+  // ...but it still has to be stoppable from wherever the user ended up. `busy`
+  // outliving its own profile is the sharp case: delete the record mid-run and
+  // no `activeId` can ever match it again.
+  const runningElsewhere = busy && busyTab !== tab ? busy : null
+  const runningName = runningElsewhere
+    ? (dates.find((d) => d.id === runningElsewhere.id)?.name ?? 'a deleted profile')
+    : null
   const shownError = error && error.id === activeId ? error : null
 
   return (
@@ -201,9 +203,11 @@ export default function App() {
           setViewingSuggestion(null)
           setSituation('')
         }}
+        createError={createError}
         onCreate={(name) => {
-          // Surfaces on the current panel when there is one. On a genuinely empty
-          // first run there's nowhere to put it — the rail has no error slot.
+          // Surfaces on the current panel when there is one, and in the rail's
+          // own slot when there isn't (see `persist`).
+          setCreateError(null)
           persist(
             create(name).then(() => setShowProfile(true)),
             tab,
@@ -223,9 +227,17 @@ export default function App() {
                   {STAGES.find((s) => s.value === active.stage)?.label ?? active.stage}
                 </Chip>
               </div>
+              {/* Closed while this record is rebuilding. The run works from a
+                  snapshot taken at the start, so an edit landing mid-run comes
+                  back as a read labelled "just now" that contradicts what the
+                  user just wrote — and staleness deliberately tracks turns
+                  only, so nothing would flag it. A run on some *other* profile
+                  is no reason to lock this one. */}
               <button
                 onClick={() => setShowProfile(true)}
-                className="text-[11.5px] text-fg-3 transition hover:text-action"
+                disabled={busy?.id === active.id}
+                title={busy?.id === active.id ? 'Finishes rebuilding first' : undefined}
+                className="text-[11.5px] text-fg-3 transition hover:text-action disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-fg-3"
               >
                 {active.seedThem.trim() ? 'Edit profile & context' : 'Add what you know about them →'}
               </button>
@@ -288,15 +300,25 @@ export default function App() {
                 <span className="flex-1" />
                 {/* Becomes the only way out of a long run — a Qwen anti-bot
                     back-off is three 30s waits, and every other control is
-                    disabled while one is in flight. */}
-                {busyTab === tab ? (
+                    disabled while one is in flight. Shown for *any* run in
+                    flight, not just this tab's: it used to be gated on
+                    `busyTab === tab`, so switching profile or tab hid the one
+                    control that could end the run the user was waiting on. The
+                    spinner still only spins for this tab's own run. */}
+                {busy ? (
                   <button
                     onClick={stop}
                     className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] font-semibold text-fg-3 transition hover:bg-no-soft hover:text-no-strong"
-                    title="Stop this run"
+                    title={runningName ? `Stop the run on ${runningName}` : 'Stop this run'}
                   >
-                    <Spinner className="group-hover:hidden" />
-                    <Square size={11} className="hidden fill-current group-hover:block" />
+                    {runningElsewhere ? (
+                      <Square size={11} className="fill-current" />
+                    ) : (
+                      <>
+                        <Spinner className="group-hover:hidden" />
+                        <Square size={11} className="hidden fill-current group-hover:block" />
+                      </>
+                    )}
                     Stop
                   </button>
                 ) : (
@@ -312,15 +334,30 @@ export default function App() {
               </div>
 
               <div className="scroll-slim min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                {shownError?.tab === tab ? (
+                {/* Shown on whichever tab is open, not only the one that failed
+                    — a failure the user never sees is the same as a silent one.
+                    Dismissable, because otherwise it sits there past the point
+                    where the cause has been fixed. */}
+                {shownError ? (
                   <div className="mb-4 flex gap-2.5 rounded-md border border-no/40 bg-no-soft px-3.5 py-3">
                     <AlertCircle size={15} className="mt-0.5 flex-none text-no" />
-                    <div className="min-w-0">
-                      <p className="text-[12.5px] font-semibold text-no-strong">That didn't run</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12.5px] font-semibold text-no-strong">
+                        {shownError.tab === tab
+                          ? "That didn't run"
+                          : `${TAB_LABEL[shownError.tab]} didn't run`}
+                      </p>
                       <p className="mt-0.5 break-words text-[12px] leading-relaxed text-fg-2">
                         {shownError.message}
                       </p>
                     </div>
+                    <button
+                      onClick={() => setError(null)}
+                      className="-mr-1 -mt-1 flex-none self-start rounded p-1 text-fg-3 transition hover:text-fg"
+                      aria-label="Dismiss"
+                    >
+                      <X size={13} />
+                    </button>
                   </div>
                 ) : null}
 

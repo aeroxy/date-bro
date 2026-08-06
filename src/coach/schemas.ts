@@ -291,7 +291,31 @@ function needsArray(obj: object, field: string, min = 1): string | null {
   return null
 }
 
+/**
+ * Type only, no minimum. An empty list is a legitimate answer for most of these
+ * — no flags, nothing to avoid — but the wrong *type* is not: `"flags": "none"`
+ * passed every check here, got stored, and then took down the *next* run when
+ * `summarisePerson` called `.map` on it. The failure surfaced a run later and
+ * blamed the wrong thing, so shape is enforced where it's cheap to say so.
+ */
+function needsArrays(obj: object, fields: string[]): string | null {
+  for (const field of fields) {
+    const err = needsArray(obj, field, 0)
+    if (err) return err
+  }
+  return null
+}
+
+/** Prose the UI renders as a React child: a non-string there throws on render. */
+function needsString(obj: object, field: string): string | null {
+  return typeof (obj as Record<string, unknown>)[field] === 'string'
+    ? null
+    : `"${field}" must be a string`
+}
+
 export function validatePerson(r: object): string | null {
+  const style = (r as { communication_style: object }).communication_style
+  const interest = (r as { interest_read: object }).interest_read
   return (
     missing(r, [
       'headline',
@@ -305,24 +329,31 @@ export function validatePerson(r: object): string | null {
       'open_threads',
       'open_questions',
     ]) ??
+    needsString(r, 'headline') ??
     needsArray(r, 'who_they_are') ??
     needsArray(r, 'open_questions') ??
-    missing((r as { communication_style: object }).communication_style, [
-      'summary',
-      'attachment_hypothesis',
-      'bids',
+    needsArrays(r, [
+      'what_they_care_about',
+      'current_situation',
+      'flags',
+      'sensitivities',
+      'open_threads',
     ]) ??
-    missing((r as { interest_read: object }).interest_read, [
+    missing(style, ['summary', 'attachment_hypothesis', 'bids']) ??
+    needsArrays(style, ['bids']) ??
+    missing(interest, [
       'level',
       'confidence',
       'signals_for',
       'signals_against',
       'honest_note',
-    ])
+    ]) ??
+    needsArrays(interest, ['signals_for', 'signals_against'])
   )
 }
 
 export function validateSelf(r: object): string | null {
+  const voice = (r as { your_voice: object }).your_voice
   return (
     missing(r, [
       'headline',
@@ -335,8 +366,17 @@ export function validateSelf(r: object): string | null {
       'goal_read',
       'open_questions',
     ]) ??
+    needsString(r, 'headline') ??
     needsArray(r, 'how_you_come_across') ??
-    missing((r as { your_voice: object }).your_voice, ['summary', 'markers']) ??
+    needsArrays(r, [
+      'patterns',
+      'working',
+      'costing_you',
+      'you_have_revealed',
+      'open_questions',
+    ]) ??
+    missing(voice, ['summary', 'markers']) ??
+    needsArrays(voice, ['markers']) ??
     missing((r as { goal_read: object }).goal_read, ['stated', 'revealed', 'tension'])
   )
 }
@@ -344,8 +384,12 @@ export function validateSelf(r: object): string | null {
 export function validateSuggestion(r: object): string | null {
   const structural =
     missing(r, ['read', 'priority', 'options', 'avoid', 'timing', 'honest_note', 'research_notes']) ??
+    needsString(r, 'read') ??
+    needsString(r, 'priority') ??
+    needsString(r, 'timing') ??
+    needsString(r, 'honest_note') ??
     needsArray(r, 'options', 2) ??
-    needsArray(r, 'research_notes', 0)
+    needsArrays(r, ['avoid', 'research_notes'])
   if (structural) return structural
 
   const options = (r as { options: Array<Record<string, unknown>> }).options
