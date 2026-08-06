@@ -68,6 +68,21 @@ export async function getSettings(): Promise<CoachSettings> {
   return { ...DEFAULT_SETTINGS, ...(result[KEYS.settings] ?? {}) }
 }
 
-export async function saveSettings(settings: CoachSettings): Promise<void> {
-  await chrome.storage.local.set({ [KEYS.settings]: settings })
+/**
+ * Everything the settings modal owns, in one `set`.
+ *
+ * Three separate writes could half-land — profiles stored but the active id
+ * not, leaving the app pointed at a profile that no longer exists, or the other
+ * way round. One `set` writes all three keys or none of them.
+ */
+export async function saveAllSettings(bundle: {
+  profiles: LLMProfile[]
+  activeId: string | null
+  settings: CoachSettings
+}): Promise<void> {
+  await chrome.storage.local.set({
+    [KEYS.llmProfiles]: bundle.profiles,
+    [KEYS.activeProfileId]: bundle.activeId,
+    [KEYS.settings]: bundle.settings,
+  })
 }

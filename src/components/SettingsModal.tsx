@@ -3,13 +3,7 @@ import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
 import { QWEN_MODELS, refreshQwenDeviceId } from '@/lib/qwen/qwen-service'
-import {
-  ensureActiveProfile,
-  getSettings,
-  saveLLMProfiles,
-  saveSettings,
-  setActiveProfileId,
-} from '@/lib/storage'
+import { ensureActiveProfile, getSettings, saveAllSettings } from '@/lib/storage'
 import { newLLMProfile, type LLMBackend, type LLMConfig, type LLMProfile } from '@/types/settings'
 import { Button } from './ui/Button'
 import { Eyebrow } from './ui/Card'
@@ -87,11 +81,7 @@ export function SettingsModal({
   const save = async () => {
     setSaveError(null)
     try {
-      await Promise.all([
-        saveLLMProfiles(profiles),
-        setActiveProfileId(activeId),
-        saveSettings({ customPrompt }),
-      ])
+      await saveAllSettings({ profiles, activeId, settings: { customPrompt } })
     } catch (e) {
       setSaveError((e as Error).message)
       return

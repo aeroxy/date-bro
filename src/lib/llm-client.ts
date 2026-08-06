@@ -485,26 +485,39 @@ async function postSSE(
       const decoder = new TextDecoder()
       let buffer = ''
 
+      const emit = (block: string) => {
+        const event = parseSSEBlock(block)
+        if (!event) return
+        // `delivered` is set after the handler returns, so an `error` event
+        // arriving first still throws from a retryable position.
+        onEvent(event)
+        delivered = true
+      }
+      // Events are separated by a blank line; the regex tolerates CRLF.
+      const drain = () => {
+        let boundary: RegExpExecArray | null
+        while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
+          const block = buffer.slice(0, boundary.index)
+          buffer = buffer.slice(boundary.index + boundary[0].length)
+          emit(block)
+        }
+      }
+
       try {
         for (;;) {
           const { done, value } = await reader.read()
           if (done) break
           rearm()
           buffer += decoder.decode(value, { stream: true })
-
-          // Events are separated by a blank line; the regex tolerates CRLF.
-          let boundary: RegExpExecArray | null
-          while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
-            const block = buffer.slice(0, boundary.index)
-            buffer = buffer.slice(boundary.index + boundary[0].length)
-            const event = parseSSEBlock(block)
-            if (!event) continue
-            // `delivered` is set after the handler returns, so an `error` event
-            // arriving first still throws from a retryable position.
-            onEvent(event)
-            delivered = true
-          }
+          drain()
         }
+        // A stream may end without the trailing blank line, and the decoder can
+        // still be holding the tail of a multi-byte character split across the
+        // last two chunks. Flush both and parse whatever is left, or the final
+        // event — usually the one closing out the answer — is silently dropped.
+        buffer += decoder.decode()
+        drain()
+        if (buffer.trim()) emit(buffer)
       } finally {
         // Leaving mid-stream — a throw from `onEvent`, or a retry — otherwise
         // leaves the body open holding the connection. A no-op once `done`.
