@@ -26,8 +26,27 @@ export async function setActiveProfileId(id: string | null): Promise<void> {
   await chrome.storage.local.set({ [KEYS.activeProfileId]: id })
 }
 
-/** The profile the app is currently running on, creating a default if empty. */
-export async function ensureActiveProfile(): Promise<{ profiles: LLMProfile[]; activeId: string }> {
+type ActiveProfile = { profiles: LLMProfile[]; activeId: string }
+
+/**
+ * The profile the app is currently running on, creating a default if empty.
+ *
+ * Concurrent callers share one pass. On a first run two of them would each read
+ * an empty list and create a *different* default profile, and the one that
+ * saved second could leave `activeId` pointing at the profile the other write
+ * dropped — which reads back as no profile at all. Cleared once settled, so
+ * this only ever collapses calls that genuinely overlap.
+ */
+let inFlight: Promise<ActiveProfile> | null = null
+
+export function ensureActiveProfile(): Promise<ActiveProfile> {
+  inFlight ??= resolveActiveProfile().finally(() => {
+    inFlight = null
+  })
+  return inFlight
+}
+
+async function resolveActiveProfile(): Promise<ActiveProfile> {
   let profiles = await getLLMProfiles()
   if (profiles.length === 0) {
     profiles = [newLLMProfile()]

@@ -67,7 +67,13 @@ export function useDates() {
   }, [commit])
 
   useEffect(() => {
-    if (activeId) chrome.storage.local.set({ [LAST_KEY]: activeId })
+    // Remembering the last-opened date is a convenience, not state anything
+    // depends on — log a failed write and carry on rather than reject unhandled.
+    if (activeId) {
+      chrome.storage.local
+        .set({ [LAST_KEY]: activeId })
+        .catch((e: unknown) => console.error('[Date Bro] Failed to remember the open date:', e))
+    }
   }, [activeId])
 
   const active = dates.find((d) => d.id === activeId) ?? null

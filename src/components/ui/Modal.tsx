@@ -67,6 +67,7 @@ export function Modal({
             </h2>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="rounded-md p-1 text-fg-3 transition hover:bg-surface-muted hover:text-fg"
             aria-label="Close"

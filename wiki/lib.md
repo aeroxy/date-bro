@@ -191,6 +191,10 @@ either as a non-2xx or as a 200 with no `data:` deltas. `isQwenAntiBotChallenge`
 on a hit the *same* `chat_id` is re-sent after 30s with fresh cookies, up to 3 times. Session
 creation happens once up front, because the throttled request never reached the model.
 
+**Header timeout.** `QWEN_HEADER_TIMEOUT_MS` gives the completions endpoint **60s** to answer at all.
+It covers headers only: once a stream has started the reader's idle watchdog takes over, so a thinking
+model that goes quiet before the first delta isn't cut off.
+
 **Device ID.** Read from Qwen's own `qwen_chat_device_id` in an open tab's localStorage and cached,
 so the fingerprint correlates with Qwen's native cookies as one session. Two different device IDs
 from one IP is itself a bot signal. Settings exposes a Refresh button that opens/focuses a tab,

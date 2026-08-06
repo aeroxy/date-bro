@@ -46,6 +46,7 @@ export function SettingsModal({
   const [profiles, setProfiles] = useState<LLMProfile[]>([])
   const [activeId, setActive] = useState<string>('')
   const [customPrompt, setCustomPrompt] = useState('')
+  const [saveError, setSaveError] = useState<string | null>(null)
   // A bare `'idle' | 'working' | string` collapses to `string`, which stops the
   // compiler from checking the sentinels the render below switches on.
   const [deviceStatus, setDeviceStatus] = useState<
@@ -80,12 +81,21 @@ export function SettingsModal({
       prev.map((p) => (p.id === activeId ? { ...p, config: { ...p.config, ...change } } : p)),
     )
 
+  // A rejected write (quota, a blocked store) used to leave the modal open with
+  // no explanation — it read as an unresponsive Save button. Close only on
+  // success, so what's on screen is never a state that wasn't stored.
   const save = async () => {
-    await Promise.all([
-      saveLLMProfiles(profiles),
-      setActiveProfileId(activeId),
-      saveSettings({ customPrompt }),
-    ])
+    setSaveError(null)
+    try {
+      await Promise.all([
+        saveLLMProfiles(profiles),
+        setActiveProfileId(activeId),
+        saveSettings({ customPrompt }),
+      ])
+    } catch (e) {
+      setSaveError((e as Error).message)
+      return
+    }
     onSaved()
     onClose()
   }
@@ -122,6 +132,11 @@ export function SettingsModal({
       title="Model & coach"
       footer={
         <>
+          {saveError ? (
+            <p className="mr-auto min-w-0 break-words text-[11.5px] text-no">
+              Couldn't save: {saveError}
+            </p>
+          ) : null}
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>

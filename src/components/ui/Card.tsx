@@ -129,7 +129,12 @@ export function Chip({
 export function ConfidenceMark({ level }: { level: 'high' | 'medium' | 'low' }) {
   const filled = level === 'high' ? 3 : level === 'medium' ? 2 : 1
   return (
-    <span className="inline-flex items-center gap-0.5 align-middle" title={`${level} confidence`}>
+    <span
+      className="inline-flex items-center gap-0.5 align-middle"
+      role="img"
+      aria-label={`${level} confidence`}
+      title={`${level} confidence`}
+    >
       {[0, 1, 2].map((i) => (
         <span
           key={i}
