@@ -501,19 +501,21 @@ export async function sendQwenChat(
   return new Promise((resolve, reject) => {
     let fullContent = '';
     const onAbort = () => {
-      if (signal) signal.removeEventListener('abort', onAbort);
       reject(new DOMException('The user aborted a request.', 'AbortError'));
     };
     if (signal) signal.addEventListener('abort', onAbort);
+    // Detached off the returned promise rather than inside each callback: that
+    // way "the listener always comes off" is a property of this function, not
+    // something you have to re-verify against every exit path in the stream. A
+    // late abort landing in the gap rejects an already-settled promise, which
+    // is a no-op.
     sendQwenChatStream(
       messages,
       (text) => { fullContent += text; },
       () => {
-        if (signal) signal.removeEventListener('abort', onAbort);
         resolve(fullContent);
       },
       (err) => {
-        if (signal) signal.removeEventListener('abort', onAbort);
         if (signal?.aborted || err === 'The user aborted a request.' || err === 'Request aborted') {
           reject(new DOMException('The user aborted a request.', 'AbortError'));
         } else {
@@ -523,7 +525,9 @@ export async function sendQwenChat(
       signal,
       model,
       onThinking,
-    );
+    ).finally(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+    });
   });
 }
 
