@@ -349,17 +349,28 @@ function bearerHeaders(config: LLMConfig): Record<string, string> {
   return config.api_key ? { Authorization: `Bearer ${config.api_key}` } : {}
 }
 
+/**
+ * Settings warns that anything but a JSON object of string values is ignored, so
+ * this has to ignore exactly that much — parsing alone would merge array indices
+ * and non-string values the user was told wouldn't be sent. Keep in step with
+ * `headersProblem` in SettingsModal.
+ */
 function withCustomHeaders(
   base: Record<string, string>,
   custom?: string,
 ): Record<string, string> {
   if (!custom) return base
+  let parsed: unknown
   try {
-    return { ...base, ...(JSON.parse(custom) as Record<string, string>) }
+    parsed = JSON.parse(custom)
   } catch {
     /* malformed custom headers — ignore rather than block the call */
     return base
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return base
+  const entries = Object.entries(parsed)
+  if (entries.some(([, v]) => typeof v !== 'string')) return base
+  return { ...base, ...(Object.fromEntries(entries) as Record<string, string>) }
 }
 
 interface PostJSONOptions {
