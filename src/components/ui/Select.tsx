@@ -75,9 +75,15 @@ export function Select<T extends string>({ value, onChange, options, className, 
           className="scroll-slim absolute z-20 mt-1 max-h-64 w-full min-w-max overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg"
         >
           {options.map((o) => (
-            <li key={o.value} role="option" aria-selected={o.value === value}>
+            // The option role goes on the button, not the `li` — an option that
+            // *contains* a focusable control is invalid ARIA, and the button is
+            // what has to stay focusable until this grows arrow-key navigation.
+            // `presentation` drops the `li` so the button is the listbox's child.
+            <li key={o.value} role="presentation">
               <button
                 type="button"
+                role="option"
+                aria-selected={o.value === value}
                 onClick={() => {
                   onChange(o.value)
                   setOpen(false)
