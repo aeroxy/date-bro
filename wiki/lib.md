@@ -200,6 +200,14 @@ so the fingerprint correlates with Qwen's native cookies as one session. Two dif
 from one IP is itself a bot signal. Settings exposes a Refresh button that opens/focuses a tab,
 waits for it to settle, invalidates the cache, and re-reads.
 
+## `ago.ts`
+
+One `ago(ts?)` for every relative timestamp in the UI — `DateRail`'s row subtitles and `App`'s
+staleness lines both call it. Tiers: `never` for a missing or zero timestamp, then `just now`,
+`Nm ago`, `Nh ago`, `Nd ago`, and `Nmo ago` past 30 days. It exists because the rail and the panel
+had grown separate copies that disagreed at the tail — the rail's stopped at days, so the same
+timestamp read `45d ago` in one place and `2mo ago` in the other.
+
 ## `storage.ts`
 
 Thin wrappers over `chrome.storage.local`. `ensureActiveProfile()` creates a default profile on

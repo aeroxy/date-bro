@@ -45,12 +45,13 @@ low-confidence guess can never look like a finding.
 
 Three columns: rail | conversation | insight. The three actions live in the header; each switches
 the insight tab and runs. The insight column's tab strip has its own re-run button — which becomes a
-**Stop** button while that tab is the one running, the only way to cancel — so a tab can be
-refreshed without leaving it.
+**Stop** button whenever *any* run is in flight, this tab's or another profile's, since it's the only
+way to cancel — so a tab can be refreshed without leaving it.
 
 State worth knowing about:
 
-- `busy` is a single run at a time — every button disables while any is running — but it carries the
+- `busy` is a single run at a time — every button that *starts* work disables while any is running,
+  with the tab strip's Stop the one control left live, since it's the only way out — but it carries the
   *date id* alongside the tab, and only `busyTab` (the id matching `activeId`) renders as thinking. A
   run keeps going when you switch people, and writes to the id captured when it started; it just
   doesn't make the profile you switched to look like it's loading.
@@ -65,10 +66,12 @@ State worth knowing about:
   `QWEN_CHAT_CANCEL` back to the controller the background holds, `abortableDelay` collapsing the
   anti-bot back-off — was unreachable, and a Qwen throttle (three 30s waits) had no exit but closing
   the tab.
-- `activity` and `thinking` are the two live-progress feeds, and they're mutually exclusive by
-  backend: `activity` accumulates one line per tool call (keyed backends), `thinking` is Qwen's
-  reasoning summary, replaced wholesale on each event. `Thinking` renders whichever it has as the
-  same struck-through step list, plus the newest summary paragraph clamped to four lines so a
+- `activity` and `thinking` are the two live-progress feeds, and a run can have both. `activity`
+  accumulates one line per tool call, so it only appears on the keyed backends that run tools;
+  `thinking` is the model's reasoning summary — Qwen always, Anthropic when `anthropic_thinking` is
+  on — replaced wholesale on each event. On Anthropic both arrive at once, so `Thinking` picks:
+  `activity` wins the struck-through step list and `thinking.titles` is the fallback, while the
+  newest `thinking.thoughts` paragraph renders below either way, clamped to four lines so a
   streaming think can't shove the page around. Both reset at the top of `run`.
 - `run(tab, note?)` appends `note` to that tab's `feedback` thread *before* the call, so the run sees
   it and a network failure doesn't eat what the user typed.
