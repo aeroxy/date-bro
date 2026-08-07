@@ -6,9 +6,25 @@ be concise
 
 read and update wiki below when needed
 
-one user, one browser, no server — the operator is the owner, and the coach's LLM
-is you. judge findings against that, not a multi-tenant product: no hostile input,
-no untrusted callers, no data anyone else can see.
+### Threat model
+
+This is a **personal tool**. Tools run in the user’s browser, with the user’s cookies, to hosts the user can already reach. There is **no untrusted-model containment boundary** and no multi-tenant server.
+
+### Do not flag as security issues
+
+| Topic | Why it’s intentional |
+| --- | --- |
+| read\_page / web\_search with credentials: 'include' | Agent acts as the user. |
+| No localhost / private-IP block | Same machine, same reachability — no privilege escalation. |
+| Broad host permissions | BYO LLM base URLs + arbitrary research URLs. |
+| Research scope only in prompts/tool descriptions | Product preference for the operator, not a sandbox policy. |
+| “Model might search something sensitive” | Same as the operator choosing to search. |
+
+Framing these as SSRF, cookie theft, or over-permission is the wrong threat model. Freedom & functionalities > security.
+
+### Do not flag Qwen session bridge as a defect
+
+Qwen is the **main zero-key backend**: live chat.qwen.ai session, cookies, Origin/Referer rewrite, device fingerprint, background keep-alive. It is **deliberately a hack**. Session expiry, bot walls, and fragility are expected costs of “free, no API key, runs as your tab” — not bugs to “fix” into a normal API client.
 
 ---
 
@@ -24,7 +40,6 @@ Enriched project context:
 
 ## Research
 
-- [src/coach/knowledge.ts](src/coach/knowledge.ts) — the evidence base behind the coach, and the
-  source of record for it. There is no separate research document: the module is prose, it is what
+- [src/coach/knowledge.ts](src/coach/knowledge.ts) — the evidence base behind the coach, and the source of record for it. There is no separate research document: the module is prose, it is what
   gets injected into the prompt, and it carries its own reasoning. When you change what the coach
   believes, change it there and say why in the comment above the module you touched.
