@@ -34,7 +34,7 @@ design: it's what makes the transcript — nearly all of the request — a stabl
 |---|---|---|---|
 | `system` | L0 | `IDENTITY` + orientation line + `KB_EVIDENCE` + the user's standing instructions | app release / settings edit |
 | `user[0]` | L1 | `<the_person>`, `<the_user>` | the profile is edited |
-| `user[1]` | L2 **[cache]** | `<transcript>` + `<counts>` | a turn is added — append-only |
+| `user[1]` | L2 **[cache]** | `<transcript>` + `<counts>` | any transcript mutation — a turn added, edited, deleted, or a log imported |
 | `user[2]` | L3 **[cache]** | `<task>` + this engine's knowledge modules + `OUTPUT_RULES` + shape sketch | never (constant per engine) |
 | `user[3]` | L4 | `<research_notes>`, prior contexts, `<notes_from_the_user>`, `<the_situation>`, closing instruction | every run |
 
