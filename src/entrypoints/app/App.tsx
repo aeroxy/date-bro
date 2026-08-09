@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { AlertCircle, Heart, RotateCw, Settings, Sparkles, Square, Trash2, User, UserRound, X } from 'lucide-react'
 
 import { ago } from '@/lib/ago'
@@ -87,6 +87,15 @@ export default function App() {
   // so two calls in one tick (a fast double-click, Enter held down) would both
   // read it as null and start. A ref is set synchronously.
   const runningRef = useRef(false)
+
+  // The three tabs share one scroll container, so React keeps its offset across
+  // a switch: leaving Them halfway down dropped you into the middle of option
+  // three on Next move. Reset before paint, or the wrong position is visible for
+  // a frame. Switching person too — it's a different conversation.
+  const panelRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (panelRef.current) panelRef.current.scrollTop = 0
+  }, [tab, activeId])
 
   const run = useCallback(
     async (which: Tab, message = ''): Promise<boolean> => {
@@ -499,7 +508,7 @@ export default function App() {
                 )}
               </div>
 
-              <div className="scroll-slim min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div ref={panelRef} className="scroll-slim min-h-0 flex-1 overflow-y-auto px-5 py-4">
                 {/* Shown on whichever tab is open, not only the one that failed
                     — a failure the user never sees is the same as a silent one.
                     Dismissable, because otherwise it sits there past the point
@@ -658,7 +667,14 @@ export default function App() {
                 <AskComposer
                   key={`${active.id}:${tab}`}
                   label={`Change what it knows about ${tab === 'them' ? active.name : 'you'}`}
-                  placeholder="e.g. drop the avoidant read — she works nights, that's why the 2am replies"
+                  // Tab-specific: the example under "change what it knows about
+                  // you" used to be a correction about *her*, which reads as the
+                  // box editing the wrong profile.
+                  placeholder={
+                    tab === 'them'
+                      ? "e.g. drop the avoidant read — she works nights, that's why the 2am replies"
+                      : "e.g. I'm not looking for anything serious — stop reading my replies as hesitation"
+                  }
                   blockedHint="Rebuild first — then you can correct what it found"
                   cta="Apply"
                   hint="Applied once. The notes above are what gets kept."
