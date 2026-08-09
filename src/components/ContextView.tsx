@@ -1,8 +1,98 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { CornerDownLeft } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
-import type { Claim, Flag, PersonContext, SelfContext } from '@/types/coach'
-import { Chip, ConfidenceMark, Eyebrow, SectionHead } from './ui/Card'
+import type { Flag, PersonProfile, SelfProfile } from '@/types/coach'
+import { Markdown } from './Markdown'
+import { Chip, Eyebrow, SectionHead } from './ui/Card'
+import { Input } from './ui/Field'
+
+/** What the caller needs to make the open questions answerable. */
+export interface AnswerProps {
+  /** Questions already answered — they drop off the list until the next rebuild. */
+  answered: Set<string>
+  onAnswer: (question: string, answer: string) => void
+  disabled?: boolean
+}
+
+/**
+ * The engines already end every run by naming what they don't know. That list
+ * used to be something to read and forget; here each line is a question you can
+ * answer in a few words, and the answer goes straight into the conversation as a
+ * note carrying the question with it.
+ *
+ * Which is the point: answering "what does she do for work" can't be filed under
+ * the wrong person, and a three-word reply is a much lower bar than an empty
+ * box. Nothing tracks which questions are done — a question disappears when a
+ * turn exists that answers it, and the whole list is replaced on the next
+ * rebuild anyway, by which point the answer is in the material.
+ */
+function OpenQuestions({ items, answer }: { items: string[]; answer?: AnswerProps }) {
+  const [open, setOpen] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
+  if (!items?.length) return <Empty />
+  const pending = answer ? items.filter((q) => !answer.answered.has(q)) : items
+  if (!pending.length) return <Empty>All answered — rebuild to see what's still missing.</Empty>
+
+  const submit = (question: string) => {
+    const value = draft.trim()
+    if (!value) return
+    answer?.onAnswer(question, value)
+    setDraft('')
+    setOpen(null)
+  }
+
+  return (
+    <ul className="space-y-1.5">
+      {pending.map((item) => (
+        <li key={item} className="text-[12.5px] leading-relaxed text-fg-2">
+          <div className="flex gap-2">
+            <span className="mt-1.5 h-1 w-1 flex-none rounded-full bg-neutral-300" />
+            {answer ? (
+              <button
+                onClick={() => {
+                  setOpen(open === item ? null : item)
+                  setDraft('')
+                }}
+                disabled={answer.disabled}
+                className="min-w-0 flex-1 text-left transition hover:text-action disabled:cursor-not-allowed disabled:hover:text-fg-2"
+                title="Answer this"
+              >
+                {item}
+              </button>
+            ) : (
+              <span>{item}</span>
+            )}
+          </div>
+          {answer && open === item ? (
+            <div className="mt-1.5 flex items-center gap-1.5 pl-3">
+              <Input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submit(item)
+                  if (e.key === 'Escape') setOpen(null)
+                }}
+                placeholder="a few words is plenty — or what you'd say out loud"
+                className="h-8 flex-1 text-[12.5px]"
+              />
+              <button
+                onClick={() => submit(item)}
+                disabled={!draft.trim()}
+                className="rounded-md p-1.5 text-fg-3 transition hover:bg-surface-muted hover:text-action disabled:opacity-40"
+                title="Add as a note"
+              >
+                <CornerDownLeft size={13} />
+              </button>
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function Block({ title, n, children }: { title: string; n: string; children: ReactNode }) {
   return (
@@ -13,25 +103,17 @@ function Block({ title, n, children }: { title: string; n: string; children: Rea
   )
 }
 
-function ClaimList({ claims }: { claims: Claim[] }) {
-  if (!claims?.length) return <Empty />
-  return (
-    <ul className="space-y-2.5">
-      {claims.map((c, i) => (
-        <li key={i} className="rounded-md border border-border bg-surface px-3.5 py-2.5 shadow-xs">
-          <div className="flex items-start justify-between gap-3">
-            <p className="text-[13px] leading-relaxed text-fg">{c.claim}</p>
-            <ConfidenceMark level={c.confidence} />
-          </div>
-          {c.evidence ? (
-            <p className="mt-1.5 border-l-2 border-neutral-200 pl-2.5 text-[12px] leading-relaxed text-fg-3">
-              {c.evidence}
-            </p>
-          ) : null}
-        </li>
-      ))}
-    </ul>
-  )
+/**
+ * The profile itself. Nothing here knows what sections exist — the model owns
+ * the structure, so the view renders whatever headings it finds. A section added
+ * because this particular connection needed one appears without any code change,
+ * which was the whole reason for leaving the schema behind.
+ */
+function ProfileBody({ markdown }: { markdown: string }) {
+  if (!markdown.trim()) {
+    return <Empty>Nothing written down yet — rebuild once there's some conversation.</Empty>
+  }
+  return <Markdown>{markdown}</Markdown>
 }
 
 function Bullets({ items, tone }: { items: string[]; tone?: 'yes' | 'no' | 'plain' }) {
@@ -53,8 +135,8 @@ function Bullets({ items, tone }: { items: string[]; tone?: 'yes' | 'no' | 'plai
   )
 }
 
-function Empty() {
-  return <p className="text-[12.5px] italic text-fg-3">Nothing here yet.</p>
+function Empty({ children }: { children?: ReactNode }) {
+  return <p className="text-[12.5px] italic text-fg-3">{children ?? 'Nothing here yet.'}</p>
 }
 
 /** The one thing the user might not want to hear gets its own visual weight. */
@@ -71,6 +153,9 @@ function HonestNote({ children }: { children: ReactNode }) {
 const INTEREST_TONE = {
   strong: 'yes',
   warm: 'yes',
+  // Neutral, not amber: "too early" is the ordinary state of a new thread, and
+  // colouring it as a warning is the thing that made this read as doom.
+  'too-early': 'neutral',
   ambiguous: 'warn',
   cooling: 'warn',
   'not-interested': 'no',
@@ -82,39 +167,56 @@ const FLAG_TONE: Record<Flag['kind'], 'yes' | 'warn' | 'no'> = {
   red: 'no',
 }
 
-export function PersonContextView({ ctx, name }: { ctx: PersonContext; name: string }) {
-  const attachment = ctx.communication_style?.attachment_hypothesis
+/**
+ * Both views are the same three things now: the headline, the structured
+ * judgment, and the profile as prose.
+ *
+ * What used to be here was nine hand-built blocks per view, each bound to one
+ * field of a schema. That is the coupling this redesign removed — a section the
+ * model decided this connection needed had nowhere to render, so it had nowhere
+ * to be written down. The judgment kept its own rendering precisely because it
+ * is *not* prose: an interest level is a chip, and a list of open questions is a
+ * list of things to answer in a few words.
+ */
+export function PersonContextView({
+  ctx,
+  name,
+  answer,
+}: {
+  ctx: PersonProfile
+  name: string
+  answer?: AnswerProps
+}) {
+  const { interest_read, flags, open_questions } = ctx.judgment
 
   return (
     <div className="space-y-6">
-      <p className="text-[14px] leading-relaxed text-fg">{ctx.headline}</p>
+      <p className="text-[14px] leading-relaxed text-fg">{ctx.judgment.headline}</p>
 
       <Block n="001" title="Where they stand">
         <div className="flex flex-wrap items-center gap-2">
-          <Chip tone={INTEREST_TONE[ctx.interest_read.level] ?? 'neutral'}>
-            {ctx.interest_read.level.replace('-', ' ')}
+          <Chip tone={INTEREST_TONE[interest_read.level] ?? 'neutral'}>
+            {interest_read.level.replace('-', ' ')}
           </Chip>
-          <span className="text-[11px] text-fg-3">
-            confidence: {ctx.interest_read.confidence}
-          </span>
+          <span className="text-[11px] text-fg-3">confidence: {interest_read.confidence}</span>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Eyebrow className="mb-1.5 block">Pointing yes</Eyebrow>
-            <Bullets items={ctx.interest_read.signals_for} tone="yes" />
+            <Bullets items={interest_read.signals_for} tone="yes" />
           </div>
           <div>
             <Eyebrow className="mb-1.5 block">Pointing no</Eyebrow>
-            <Bullets items={ctx.interest_read.signals_against} tone="no" />
+            <Bullets items={interest_read.signals_against} tone="no" />
           </div>
         </div>
-        <HonestNote>{ctx.interest_read.honest_note}</HonestNote>
+        <HonestNote>{interest_read.honest_note}</HonestNote>
       </Block>
 
-      {ctx.flags?.length ? (
+      {flags?.length ? (
         <Block n="002" title="Flags">
           <ul className="space-y-2">
-            {ctx.flags.map((f, i) => (
+            {flags.map((f, i) => (
               <li key={i} className="flex items-start gap-2.5">
                 <Chip tone={FLAG_TONE[f.kind]}>{f.kind}</Chip>
                 <div className="min-w-0 flex-1">
@@ -127,127 +229,44 @@ export function PersonContextView({ ctx, name }: { ctx: PersonContext; name: str
         </Block>
       ) : null}
 
-      <Block n="003" title="Who they are">
-        <ClaimList claims={ctx.who_they_are} />
+      <Block n="003" title={`What you know about ${name}`}>
+        <ProfileBody markdown={ctx.markdown} />
       </Block>
 
-      <Block n="004" title="What they care about">
-        <ClaimList claims={ctx.what_they_care_about} />
-      </Block>
-
-      <Block n="005" title="Right now">
-        <ClaimList claims={ctx.current_situation} />
-      </Block>
-
-      <Block n="006" title="How they talk">
-        <p className="text-[13px] leading-relaxed text-fg-2">{ctx.communication_style?.summary}</p>
-        {attachment ? (
-          <div className="rounded-md border border-border bg-surface-sunken px-3.5 py-2.5">
-            <div className="flex items-center justify-between gap-3">
-              <Eyebrow>Attachment — a guess, not a label</Eyebrow>
-              <ConfidenceMark level={attachment.confidence} />
-            </div>
-            <p className="mt-1.5 text-[13px] font-semibold text-fg">
-              {attachment.pattern.replace('-', ' ')}
-            </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-fg-3">{attachment.evidence}</p>
-          </div>
-        ) : null}
-        {ctx.communication_style?.bids?.length ? (
-          <>
-            <Eyebrow className="mt-3 mb-1.5 block">Bids they made</Eyebrow>
-            <Bullets items={ctx.communication_style.bids} />
-          </>
-        ) : null}
-      </Block>
-
-      {ctx.sensitivities?.length ? (
-        <Block n="007" title="Handle with care">
-          <Bullets items={ctx.sensitivities} tone="no" />
-        </Block>
-      ) : null}
-
-      {ctx.open_threads?.length ? (
-        <Block n="008" title="Threads you can pick back up">
-          <Bullets items={ctx.open_threads} />
-        </Block>
-      ) : null}
-
-      <Block n="009" title={`What you still don't know about ${name}`}>
-        <Bullets items={ctx.open_questions} />
+      <Block n="004" title={`What you still don't know about ${name}`}>
+        <OpenQuestions items={open_questions} answer={answer} />
       </Block>
     </div>
   )
 }
 
-export function SelfContextView({ ctx }: { ctx: SelfContext }) {
+export function SelfContextView({ ctx, answer }: { ctx: SelfProfile; answer?: AnswerProps }) {
+  const { goal_read, open_questions } = ctx.judgment
+
   return (
     <div className="space-y-6">
-      <p className="text-[14px] leading-relaxed text-fg">{ctx.headline}</p>
+      <p className="text-[14px] leading-relaxed text-fg">{ctx.judgment.headline}</p>
 
-      <Block n="001" title="How you're landing">
-        <ClaimList claims={ctx.how_you_come_across} />
+      <Block n="001" title="You, in this one">
+        <ProfileBody markdown={ctx.markdown} />
       </Block>
 
-      {ctx.patterns?.length ? (
-        <Block n="002" title="Patterns">
-          <ul className="space-y-2.5">
-            {ctx.patterns.map((p, i) => (
-              <li
-                key={i}
-                className="rounded-md border border-border bg-surface px-3.5 py-2.5 shadow-xs"
-              >
-                <p className="text-[13px] font-medium leading-snug text-fg">{p.pattern}</p>
-                <p className="mt-1 text-[12px] leading-relaxed text-fg-3">{p.evidence}</p>
-                <p className="mt-1.5 border-l-2 border-action-300 pl-2.5 text-[12.5px] leading-relaxed text-fg-2">
-                  {p.effect}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </Block>
-      ) : null}
-
-      <Block n="003" title="Working">
-        <Bullets items={ctx.working} tone="yes" />
-      </Block>
-
-      <Block n="004" title="Costing you">
-        <Bullets items={ctx.costing_you} tone="no" />
-      </Block>
-
-      <Block n="005" title="Your voice">
-        <p className="text-[13px] leading-relaxed text-fg-2">{ctx.your_voice?.summary}</p>
-        <div className="flex flex-wrap gap-1.5">
-          {ctx.your_voice?.markers?.map((m, i) => (
-            <Chip key={i}>{m}</Chip>
-          ))}
-        </div>
-        <p className="text-[11.5px] leading-relaxed text-fg-3">
-          Drafts get written to sound like this.
-        </p>
-      </Block>
-
-      <Block n="006" title="What they know about you">
-        <Bullets items={ctx.you_have_revealed} />
-      </Block>
-
-      <Block n="007" title="What you're actually after">
+      <Block n="002" title="What you're actually after">
         <div className="space-y-2 rounded-md border border-border bg-surface-sunken px-3.5 py-3">
           <div>
             <Eyebrow className="block">You said</Eyebrow>
-            <p className="mt-0.5 text-[13px] leading-relaxed text-fg-2">{ctx.goal_read?.stated}</p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-fg-2">{goal_read?.stated}</p>
           </div>
           <div>
             <Eyebrow className="block">Your messages say</Eyebrow>
-            <p className="mt-0.5 text-[13px] leading-relaxed text-fg-2">{ctx.goal_read?.revealed}</p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-fg-2">{goal_read?.revealed}</p>
           </div>
         </div>
-        <HonestNote>{ctx.goal_read?.tension}</HonestNote>
+        <HonestNote>{goal_read?.tension}</HonestNote>
       </Block>
 
-      <Block n="008" title="Worth getting clear on">
-        <Bullets items={ctx.open_questions} />
+      <Block n="003" title="Worth getting clear on">
+        <OpenQuestions items={open_questions} answer={answer} />
       </Block>
     </div>
   )

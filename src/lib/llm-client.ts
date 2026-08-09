@@ -83,6 +83,24 @@ export interface CompletionOptions {
    * the OpenAI backend, which we don't stream.
    */
   onThinking?: (thinking: ThinkingSummary) => void
+  /**
+   * A stable identity for this conversation, sent as `x-claude-code-session-id`
+   * on the Anthropic path. Pass `record.id` — immutable for the life of a
+   * record, which is exactly the property needed.
+   *
+   * This exists because prompt cache entries are partitioned by session, and a
+   * session id that churns means every request writes a fresh entry and reads
+   * nothing. `../claude-proxy` derives one from the *first user message* when
+   * the client doesn't send this header (`disguise::session_id`), and its
+   * `first_user_text` joins every content block of `messages[0]` — which for us
+   * is the entire prompt, transcript and timestamp included. So the derived id
+   * changed on every single call, and a byte-identical system block was still
+   * read 0 times. Sending our own id short-circuits the derivation.
+   *
+   * Harmless against api.anthropic.com directly, which ignores headers it
+   * doesn't know.
+   */
+  sessionId?: string
 }
 
 // Deliberately generous: reasoning models count reasoning_content against
@@ -90,8 +108,23 @@ export interface CompletionOptions {
 // content with finish_reason 'length'.
 const DEFAULT_MAX_TOKENS = 8192
 
-function truncatedMessage(maxTokens: number): string {
-  return `Response was cut off at max_tokens (${maxTokens}) before any output — reasoning models spend this budget thinking first. Raise "Max tokens" in settings.`
+/**
+ * Two ways a budget runs out, and the partial case is the one that used to get
+ * through. A response cut off *mid-object* still has content, so every check
+ * here passed it along; `jsonrepair` then closed the dangling braces into a
+ * perfectly valid object with its trailing fields missing, and validation
+ * complained about whatever happened to be last in the shape — pointing at a
+ * field the model never had trouble with.
+ *
+ * Found while chasing a different bug that turned out not to be this one (that
+ * was `open_questions` colliding with a profile section — see
+ * `PERSON_SECTIONS`). Latent rather than observed, but it fails in exactly the
+ * way that costs the most time: silently, and by blaming the wrong thing.
+ */
+function truncatedMessage(maxTokens: number, partial = false): string {
+  return partial
+    ? `Response was cut off at max_tokens (${maxTokens}) partway through, so only part of the JSON arrived. Raise "Max tokens" in settings.`
+    : `Response was cut off at max_tokens (${maxTokens}) before any output — reasoning models spend this budget thinking first. Raise "Max tokens" in settings.`
 }
 
 /**
@@ -237,6 +270,9 @@ async function openAICompletion(
     if (choice?.finish_reason === 'length') throw new Error(truncatedMessage(max_tokens))
     throw new Error('LLM returned an empty response')
   }
+  // Cut off with content already emitted. Half a JSON object is not a cheaper
+  // version of the answer — it's a broken one that parses.
+  if (choice?.finish_reason === 'length') throw new Error(truncatedMessage(max_tokens, true))
   return stripThinkBlock(content)
 }
 
@@ -255,6 +291,7 @@ async function anthropicCompletion(
     },
     options.signal,
     options.onThinking,
+    options.sessionId,
   )
   return content
 }
@@ -276,6 +313,7 @@ async function anthropicRequest(
   bodyOptions: AnthropicBodyOptions,
   signal?: AbortSignal,
   onThinking?: (thinking: ThinkingSummary) => void,
+  sessionId?: string,
 ): Promise<ChatCompletionWithToolsResult> {
   const headers: Record<string, string> = {
     'anthropic-version': ANTHROPIC_VERSION,
@@ -284,6 +322,10 @@ async function anthropicRequest(
     'anthropic-dangerous-direct-browser-access': 'true',
   }
   if (config.api_key) headers['x-api-key'] = config.api_key
+  // Sent whenever we have one — see `CompletionOptions.sessionId`. A proxy that
+  // reads it stops deriving an id from the prompt (which changes every call);
+  // anything that doesn't recognise it ignores it.
+  if (sessionId) headers['x-claude-code-session-id'] = sessionId
 
   // No point asking for the summary when nothing is listening — it turns
   // thinking on for models that default it off, and costs tokens to produce.
@@ -327,6 +369,10 @@ async function anthropicRequest(
     if (stopReason === 'max_tokens') throw new Error(truncatedMessage(bodyOptions.max_tokens))
     throw new Error('LLM returned an empty response')
   }
+  // See the note on `truncatedMessage`: a partial answer parses and then fails
+  // validation on whatever happened to be last in the shape, which sends the
+  // caller looking in the wrong place entirely.
+  if (stopReason === 'max_tokens') throw new Error(truncatedMessage(bodyOptions.max_tokens, true))
   return { content: text, tool_calls }
 }
 
@@ -579,6 +625,8 @@ export interface ToolCompletionOptions {
   jsonSchema?: JsonSchemaSpec
   /** See CompletionOptions. Fires per agent turn — each turn thinks afresh. */
   onThinking?: (thinking: ThinkingSummary) => void
+  /** See CompletionOptions. Constant across every turn of one agent run. */
+  sessionId?: string
 }
 
 /**
@@ -595,6 +643,18 @@ export async function chatCompletionWithTools(
   options: ToolCompletionOptions,
 ): Promise<ChatCompletionWithToolsResult> {
   if (config.backend === 'qwen-chat') {
+    // Loud on purpose. Tested against a live session on 2026-08-09: send Qwen a
+    // `tools` array and it is dropped server-side with no error and no change in
+    // input_tokens, and the model answers in prose imitating a call —
+    // `update_section(section="Work", content="…")` as text. Nothing throws, and
+    // that text would get stored as a profile. Silently short-circuiting here
+    // would reproduce the same invisible failure one layer up, so a caller that
+    // believes it is getting tool calls finds out immediately instead.
+    if (options.tools.length) {
+      throw new Error(
+        'The Qwen backend cannot tool-call — it drops the tools array server-side. Route this through completeJSON instead.',
+      )
+    }
     const content = await chatCompletion(config, messages, {
       signal: options.signal,
       onThinking: options.onThinking,
@@ -616,6 +676,7 @@ export async function chatCompletionWithTools(
       },
       options.signal,
       options.onThinking,
+      options.sessionId,
     )
   }
   return toolCompletionRequest(config, messages, options)
@@ -667,8 +728,10 @@ async function toolCompletionRequest(
 
   const tool_calls = message.tool_calls
   const hasToolCalls = Array.isArray(tool_calls) && tool_calls.length > 0
-  if (choice.finish_reason === 'length' && !message.content && !hasToolCalls) {
-    throw new Error(truncatedMessage(max_tokens))
+  if (choice.finish_reason === 'length') {
+    // Partial tool-call arguments are the same trap as partial content: they
+    // parse into something shaped right and missing whatever came last.
+    throw new Error(truncatedMessage(max_tokens, !!message.content || hasToolCalls))
   }
   return { content: stripThinkBlock(message.content ?? ''), tool_calls: hasToolCalls ? tool_calls : undefined }
 }

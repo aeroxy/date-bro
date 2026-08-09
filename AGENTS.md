@@ -40,6 +40,13 @@ Enriched project context:
 
 ## Research
 
-- [src/coach/knowledge.ts](src/coach/knowledge.ts) — the evidence base behind the coach, and the source of record for it. There is no separate research document: the module is prose, it is what
-  gets injected into the prompt, and it carries its own reasoning. When you change what the coach
-  believes, change it there and say why in the comment above the module you touched.
+- [src/coach/knowledge.ts](src/coach/knowledge.ts) — the evidence base behind the coach, and the
+  source of record for it. There is no separate research document: the module is prose and it
+  carries its own reasoning. When you change what the coach believes, change it there and say why in
+  the comment above the module you touched.
+
+  It is the **seed**, not the live text. [src/coach/mind.ts](src/coach/mind.ts) assembles it into one
+  markdown document that both the user and the coach can rewrite; once either has, the module is
+  what new installations start from and what "revert to shipped" restores. Each export is exactly one
+  `##` section of that document, so its heading is an address an amendment aims at — renaming one
+  detaches it from the engine that reads it.

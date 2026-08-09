@@ -1,4 +1,5 @@
 import type { JsonSchemaSpec } from '@/lib/llm-client'
+import { validateProfileUpdate } from './profile'
 
 /**
  * Each engine has two descriptions of its output:
@@ -14,95 +15,89 @@ import type { JsonSchemaSpec } from '@/lib/llm-client'
 const confidence = { type: 'string', enum: ['high', 'medium', 'low'] } as const
 const stringArray = { type: 'array', items: { type: 'string' } } as const
 
-const claimArray = {
-  type: 'array',
-  items: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['claim', 'evidence', 'confidence'],
-    properties: {
-      claim: { type: 'string' },
-      evidence: { type: 'string' },
-      confidence,
+// --- The profile update, shared by both rebuild engines -----------------------
+
+/**
+ * Flat rather than a three-way union, because strict `json_schema` expresses an
+ * `anyOf` of object shapes badly — see the note on `ProfileUpdate` in
+ * `profile.ts`. Unused halves come back empty (`[]` / `""`) and
+ * `validateProfileUpdate` enforces that exactly one is filled.
+ */
+const profileUpdate = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['changed', 'sections', 'rewrite'],
+  properties: {
+    changed: { type: 'boolean' },
+    sections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['heading', 'mode', 'content'],
+        properties: {
+          heading: { type: 'string' },
+          mode: { type: 'string', enum: ['replace', 'append', 'delete'] },
+          content: { type: 'string' },
+        },
+      },
     },
+    rewrite: { type: 'string' },
   },
 } as const
 
+const updateShape = (field: string) => `"${field}": {
+    "changed": boolean,             // false when nothing you read changes the document. Common, and correct.
+    "sections": [{                  // the amendments. [] when changed is false, or when rewriting.
+      "heading": string,            // an existing heading to amend, or a new one to create
+      "mode": "replace" | "append" | "delete",
+      "content": string             // markdown for the section body. "" only when mode is "delete".
+    }],
+    "rewrite": string               // "" almost always — see the note above about when a rewrite is warranted
+  },`
+
+const PROFILE_UPDATE_SHAPE = updateShape('profile')
+
 // --- Their context -----------------------------------------------------------
 
+// Field order is deliberate: every small required field comes *before* the big
+// `profile` object. A rebuild writes a couple of thousand tokens of prose into
+// those sections, and anything sitting after that is a field the model has to
+// come back to — `open_questions` was last, and got dropped. Emitting the cheap
+// judgment first means it exists before the long work starts. It also makes a
+// genuinely truncated response fail on `profile`, which is obvious, rather than
+// on whatever happened to be at the end.
 export const PERSON_SHAPE = `{
   "headline": string,               // 2 sentences. Who this person appears to be, right now.
-  "who_they_are": Claim[],          // stable-looking traits. 3-6.
-  "what_they_care_about": Claim[],  // values, interests, ambitions. 3-6.
-  "current_situation": Claim[],     // life state right now: work, stress, moves, an ex, whatever's live. 2-5.
-  "communication_style": {
-    "summary": string,              // how they talk: length, warmth, humour, pace, what they avoid
-    "attachment_hypothesis": {
-      "pattern": "secure-leaning" | "anxious-leaning" | "avoidant-leaning" | "mixed" | "unclear",
-      "evidence": string,
-      "confidence": "high" | "medium" | "low"
-    },
-    "bids": string[]                // bids for connection they made, and whether the user turned toward them
-  },
   "interest_read": {
-    "level": "strong" | "warm" | "ambiguous" | "cooling" | "not-interested",
+    "level": "strong" | "warm" | "too-early" | "ambiguous" | "cooling" | "not-interested",
+                                    // "too-early" is the honest answer for a young or thin thread —
+                                    // prefer it to "ambiguous"/"cooling" when there simply isn't
+                                    // enough yet. A slow reply is not a cooling signal.
     "confidence": "high" | "medium" | "low",
     "signals_for": string[],
     "signals_against": string[],
-    "honest_note": string           // the thing the user may not want to hear. Say it kindly and say it.
+    "honest_note": string           // the thing the user may not want to hear, IF there is one. Say it
+                                    // kindly and say it. "" when there isn't — an invented one to
+                                    // seem even-handed is worse than none.
   },
   "flags": [{ "kind": "green" | "amber" | "red", "label": string, "evidence": string }],
-  "sensitivities": string[],        // handle-with-care topics
-  "open_threads": string[],         // things they raised that are unresolved or worth returning to
-  "open_questions": string[]        // what you genuinely don't know and the user should find out. 3-6.
-}
-
-Claim = { "claim": string, "evidence": string, "confidence": "high" | "medium" | "low" }`
+  "open_questions": string[],       // what you genuinely don't know and the user should find out. 3-6.
+                                    // Each becomes a question the user can answer in a few words, so
+                                    // write them as questions, one fact each. This is the *only*
+                                    // place gaps go — not into a profile section. Required: return
+                                    // it before you start writing the profile below.
+  ${PROFILE_UPDATE_SHAPE.replace(/,$/, '')}
+}`
 
 export const PERSON_SCHEMA: JsonSchemaSpec = {
-  name: 'person_context',
+  name: 'person_rebuild',
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: [
-      'headline',
-      'who_they_are',
-      'what_they_care_about',
-      'current_situation',
-      'communication_style',
-      'interest_read',
-      'flags',
-      'sensitivities',
-      'open_threads',
-      'open_questions',
-    ],
+    required: ['headline', 'interest_read', 'flags', 'open_questions', 'profile'],
     properties: {
       headline: { type: 'string' },
-      who_they_are: claimArray,
-      what_they_care_about: claimArray,
-      current_situation: claimArray,
-      communication_style: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['summary', 'attachment_hypothesis', 'bids'],
-        properties: {
-          summary: { type: 'string' },
-          attachment_hypothesis: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['pattern', 'evidence', 'confidence'],
-            properties: {
-              pattern: {
-                type: 'string',
-                enum: ['secure-leaning', 'anxious-leaning', 'avoidant-leaning', 'mixed', 'unclear'],
-              },
-              evidence: { type: 'string' },
-              confidence,
-            },
-          },
-          bids: stringArray,
-        },
-      },
       interest_read: {
         type: 'object',
         additionalProperties: false,
@@ -110,7 +105,7 @@ export const PERSON_SCHEMA: JsonSchemaSpec = {
         properties: {
           level: {
             type: 'string',
-            enum: ['strong', 'warm', 'ambiguous', 'cooling', 'not-interested'],
+            enum: ['strong', 'warm', 'too-early', 'ambiguous', 'cooling', 'not-interested'],
           },
           confidence,
           signals_for: stringArray,
@@ -131,9 +126,8 @@ export const PERSON_SCHEMA: JsonSchemaSpec = {
           },
         },
       },
-      sensitivities: stringArray,
-      open_threads: stringArray,
       open_questions: stringArray,
+      profile: profileUpdate,
     },
   },
 }
@@ -142,70 +136,26 @@ export const PERSON_SCHEMA: JsonSchemaSpec = {
 
 export const SELF_SHAPE = `{
   "headline": string,               // 2 sentences. How the user is showing up in this specific connection.
-  "how_you_come_across": Claim[],   // how they most likely read to the other person. 3-6.
-  "your_voice": {
-    "summary": string,              // how they actually write — this is what drafts must sound like
-    "markers": string[]             // concrete tics: sentence length, emoji, profanity, humour, formality
-  },
-  "patterns": [{
-    "pattern": string,              // e.g. "pushes harder when replies slow down"
-    "evidence": string,
-    "effect": string                // what it's likely doing to the other person
-  }],
-  "working": string[],              // what they're doing well. Be specific — people repeat what gets named.
-  "costing_you": string[],          // what's costing them, stated plainly and without moralising
-  "you_have_revealed": string[],    // what they've actually disclosed, so drafts stay consistent
   "goal_read": {
     "stated": string,               // what they said they want
     "revealed": string,             // what their behaviour in the thread optimises for
     "tension": string               // the gap, or "" if there isn't one
   },
-  "open_questions": string[]        // what they should get clear with themselves. 2-5.
-}
-
-Claim = { "claim": string, "evidence": string, "confidence": "high" | "medium" | "low" }`
+  "open_questions": string[],       // what they should get clear with themselves. 2-5.
+                                    // Written as questions they can answer in a few words. The only
+                                    // place gaps go — not into a profile section. Required: return
+                                    // it before you start writing the profile below.
+  ${PROFILE_UPDATE_SHAPE.replace(/,$/, '')}
+}`
 
 export const SELF_SCHEMA: JsonSchemaSpec = {
-  name: 'self_context',
+  name: 'self_rebuild',
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: [
-      'headline',
-      'how_you_come_across',
-      'your_voice',
-      'patterns',
-      'working',
-      'costing_you',
-      'you_have_revealed',
-      'goal_read',
-      'open_questions',
-    ],
+    required: ['headline', 'goal_read', 'open_questions', 'profile'],
     properties: {
       headline: { type: 'string' },
-      how_you_come_across: claimArray,
-      your_voice: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['summary', 'markers'],
-        properties: { summary: { type: 'string' }, markers: stringArray },
-      },
-      patterns: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['pattern', 'evidence', 'effect'],
-          properties: {
-            pattern: { type: 'string' },
-            evidence: { type: 'string' },
-            effect: { type: 'string' },
-          },
-        },
-      },
-      working: stringArray,
-      costing_you: stringArray,
-      you_have_revealed: stringArray,
       goal_read: {
         type: 'object',
         additionalProperties: false,
@@ -217,6 +167,7 @@ export const SELF_SCHEMA: JsonSchemaSpec = {
         },
       },
       open_questions: stringArray,
+      profile: profileUpdate,
     },
   },
 }
@@ -226,6 +177,12 @@ export const SELF_SCHEMA: JsonSchemaSpec = {
 export const SUGGESTION_SHAPE = `{
   "read": string,                   // 2-4 sentences: where this actually stands right now
   "priority": string,               // the one thing that matters most in the next move
+  ${updateShape('mind')}            // what to change about YOURSELF — see "Amending yourself"
+                                    // above. changed: false on most runs. Nothing about the person
+                                    // in this request; that goes in their profile. Sits here,
+                                    // before the long part, for the same reason the rebuild shapes
+                                    // put their small fields first — a field that comes after three
+                                    // drafts is a field that gets dropped.
   "options": [{                     // 2-3 genuinely different options, not three versions of one
     "label": string,                // e.g. "Warm + specific", "Name it directly", "Make a plan"
     "kind": "message" | "action",
@@ -237,7 +194,9 @@ export const SUGGESTION_SHAPE = `{
   }],
   "avoid": string[],                // specific things NOT to do here, and why
   "timing": string,                 // when to send/do this, and how long to leave it
-  "honest_note": string,            // anything true the user probably doesn't want to hear. "" if none.
+  "honest_note": string,            // anything true the user probably doesn't want to hear. "" if none —
+                                    // and "" is the common case. Do not manufacture a downside to
+                                    // look balanced, and do not use this to relitigate their odds.
   "research_notes": string[]        // durable facts worth remembering from web research this run
                                     // (e.g. "Cafe Lumen closes 9pm Sundays"). [] if you didn't
                                     // research, or found nothing worth keeping past this answer.
@@ -248,10 +207,20 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['read', 'priority', 'options', 'avoid', 'timing', 'honest_note', 'research_notes'],
+    required: [
+      'read',
+      'priority',
+      'mind',
+      'options',
+      'avoid',
+      'timing',
+      'honest_note',
+      'research_notes',
+    ],
     properties: {
       read: { type: 'string' },
       priority: { type: 'string' },
+      mind: profileUpdate,
       options: {
         type: 'array',
         items: {
@@ -272,6 +241,34 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       timing: { type: 'string' },
       honest_note: { type: 'string' },
       research_notes: stringArray,
+    },
+  },
+}
+
+// --- Talking about a profile -------------------------------------------------
+
+export const CHAT_SHAPE = `{
+  "reply": string,                  // what you say back, in a sentence or three. Plain text the user
+                                    // reads directly — no markdown headings, no bullet lists, no
+                                    // preamble about what you're about to do.
+  "headline": string,               // "" almost always, which leaves the existing one alone. Rewrite
+                                    // it only when your amendment has made <headline_now> wrong —
+                                    // it sits directly above the prose you just changed, so a stale
+                                    // one is the first thing the user reads and it contradicts the
+                                    // correction underneath. 2 sentences, same voice as the prose.
+  ${PROFILE_UPDATE_SHAPE.replace(/,$/, '')}
+}`
+
+export const CHAT_SCHEMA: JsonSchemaSpec = {
+  name: 'profile_chat',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reply', 'headline', 'profile'],
+    properties: {
+      reply: { type: 'string' },
+      headline: { type: 'string' },
+      profile: profileUpdate,
     },
   },
 }
@@ -314,74 +311,52 @@ function needsString(obj: object, field: string): string | null {
 }
 
 export function validatePerson(r: object): string | null {
-  const style = (r as { communication_style: object }).communication_style
+  const structural =
+    missing(r, ['headline', 'profile', 'interest_read', 'flags', 'open_questions']) ??
+    needsString(r, 'headline') ??
+    needsArray(r, 'open_questions') ??
+    needsArrays(r, ['flags']) ??
+    validateProfileUpdate((r as { profile: unknown }).profile)
+  if (structural) return structural
+
   const interest = (r as { interest_read: object }).interest_read
   return (
-    missing(r, [
-      'headline',
-      'who_they_are',
-      'what_they_care_about',
-      'current_situation',
-      'communication_style',
-      'interest_read',
-      'flags',
-      'sensitivities',
-      'open_threads',
-      'open_questions',
-    ]) ??
-    needsString(r, 'headline') ??
-    needsArray(r, 'who_they_are') ??
-    needsArray(r, 'open_questions') ??
-    needsArrays(r, [
-      'what_they_care_about',
-      'current_situation',
-      'flags',
-      'sensitivities',
-      'open_threads',
-    ]) ??
-    missing(style, ['summary', 'attachment_hypothesis', 'bids']) ??
-    needsArrays(style, ['bids']) ??
-    missing(interest, [
-      'level',
-      'confidence',
-      'signals_for',
-      'signals_against',
-      'honest_note',
-    ]) ??
+    missing(interest, ['level', 'confidence', 'signals_for', 'signals_against', 'honest_note']) ??
     needsArrays(interest, ['signals_for', 'signals_against'])
   )
 }
 
 export function validateSelf(r: object): string | null {
-  const voice = (r as { your_voice: object }).your_voice
   return (
-    missing(r, [
-      'headline',
-      'how_you_come_across',
-      'your_voice',
-      'patterns',
-      'working',
-      'costing_you',
-      'you_have_revealed',
-      'goal_read',
-      'open_questions',
-    ]) ??
+    missing(r, ['headline', 'profile', 'goal_read', 'open_questions']) ??
     needsString(r, 'headline') ??
-    needsArray(r, 'how_you_come_across') ??
-    needsArrays(r, [
-      'patterns',
-      'working',
-      'costing_you',
-      'you_have_revealed',
-      'open_questions',
-    ]) ??
-    missing(voice, ['summary', 'markers']) ??
-    needsArrays(voice, ['markers']) ??
+    needsArray(r, 'open_questions') ??
+    validateProfileUpdate((r as { profile: unknown }).profile) ??
     missing((r as { goal_read: object }).goal_read, ['stated', 'revealed', 'tension'])
   )
 }
 
+export function validateChat(r: object): string | null {
+  const headline = (r as { headline?: unknown }).headline
+  return (
+    missing(r, ['reply', 'profile']) ??
+    needsString(r, 'reply') ??
+    // Absent is allowed and means "leave it" — the common answer, and the one
+    // a backend with no schema enforcement is most likely to omit entirely.
+    // A non-string is not: it renders straight into the UI as a React child.
+    (headline === undefined || typeof headline === 'string'
+      ? null
+      : '"headline" must be a string ("" to leave the existing one)') ??
+    // An empty reply is the failure worth naming: the model amends the profile
+    // and says nothing, and the thread shows a blank bubble where an answer
+    // should be.
+    ((r as { reply: string }).reply.trim() ? null : '"reply" must not be empty — answer the user') ??
+    validateProfileUpdate((r as { profile: unknown }).profile)
+  )
+}
+
 export function validateSuggestion(r: object): string | null {
+  const mind = (r as { mind?: unknown }).mind
   const structural =
     missing(r, ['read', 'priority', 'options', 'avoid', 'timing', 'honest_note', 'research_notes']) ??
     needsString(r, 'read') ??
@@ -389,7 +364,13 @@ export function validateSuggestion(r: object): string | null {
     needsString(r, 'timing') ??
     needsString(r, 'honest_note') ??
     needsArray(r, 'options', 2) ??
-    needsArrays(r, ['avoid', 'research_notes'])
+    needsArrays(r, ['avoid', 'research_notes']) ??
+    // Absent is allowed, and means "nothing changed" — the strict schema makes
+    // it required for providers that enforce one, but a backend with no schema
+    // enforcement (Qwen) shouldn't burn a whole retry on the one field whose
+    // correct value is empty on most runs. Present and malformed still fails:
+    // a half-formed update would be applied to the coach itself.
+    (mind === undefined ? null : validateProfileUpdate(mind, 'mind'))
   if (structural) return structural
 
   const options = (r as { options: Array<Record<string, unknown>> }).options

@@ -59,8 +59,6 @@ export function ProfileModal({
       name: draft.name.trim() || 'Untitled',
       stage: draft.stage,
       meta: draft.meta,
-      seedThem: draft.seedThem,
-      seedMe: draft.seedMe,
       goal: draft.goal,
       // Omitted unless the user actually touched the field, so saving the profile
       // can't roll back notes a run merged in while this was open. Once they have
@@ -117,8 +115,21 @@ export function ProfileModal({
         </div>
 
         <div className="grid grid-cols-4 gap-3">
-          <Field label="Age" hint="optional">
-            <Input value={draft.meta.age ?? ''} onChange={(e) => setMeta('age', e.target.value)} />
+          {/* A birthday, not an age: this record gets read for months, so a
+              number typed once is wrong by the time it matters. Setting one
+              clears any legacy `age`, which is the only thing that ever does. */}
+          <Field
+            label="Birthday"
+            hint={draft.meta.birthday || !draft.meta.age ? 'optional' : `now: age ${draft.meta.age}`}
+          >
+            <Input
+              type="date"
+              value={draft.meta.birthday ?? ''}
+              onChange={(e) => {
+                setMeta('birthday', e.target.value)
+                if (e.target.value) setMeta('age', '')
+              }}
+            />
           </Field>
           <Field label="Pronouns" hint="optional">
             <Input
@@ -144,20 +155,6 @@ export function ProfileModal({
         </div>
 
         <Field
-          label="What you know about them"
-          hint="the seed the coach starts from"
-        >
-          <Textarea
-            rows={7}
-            value={draft.seedThem}
-            onChange={(e) => set('seedThem', e.target.value)}
-            placeholder={
-              'Their job, where they live, what they were like on the dates you\'ve had, what they talk about, what they seem to care about, anything they\'ve told you about their last relationship, what you noticed in person that never made it into a text.\n\nWrite it the way you\'d tell a friend. Guesses are fine — mark them as guesses.'
-            }
-          />
-        </Field>
-
-        <Field
           label="Research notes"
           hint={
             (draft.researchNotes ?? '').trim() ? (
@@ -178,17 +175,6 @@ export function ProfileModal({
             value={draft.researchNotes ?? ''}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Facts the coach has looked up and confirmed — venue hours, a checked claim — show up here so it doesn't re-search them. Edit or delete anything freely."
-          />
-        </Field>
-
-        <Field label="You, in this one" hint="how you show up with this specific person">
-          <Textarea
-            rows={6}
-            value={draft.seedMe}
-            onChange={(e) => set('seedMe', e.target.value)}
-            placeholder={
-              "What you're like around them, what you've told them about yourself, what you're nervous about here, what you've been doing that you're not sure about, how you usually behave when you like someone."
-            }
           />
         </Field>
 

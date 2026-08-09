@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Copy, MessageSquare, Zap } from 'lucide-react'
+import { Check, Copy, MessageSquare, Send, Zap } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
 import type { Suggestion, SuggestionOption } from '@/types/coach'
@@ -30,7 +30,49 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function Option({ option, index }: { option: SuggestionOption; index: number }) {
+/**
+ * Records a draft as sent, in one click, by appending it to the conversation as
+ * a turn of the user's.
+ *
+ * This is the other half of putting advice in the pool. The coach line says what
+ * was offered; the turn underneath says which of it was taken — and it costs the
+ * user nothing, because entering what they sent is a step they were doing by
+ * hand anyway, right after copying it.
+ *
+ * Messages only. An action isn't sendable text and doesn't belong in the
+ * transcript as a message the user wrote; recording one is a NOTE, and a
+ * different question.
+ */
+function SentButton({ done, onSend }: { done: boolean; onSend: () => void }) {
+  if (done) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-yes">
+        <Check size={12} /> Sent
+      </span>
+    )
+  }
+  return (
+    <button
+      onClick={onSend}
+      title="Adds this to the conversation as a message from you"
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-fg-3 transition hover:bg-surface-muted hover:text-fg"
+    >
+      <Send size={12} /> I sent this
+    </button>
+  )
+}
+
+function Option({
+  option,
+  index,
+  sent,
+  onSend,
+}: {
+  option: SuggestionOption
+  index: number
+  sent: boolean
+  onSend?: (draft: string) => void
+}) {
   const isMessage = option.kind === 'message'
   return (
     <li className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
@@ -57,8 +99,11 @@ function Option({ option, index }: { option: SuggestionOption; index: number }) 
         >
           {option.draft}
         </div>
-        <div className="mt-1.5 flex justify-end">
+        <div className="mt-1.5 flex justify-end gap-1">
           <CopyButton text={option.draft} />
+          {isMessage && onSend ? (
+            <SentButton done={sent} onSend={() => onSend(option.draft)} />
+          ) : null}
         </div>
 
         <p className="mt-1 text-[12.5px] leading-relaxed text-fg-2">{option.why}</p>
@@ -71,7 +116,16 @@ function Option({ option, index }: { option: SuggestionOption; index: number }) 
   )
 }
 
-export function SuggestionView({ suggestion }: { suggestion: Suggestion }) {
+export function SuggestionView({
+  suggestion,
+  sent,
+  onSend,
+}: {
+  suggestion: Suggestion
+  /** Draft texts already in the conversation as turns of the user's. */
+  sent?: Set<string>
+  onSend?: (draft: string) => void
+}) {
   return (
     <div className="space-y-6">
       {suggestion.question ? (
@@ -94,7 +148,13 @@ export function SuggestionView({ suggestion }: { suggestion: Suggestion }) {
         <SectionHead n="001" title="Your options" />
         <ol className="space-y-3">
           {suggestion.options.map((o, i) => (
-            <Option key={i} option={o} index={i} />
+            <Option
+              key={i}
+              option={o}
+              index={i}
+              sent={!!sent?.has(o.draft.trim())}
+              onSend={onSend}
+            />
           ))}
         </ol>
       </section>

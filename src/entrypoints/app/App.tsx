@@ -5,33 +5,28 @@ import { ago } from '@/lib/ago'
 import { ConversationPanel } from '@/components/ConversationPanel'
 import { PersonContextView, SelfContextView } from '@/components/ContextView'
 import { DateRail } from '@/components/DateRail'
-import { FeedbackThread } from '@/components/FeedbackThread'
+import { AskComposer, type ProfileEdit } from '@/components/AskComposer'
+import { MindButton, MindModal } from '@/components/MindModal'
 import { ProfileModal } from '@/components/ProfileModal'
 import { SettingsModal } from '@/components/SettingsModal'
 import { SuggestionView } from '@/components/SuggestionView'
 import { Button } from '@/components/ui/Button'
 import { Chip, Eyebrow } from '@/components/ui/Card'
 import { Logo } from '@/components/ui/Logo'
-import { Input } from '@/components/ui/Field'
 import { Spinner } from '@/components/ui/Spinner'
-import { rebuildPersonContext, rebuildSelfContext, suggestMove } from '@/coach/run'
+import { chatAboutProfile, rebuildPersonContext, rebuildSelfContext, suggestMove } from '@/coach/run'
 import { useDates } from '@/hooks/useDates'
 import { cn } from '@/lib/cn'
 import { mergeResearchNotes } from '@/lib/research-notes'
+import { adviceTurn } from '@/lib/transcript'
 import type { ThinkingSummary } from '@/types/coach'
-import { STAGES, type DateRecord, type Engine } from '@/types/date'
+import { STAGES, type ChatEngine, type DateRecord, type Engine, type Turn } from '@/types/date'
 
 type Tab = Engine
 /** Runs keep going when you switch profiles, so a run is tagged with its date. */
 type Busy = { id: string; tab: Tab } | null
 
 const TAB_LABEL: Record<Tab, string> = { them: 'Them', me: 'You', next: 'Next move' }
-
-const FEEDBACK_PLACEHOLDER: Record<Tab, (name: string) => string> = {
-  them: (name) => `e.g. drop the avoidant read — ${name} works nights, that's why the replies land at 2am`,
-  me: () => "e.g. you're reading my short replies wrong — that's just how I text",
-  next: () => 'e.g. stop suggesting bars, and drop the "just checking in" opener',
-}
 
 /**
  * A read is stale the moment the transcript moves under it — and only then.
@@ -44,6 +39,28 @@ function isStale(record: DateRecord, basis?: number): boolean {
   return record.turnsUpdatedAt > basis
 }
 
+/**
+ * The two halves of a profile go stale separately, so one chip can't describe
+ * both. The prose is amended without touching the judgment, so an amendment that
+ * has just read every turn still leaves the interest read, the flags and the open
+ * questions dated to the last full rebuild.
+ *
+ * Saying "conversation has moved on" in that state is wrong in the way that
+ * matters: the user has just told it about the new turns, watched it rewrite the
+ * profile from them, and is then told the conversation has moved on.
+ */
+type Staleness = 'fresh' | 'judgment' | 'stale'
+
+function staleness(
+  record: DateRecord,
+  profile?: { turnsAt?: number; amendedTurnsAt?: number },
+): Staleness {
+  if (!profile) return 'fresh'
+  const prose = profile.amendedTurnsAt ?? profile.turnsAt
+  if (isStale(record, prose)) return 'stale'
+  return isStale(record, profile.turnsAt) ? 'judgment' : 'fresh'
+}
+
 export default function App() {
   const { dates, active, activeId, setActiveId, loaded, loadError, create, update, remove } =
     useDates()
@@ -51,12 +68,20 @@ export default function App() {
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<{ id: string; tab: Tab; message: string } | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [situation, setSituation] = useState('')
   const [showProfile, setShowProfile] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [viewingSuggestion, setViewingSuggestion] = useState<string | null>(null)
+  const [showMind, setShowMind] = useState(false)
+  // Which coach turn's advice the `next` panel is showing. Null means the most
+  // recent one — so a new run doesn't have to reach back and clear this, and
+  // switching people lands on their latest rather than on nothing.
+  const [viewingAdvice, setViewingAdvice] = useState<string | null>(null)
   const [activity, setActivity] = useState<string[]>([])
   const [thinking, setThinking] = useState<ThinkingSummary | null>(null)
+  // The last profile amendment, shown once under the composer. Not persisted —
+  // see `sendChat`. Tagged with the record and tab it belongs to, like `busy`
+  // and `error`, rather than cleared on every switch path: a result about one
+  // profile means nothing under another, and tagging can't miss a route.
+  const [edit, setEdit] = useState<({ id: string; tab: ChatEngine } & ProfileEdit) | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   // The real mutex. `busy` drives the UI, but it only lands on the next render,
   // so two calls in one tick (a fast double-click, Enter held down) would both
@@ -64,8 +89,8 @@ export default function App() {
   const runningRef = useRef(false)
 
   const run = useCallback(
-    async (which: Tab, note?: string) => {
-      if (!active || runningRef.current) return
+    async (which: Tab, message = ''): Promise<boolean> => {
+      if (!active || runningRef.current) return false
       runningRef.current = true
       const id = active.id
       setTab(which)
@@ -76,60 +101,140 @@ export default function App() {
       const controller = new AbortController()
       abortRef.current = controller
 
-      let record = active
+      const record = active
 
       try {
-        // A note joins the thread before the run, so this run already sees it
-        // and it survives a failure — feedback shouldn't be lost to a network
-        // error. Inside the try because a failed write here still has to clear
-        // `busy`, or every button stays disabled for good.
-        if (note?.trim()) {
-          const trimmed = note.trim()
-          const written = await update(id, (current) => ({
-            feedback: { ...current.feedback, [which]: [...current.feedback[which], trimmed] },
-          }))
-          if (written) record = written
-        }
-
         if (which === 'them') {
           const ctx = await rebuildPersonContext(record, controller.signal, setThinking)
-          await update(id, { themContext: ctx })
+          await update(id, { themProfile: ctx })
         } else if (which === 'me') {
           const ctx = await rebuildSelfContext(record, controller.signal, setThinking)
-          await update(id, { meContext: ctx })
+          await update(id, { meProfile: ctx })
         } else {
           const suggestion = await suggestMove(
             record,
-            situation,
+            message,
             controller.signal,
             (label) => setActivity((prev) => [...prev, label]),
             setThinking,
           )
           // Against `current`, not the snapshot this run started from: the user
-          // can edit the research notes or delete a suggestion while the model
-          // is thinking, and a snapshot-derived patch would undo them.
-          await update(id, (current) => ({
-            suggestions: [suggestion, ...current.suggestions].slice(0, 20),
-            researchNotes: mergeResearchNotes(current.researchNotes, suggestion.research_notes),
-          }))
-          setViewingSuggestion(suggestion.id)
-          setSituation('')
+          // can add turns or edit the research notes while the model is
+          // thinking, and a snapshot-derived patch would undo them.
+          //
+          // `evidence: false` because the advice is the coach's own line, not
+          // something either person said — without it, asking "what do I say?"
+          // would immediately mark both profiles as stale.
+          await update(
+            id,
+            (current) => ({
+              turns: [...current.turns, adviceTurn(suggestion)],
+              researchNotes: mergeResearchNotes(current.researchNotes, suggestion.research_notes),
+            }),
+            { evidence: false },
+          )
+          setViewingAdvice(suggestion.id)
         }
+        return true
       } catch (e) {
         if ((e as Error).name !== 'AbortError') {
           setError({ id, tab: which, message: (e as Error).message })
         }
+        // An abort counts as sent: the user stopped it on purpose, and handing
+        // their text back as if the app had failed is just noise.
+        return (e as Error).name === 'AbortError'
       } finally {
         runningRef.current = false
         abortRef.current = null
         setBusy(null)
       }
     },
-    [active, situation, update],
+    [active, update],
   )
 
   /** Tear down the in-flight run. `run`'s catch swallows the AbortError. */
   const stop = useCallback(() => abortRef.current?.abort(), [])
+
+  /**
+   * One instruction to amend a profile, applied and forgotten.
+   *
+   * Only the profile is written. The instruction and the reply are held in
+   * component state and shown once, because the instruction's whole effect has
+   * already landed in `markdown` — storing it as well would keep the same
+   * information twice and re-send the redundant copy on every later request.
+   *
+   * `markdown`, `amendedAt`, `amendedTurnsAt` — and the headline, when the
+   * amendment made the old one wrong. The rest of the judgment is left exactly
+   * as the last full rebuild produced it: re-deciding where things *stand* off
+   * the back of one remark is how a read starts drifting, and `Rebuild` is right
+   * there.
+   *
+   * The headline is the exception because it isn't a judgment about the person,
+   * it's a description of the prose — and the prose just changed. Leaving it
+   * put a stale sentence directly above a correction that contradicted it, which
+   * is what actually happened: "you haven't spoken to them yet" sitting on top of
+   * nine cited messages.
+   */
+  const sendChat = useCallback(
+    async (engine: ChatEngine, message: string): Promise<boolean> => {
+      if (!active || runningRef.current) return false
+      runningRef.current = true
+      const id = active.id
+      setBusy({ id, tab: engine })
+      setError(null)
+      setThinking(null)
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      try {
+        const { reply, headline, markdown, changed } = await chatAboutProfile(
+          active,
+          engine,
+          message,
+          controller.signal,
+          setThinking,
+        )
+        const now = Date.now()
+        const profileKey = engine === 'them' ? 'themProfile' : 'meProfile'
+        // The transcript this amendment actually read, captured before the call
+        // rather than taken from `current` below: a turn added while the model
+        // was thinking is one it didn't see.
+        const sawTurns = active.turnsUpdatedAt
+
+        // Against `current`, not the snapshot: the user can add turns or edit
+        // the profile while the model is thinking.
+        await update(id, (current) => {
+          const profile = current[profileKey]
+          // An instruction before the first rebuild has no profile to amend, and
+          // inventing one here would fabricate a judgment nothing produced.
+          if (!profile) return {}
+          return {
+            [profileKey]: {
+              ...profile,
+              markdown,
+              amendedAt: now,
+              amendedTurnsAt: sawTurns,
+              ...(headline
+                ? { judgment: { ...profile.judgment, headline } }
+                : {}),
+            },
+          }
+        })
+        setEdit({ id, tab: engine, reply, changed })
+        return true
+      } catch (e) {
+        if ((e as Error).name !== 'AbortError') {
+          setError({ id, tab: engine, message: (e as Error).message })
+        }
+        return (e as Error).name === 'AbortError'
+      } finally {
+        runningRef.current = false
+        abortRef.current = null
+        setBusy(null)
+      }
+    },
+    [active, update],
+  )
 
   /**
    * For writes that aren't inside `run`'s try/catch. `update` and `remove` await
@@ -152,6 +257,31 @@ export default function App() {
       })
     },
     [activeId],
+  )
+
+  /**
+   * An answer to one of an engine's own open questions. It lands in the pool as
+   * a note carrying the question, which is what makes a three-word reply mean
+   * something later — and what fixes attribution for free, since a question
+   * about her can't produce an answer that gets filed under him.
+   *
+   * Appended, not inserted: this is known *now*, whatever period it describes.
+   */
+  const answerQuestion = useCallback(
+    (question: string, answer: string) => {
+      if (!active) return
+      const turn: Turn = {
+        id: crypto.randomUUID(),
+        speaker: 'context',
+        text: answer.trim(),
+        asked: question,
+      }
+      persist(
+        update(active.id, (current) => ({ turns: [...current.turns, turn] })),
+        tab,
+      )
+    },
+    [active, persist, tab, update],
   )
 
   if (!loaded) {
@@ -178,8 +308,32 @@ export default function App() {
     )
   }
 
-  const suggestion =
-    active?.suggestions.find((s) => s.id === viewingSuggestion) ?? active?.suggestions[0]
+  // The advice history *is* the conversation now — no parallel list, no cap, no
+  // pills. Reading it back out of `turns` keeps one source: delete the bubble
+  // and the suggestion is gone with it, because they were never two things.
+  const adviceTurns = active?.turns.filter((t) => t.speaker === 'coach' && t.advice) ?? []
+  const shownAdvice =
+    adviceTurns.find((t) => t.id === viewingAdvice) ?? adviceTurns[adviceTurns.length - 1]
+  const suggestion = shownAdvice?.advice
+  // Which drafts have been sent, derived rather than flagged — the same trick
+  // as `answered` below. A draft is sent when a turn of the user's holds that
+  // exact text, which survives a reload and can't drift out of step with the
+  // transcript. Edit the wording before sending and it won't match, which is
+  // correct: what's in the pool is then not the draft.
+  const sentDrafts = new Set(
+    active?.turns.filter((t) => t.speaker === 'me').map((t) => t.text.trim()) ?? [],
+  )
+  // Derived from the pool rather than tracked: a question is done when a turn
+  // answers it, which survives reloads and clears itself on the next rebuild.
+  const answerProps = active
+    ? {
+        answered: new Set(
+          active.turns.map((t) => t.asked).filter((q): q is string => Boolean(q)),
+        ),
+        onAnswer: answerQuestion,
+        disabled: !!busy,
+      }
+    : undefined
   // A run belonging to another profile shouldn't render as this one thinking.
   const busyTab = busy && busy.id === activeId ? busy.tab : null
   // ...but it still has to be stoppable from wherever the user ended up. `busy`
@@ -200,8 +354,7 @@ export default function App() {
         activeId={activeId}
         onSelect={(id) => {
           setActiveId(id)
-          setViewingSuggestion(null)
-          setSituation('')
+          setViewingAdvice(null)
         }}
         createError={createError}
         onCreate={(name) => {
@@ -239,7 +392,7 @@ export default function App() {
                 title={busy?.id === active.id ? 'Finishes rebuilding first' : undefined}
                 className="text-[11.5px] text-fg-3 transition hover:text-action disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-fg-3"
               >
-                {active.seedThem.trim() ? 'Edit profile & context' : 'Add what you know about them →'}
+                {active.goal.trim() ? 'Edit profile' : 'What do you want from this? →'}
               </button>
             </div>
 
@@ -257,6 +410,7 @@ export default function App() {
               {busyTab === 'next' ? <Spinner /> : <Sparkles size={13} />}
               What do I say?
             </Button>
+            <MindButton onClick={() => setShowMind(true)} />
             <button
               onClick={() => setShowSettings(true)}
               className="rounded-md p-2 text-fg-3 transition hover:bg-surface-muted hover:text-fg"
@@ -272,6 +426,18 @@ export default function App() {
             key={active.id}
             record={active}
             onChange={(turns) => persist(update(active.id, { turns }), tab)}
+            // A coach bubble is the summary; the panel holds the rest of it.
+            // Switching tab as well, because a click that visibly changes
+            // nothing reads as a dead control — the full version is over there.
+            // Only while the panel is actually showing it. The `next` tab
+            // defaults to the newest advice whether or not anyone is looking at
+            // it, and a bubble that says "shown in the panel" while the panel
+            // shows the read of her is just wrong.
+            viewingAdvice={tab === 'next' ? (shownAdvice?.id ?? null) : null}
+            onOpenAdvice={(id) => {
+              setViewingAdvice(id)
+              setTab('next')
+            }}
           />
 
             <aside className="flex h-full w-[440px] flex-none flex-col border-l border-border bg-surface">
@@ -361,59 +527,53 @@ export default function App() {
                   </div>
                 ) : null}
 
-                {tab === 'next' ? (
-                  <div className="mb-4">
-                    {/* One-shot, unlike the notes thread in the footer. */}
-                    <Eyebrow className="mb-1.5 block">Anything specific right now?</Eyebrow>
-                    <Input
-                      value={situation}
-                      disabled={!!busy}
-                      onChange={(e) => setSituation(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') run('next')
-                      }}
-                      placeholder="e.g. she left me on read for 2 days — optional"
-                    />
-                  </div>
-                ) : null}
-
                 {busyTab === tab ? (
                   <Thinking tab={tab} name={active.name} activity={activity} thinking={thinking} />
                 ) : tab === 'them' ? (
-                  active.themContext ? (
+                  active.themProfile ? (
                     <>
                       <Freshness
-                        at={active.themContext.generatedAt}
-                        stale={isStale(active, active.themContext.turnsAt)}
+                        at={active.themProfile.generatedAt}
+                        amendedAt={active.themProfile.amendedAt}
+                        stale={staleness(active, active.themProfile)}
                         onClear={() => {
-                          if (confirm(`Delete this read on ${active.name}? You can rebuild it any time.`)) {
-                            persist(update(active.id, { themContext: undefined }), 'them')
+                          if (
+                            confirm(
+                              `Start over on ${active.name}?\n\nThis throws away everything written down about them so far. The next rebuild starts from a blank page and reads the conversation again — which is the point when the notes have drifted, and a waste when they haven't.`,
+                            )
+                          ) {
+                            persist(update(active.id, { themProfile: undefined }), 'them')
                           }
                         }}
                       />
-                      <PersonContextView ctx={active.themContext} name={active.name} />
+                      <PersonContextView ctx={active.themProfile} name={active.name} answer={answerProps} />
                     </>
                   ) : (
                     <BlankSlate
                       title={`No read on ${active.name} yet`}
-                      body="Write what you know in the profile, add some of the conversation, then rebuild. Everything you get back cites the turn it came from."
+                      body={`Add some of the conversation — and anything you know that never got typed, with the NOTE button. Then rebuild: everything you get back cites the line it came from.`}
                       cta="Rebuild them"
                       onRun={() => run('them')}
                     />
                   )
                 ) : tab === 'me' ? (
-                  active.meContext ? (
+                  active.meProfile ? (
                     <>
                       <Freshness
-                        at={active.meContext.generatedAt}
-                        stale={isStale(active, active.meContext.turnsAt)}
+                        at={active.meProfile.generatedAt}
+                        amendedAt={active.meProfile.amendedAt}
+                        stale={staleness(active, active.meProfile)}
                         onClear={() => {
-                          if (confirm('Delete this read on you? You can rebuild it any time.')) {
-                            persist(update(active.id, { meContext: undefined }), 'me')
+                          if (
+                            confirm(
+                              'Start over on you?\n\nThis throws away everything written down about you in this connection. The next rebuild starts from a blank page and reads the conversation again.',
+                            )
+                          ) {
+                            persist(update(active.id, { meProfile: undefined }), 'me')
                           }
                         }}
                       />
-                      <SelfContextView ctx={active.meContext} />
+                      <SelfContextView ctx={active.meProfile} answer={answerProps} />
                     </>
                   ) : (
                     <BlankSlate
@@ -427,36 +587,49 @@ export default function App() {
                   <>
                     <Freshness
                       at={suggestion.generatedAt}
-                      stale={isStale(active, suggestion.turnsAt)}
+                      // A suggestion has no prose/judgment split to report on:
+                      // it is regenerated whole or not at all.
+                      stale={isStale(active, suggestion.turnsAt) ? 'stale' : 'fresh'}
                       label="Suggested"
                       clearLabel="Delete this suggestion"
                       onClear={() => {
                         if (confirm("Delete this suggestion? This can't be undone.")) {
-                          const remaining = active.suggestions.filter((s) => s.id !== suggestion.id)
-                          persist(update(active.id, { suggestions: remaining }), 'next')
-                          setViewingSuggestion(remaining[0]?.id ?? null)
+                          // The turn and the advice are one object, so this is
+                          // one delete. `evidence: false` for the same reason
+                          // the append was: removing the coach's own line
+                          // doesn't change what either person said.
+                          persist(
+                            update(
+                              active.id,
+                              (current) => ({
+                                turns: current.turns.filter((t) => t.id !== shownAdvice!.id),
+                              }),
+                              { evidence: false },
+                            ),
+                            'next',
+                          )
+                          setViewingAdvice(null)
                         }
                       }}
                     />
-                    {active.suggestions.length > 1 ? (
-                      <div className="mb-4 flex flex-wrap gap-1.5">
-                        {active.suggestions.map((s, i) => (
-                          <button
-                            key={s.id}
-                            onClick={() => setViewingSuggestion(s.id)}
-                            className={cn(
-                              'rounded-full border px-2.5 py-0.5 text-[11px] transition',
-                              s.id === suggestion.id
-                                ? 'border-action-300 bg-action-soft text-action-700'
-                                : 'border-border text-fg-3 hover:text-fg',
-                            )}
-                          >
-                            {i === 0 ? 'latest' : ago(s.generatedAt)}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <SuggestionView suggestion={suggestion} />
+                    {/* No history pills. Earlier advice is in the conversation,
+                        in the position it was given — click a COACH bubble to
+                        read it there, next to what the user actually did. */}
+                    <SuggestionView
+                      suggestion={suggestion}
+                      sent={sentDrafts}
+                      onSend={(draft) => {
+                        const turn: Turn = {
+                          id: crypto.randomUUID(),
+                          speaker: 'me',
+                          text: draft.trim(),
+                        }
+                        persist(
+                          update(active.id, (current) => ({ turns: [...current.turns, turn] })),
+                          'next',
+                        )
+                      }}
+                    />
                   </>
                 ) : (
                   <BlankSlate
@@ -468,31 +641,41 @@ export default function App() {
                 )}
               </div>
 
-              <FeedbackThread
-                key={`${active.id}:${tab}`}
-                notes={active.feedback[tab]}
-                busy={!!busy}
-                placeholder={FEEDBACK_PLACEHOLDER[tab](active.name)}
-                onRemove={(i) =>
-                  persist(
-                    update(active.id, (current) => ({
-                      feedback: {
-                        ...current.feedback,
-                        [tab]: current.feedback[tab].filter((_, j) => j !== i),
-                      },
-                    })),
-                    tab,
-                  )
-                }
-                onSend={(note) => run(tab, note)}
-              />
+              {/* One box per tab, in the same place, all one-shot. Keyed on the
+                  person *and* the tab so a half-typed instruction about her
+                  can't reappear under him, or under the drafts. */}
+              {tab === 'next' ? (
+                <AskComposer
+                  key={`${active.id}:next`}
+                  label="Anything specific right now?"
+                  placeholder="e.g. she left me on read for 2 days — optional"
+                  cta="What do I say?"
+                  hint="Used for this answer only."
+                  busy={!!busy}
+                  onSend={(message) => run('next', message)}
+                />
+              ) : (
+                <AskComposer
+                  key={`${active.id}:${tab}`}
+                  label={`Change what it knows about ${tab === 'them' ? active.name : 'you'}`}
+                  placeholder="e.g. drop the avoidant read — she works nights, that's why the 2am replies"
+                  blockedHint="Rebuild first — then you can correct what it found"
+                  cta="Apply"
+                  hint="Applied once. The notes above are what gets kept."
+                  busy={!!busy}
+                  blocked={!(tab === 'them' ? active.themProfile : active.meProfile)}
+                  edit={edit && edit.id === active.id && edit.tab === tab ? edit : null}
+                  onDismiss={() => setEdit(null)}
+                  onSend={(message) => sendChat(tab, message)}
+                />
+              )}
             </aside>
           </div>
         </main>
       )}
 
       {active ? (
-        // Keyed on the person, like ConversationPanel and FeedbackThread. The
+        // Keyed on the person, like ConversationPanel and AskComposer. The
         // overlay blocks pointer input on the rail but not Tab, so a keyboard
         // switch while this was open left the draft holding person A's data and
         // `onSave` writing it to person B. Remounting discards the stale draft.
@@ -506,6 +689,8 @@ export default function App() {
         />
       ) : null}
 
+      <MindModal open={showMind} onClose={() => setShowMind(false)} />
+
       <SettingsModal
         open={showSettings}
         onClose={() => setShowSettings(false)}
@@ -517,13 +702,20 @@ export default function App() {
 
 function Freshness({
   at,
+  amendedAt,
   stale,
   onClear,
   label = 'Rebuilt',
   clearLabel = 'Delete this rebuild',
 }: {
   at: number
-  stale: boolean
+  /**
+   * Shown beside the rebuild time rather than replacing it, because the two
+   * halves of a profile age separately: a chat turn amends the prose and leaves
+   * the judgment alone. One clock would have to misdate one of them.
+   */
+  amendedAt?: number
+  stale: Staleness
   onClear?: () => void
   label?: string
   clearLabel?: string
@@ -532,9 +724,15 @@ function Freshness({
     <div className="mb-4 flex items-center gap-2">
       <Eyebrow>
         {label} {ago(at)}
+        {amendedAt && amendedAt > at ? ` · edited ${ago(amendedAt)}` : ''}
       </Eyebrow>
       <span className="h-px flex-1 bg-border" />
-      {stale ? <Chip tone="warn">conversation has moved on</Chip> : null}
+      {stale === 'stale' ? (
+        <Chip tone="warn">conversation has moved on</Chip>
+      ) : stale === 'judgment' ? (
+        // The prose has read every turn; only what a rebuild produces hasn't.
+        <Chip tone="warn">judgment predates these turns</Chip>
+      ) : null}
       {onClear ? (
         <button
           onClick={onClear}

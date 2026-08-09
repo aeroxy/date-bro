@@ -10,6 +10,24 @@ Three backends behind one `chatCompletion`.
 | `completeJSON(config, messages, validate, options)` | The plain-call path: call → `parseJSON` → `validate` → on failure, resend with the bad output and the specific complaint → validate again → throw. Used by all three engines when no research tools are in play. |
 | `chatCompletionWithTools(config, messages, options)` | Tool-calling variant, used by `lib/agent.ts`'s loop. Returns `{ content, tool_calls? }`. Qwen short-circuits to a plain completion (see below); `openai` and `anthropic` both genuinely participate in the tool-calling protocol. |
 | `parseJSON<T>(raw)` | Fence → outermost `{…}` → `JSON.parse` → `jsonrepair` → descriptive throw. Rejects a bare `null`/array, which would otherwise crash the validators with an opaque message. |
+
+**`sessionId` is not optional in practice.** Cache entries are partitioned by session, and if the
+client doesn't name one, whatever sits in front of the API invents one. `../claude-proxy` invents it
+by hashing the first user message — and since we send one user message carrying every stratum, that
+hash changed on every call, so a byte-identical system block was read *zero* times against 22,620
+tokens of cache creation. Every engine now passes `sessionId: record.id` (immutable for the life of a
+record) and the Anthropic path sends it as `x-claude-code-session-id`, which the proxy honours in
+place of deriving one. `AgentOptions` carries it too, so every turn of a research loop shares it.
+Ignored by api.anthropic.com directly, so it costs nothing when no proxy is in front.
+
+**Truncation is caught before parsing.** A response cut off at `max_tokens` mid-object still has
+content, so the "was it truncated" checks — which only fired on an *empty* response — used to pass it
+straight through. `jsonrepair` then closed the dangling braces into a perfectly valid object with its
+trailing fields missing, and validation complained about whatever happened to be last in the shape,
+naming a field the model never had trouble with. Every path now throws on `finish_reason: 'length'` /
+`stop_reason: 'max_tokens'` whether or not content arrived, and says which setting to raise. Latent
+rather than observed — found while chasing a *different* missing-field bug (see
+[coach.md](coach.md#profilets)) that had nothing to do with truncation.
 | `stripThinkBlock(content)` | Strips a leading `<think>…</think>`. An unclosed block returns `''` rather than half-written reasoning — otherwise `parseJSON`'s brace regex latches onto a brace *inside* the reasoning and yields garbage that parses cleanly. |
 | `layeredUser(segments)` | A user turn built from strata (see [coach.md](coach.md)). Derives `content` by joining the segments rather than taking it as an argument, so the flat string and the segmented one can't drift. |
 
@@ -96,9 +114,12 @@ when the agent loop's nudge path pushes a whitespace-only assistant turn.
 mutation-rate boundaries (see [coach.md](coach.md) for the strata). This path is the only consumer:
 each segment becomes its own `text` block, and segments marked `cache` get
 `cache_control: {type: 'ephemeral'}`. The split is the point — `cache_control` attaches to a block,
-so a turn sent as one block would key its entry on the volatile tail and never read back. Two
-breakpoints per request (end of transcript, end of task block), against a limit of four; nesting
-them costs nothing extra, since cache-creation billing counts the prefix once. The default 5-minute
+so a turn sent as one block would key its entry on the volatile tail and never read back. Three
+breakpoints per request (last transcript turn, end of task block, end of the injected profile),
+against a limit of four; nesting them costs nothing extra, since cache-creation billing counts the
+prefix once. Note that the transcript is many blocks with the mark on the last of them, not one
+block — entries are *written* at a breakpoint but *read* by longest matching prefix, so appending a
+block preserves the previous entry while rewriting one destroys it. The default 5-minute
 TTL is deliberate but not free: writes are 1.25× base input and reads 0.1×, so a breakpoint that is
 never read back is 25% *worse* than sending nothing.
 
@@ -163,7 +184,7 @@ persistent `researchNotes` string, skipping lines already present (case-insensit
 don't pile up duplicates. `App.tsx` calls it right after every `suggestMove`; the result is fed back
 into every future prompt via `<research_notes>` (see `coach/prompts.ts`) so the same fact isn't
 re-searched next time. It's plain user-editable text — `ProfileModal` exposes it with a `Clear`
-button — so a wrong or stale note can be fixed by hand as easily as the seed context can.
+button — so a wrong or stale note can be fixed by hand as easily as any other entry.
 
 ## `qwen/`
 
@@ -208,10 +229,32 @@ staleness lines both call it. Tiers: `never` for a missing or zero timestamp, th
 had grown separate copies that disagreed at the tail — the rail's stopped at days, so the same
 timestamp read `45d ago` in one place and `2mo ago` in the other.
 
+## `birthday.ts`
+
+`describeBirthday(iso, now)` → `"14 March 1997 — 29 years old, and it is in 9 days"`, or `null` if the
+string isn't a real ISO date. Replaced `meta.age`, a free-text number that was wrong the moment it
+was written: a record is read on every call for months, so a stored "28" quietly becomes a lie and
+nothing corrects it.
+
+Derived in code rather than handed to the model as a date plus `<right_now>` — that is arithmetic
+across a calendar, which models get wrong in the quiet way this app can't afford, and every other
+fact in the request is stated rather than inferred. Dates are built in local time (`new Date(iso)`
+reads as UTC and lands a day early west of Greenwich) and round-trip-checked, so `2001-02-30` is
+rejected rather than rolling into March. Age is compared as `(month, day)` so a leap year or a
+daylight-saving hour can't shift it; 29 February falls forward to 1 March in a common year, the only
+convention that doesn't skip three years in four. The countdown appears only within 30 days — a
+birthday coming up is a set piece, a birthday in August is standing noise.
+
 ## `storage.ts`
 
 Thin wrappers over `chrome.storage.local`. `ensureActiveProfile()` creates a default profile on
 first run and repairs a dangling active id; `getActiveConfig()` is what `coach/run.ts` calls.
+
+`getMind()` / `saveMind()` hold the coach itself — see [coach.md](coach.md#mindts). Here rather
+than on a `DateRecord` because every record shares it: filing it under one would mean choosing which
+record owns the coach, and losing it when that record is deleted. Empty `markdown` means "still
+tracking the shipped seed", so an installation nobody has edited keeps getting knowledge-base
+improvements from releases; `saveMind` is the fork.
 
 ## `db.ts`
 
@@ -222,13 +265,16 @@ value the in-memory list was ordered on, so the rail's order and `listDates()`'s
 from different numbers. `normalize()`
 runs on every read instead of a migration step, filling fields that post-date a stored record —
 including `turnsUpdatedAt`, which defaults to `0` rather than `updatedAt` because 0 is the value that
-can't produce a false staleness chip.
+can't produce a false staleness chip. It also runs the four migrations; see
+[architecture.md](architecture.md#storage-layout) for what each one moves and why every default in
+`normalize` reads from the migrated value rather than the original record.
 
 ## `transcript.ts`
 
 | Export | Purpose |
 |---|---|
-| `formatTranscript(record)` | The transcript as the model sees it — numbered turns, speaker label, optional time/channel, and the user's own note inline |
-| `speakerLabel(record, speaker)` | `ME` or the person's name, uppercased — the same label in prompts, UI, and pasted logs |
+| `formatTurn(record, turn, index)` | One turn as the model sees it — number, speaker label, optional time/channel, and the user's own note inline. A pure function of `(turn, index, name)`, which is what makes the prefix cache work: the prompt sends one block per turn, so appending turn n+1 leaves the first n byte-identical. There is deliberately no `formatTranscript` joining them — the prompt is the only consumer and needs them separate |
+| `speakerLabel(record, speaker)` | `ME`, `NOTE`, `COACH`, or the person's name uppercased — the same label in prompts, UI, and pasted logs |
+| `adviceTurn(suggestion)` | A suggestion as the `coach` turn that goes in the pool: the priority plus the option labels, two lines out of a four-hundred-word generation. Derived here rather than asked of the model — no output field to get wrong, no tokens spent, and the same suggestion always renders the same way. The whole `Suggestion` rides along in `Turn.advice` for the panel; only `text` reaches the prompt. The turn takes the suggestion's own id, so the two can't drift apart |
 | `parsePastedLog(raw, theirName)` | `Name: text` lines with the common label variants plus the person's own name, plus an optional bracketed timestamp right after the label — `Name [Tue 9pm]: text`. The bracket is free-form, same string the manual composer's "when" field takes; omit it and the line parses exactly as before. Unlabelled lines join the previous turn, so multi-line messages survive. Anything before the first recognised label is dropped. |
-| `transcriptStats(record)` | Turn, word, and question counts per side — shown in the UI header and injected into every prompt |
+| `transcriptStats(record)` | Turn, word, and question counts per side — shown in the UI header and injected into every prompt. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |
