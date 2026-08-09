@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ClipboardPaste, Pencil, Phone, Trash2, Users } from 'lucide-react'
+import { ClipboardPaste, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
 import { parsePastedLog, speakerLabel, transcriptStats } from '@/lib/transcript'
@@ -23,9 +23,14 @@ const PAGE_SIZE = 40
 export function ConversationPanel({
   record,
   onChange,
+  viewingAdvice,
+  onOpenAdvice,
 }: {
   record: DateRecord
   onChange: (turns: Turn[]) => void
+  /** Which coach turn the insight panel is currently showing, if any. */
+  viewingAdvice?: string | null
+  onOpenAdvice?: (id: string) => void
 }) {
   const [speaker, setSpeaker] = useState<Speaker>('them')
   const [text, setText] = useState('')
@@ -33,6 +38,10 @@ export function ConversationPanel({
   const [channel, setChannel] = useState<Channel>('text')
   const [note, setNote] = useState('')
   const [editing, setEditing] = useState<Turn | null>(null)
+  // A note belongs where it happened, not wherever the composer happens to be.
+  // The id is minted when the gap is clicked rather than during render, so the
+  // modal doesn't remount itself out from under a half-typed note.
+  const [inserting, setInserting] = useState<{ at: number; turn: Turn } | null>(null)
   const [importing, setImporting] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
@@ -82,6 +91,10 @@ export function ConversationPanel({
 
   const stats = transcriptStats(record)
 
+  // A note isn't spoken, so the fields that describe *how* something was said
+  // don't apply to it — see `Speaker` in types/date.ts.
+  const isNote = speaker === 'context'
+
   const add = () => {
     if (!text.trim()) return
     const turn: Turn = {
@@ -89,15 +102,16 @@ export function ConversationPanel({
       speaker,
       text: text.trim(),
       at: at.trim() || undefined,
-      channel: channel === 'text' ? undefined : channel,
-      note: note.trim() || undefined,
+      channel: isNote || channel === 'text' ? undefined : channel,
+      note: isNote ? undefined : note.trim() || undefined,
     }
     onChange([...record.turns, turn])
     setText('')
     setNote('')
     // Alternating is the common case — flip the speaker so the next turn is
-    // one keystroke closer.
-    setSpeaker(speaker === 'them' ? 'me' : 'them')
+    // one keystroke closer. A note isn't part of that rhythm: it interrupts the
+    // conversation rather than continuing it, so it leaves the toggle alone.
+    if (!isNote) setSpeaker(speaker === 'them' ? 'me' : 'them')
   }
 
   return (
@@ -138,6 +152,11 @@ export function ConversationPanel({
               line starting <code className="font-mono text-[12px] text-fg-2">Me:</code> or{' '}
               <code className="font-mono text-[12px] text-fg-2">{record.name}:</code> becomes a turn.
             </p>
+            <p className="mt-3 text-[13.5px] leading-relaxed text-fg-3">
+              Anything you know that nobody typed — how you met, what they do, what you're like
+              around them — goes in with <span className="font-semibold text-fg-2">NOTE</span>. This
+              is the only place the coach reads from, so everything lives here.
+            </p>
           </div>
         ) : null}
 
@@ -159,29 +178,95 @@ export function ConversationPanel({
         <ol className="space-y-2.5">
           {visibleTurns.map((turn, i) => {
             const mine = turn.speaker === 'me'
+            // Neither side said it, so it sits in the middle and doesn't wear a
+            // bubble — a note that looked like a message would be read back as
+            // one at a glance, which is exactly the confusion it exists to avoid.
+            // Advice the coach gave is centred for the same reason.
+            const isContext = turn.speaker === 'context'
+            const isCoach = turn.speaker === 'coach'
+            const centred = isContext || isCoach
+            const showing = isCoach && viewingAdvice === turn.id
             return (
               <li
                 key={turn.id}
-                className={cn('group flex min-w-0 gap-3', mine ? 'flex-row-reverse' : 'flex-row')}
+                className={cn(
+                  'group relative flex min-w-0 gap-3',
+                  centred ? 'flex-row justify-center' : mine ? 'flex-row-reverse' : 'flex-row',
+                )}
               >
+                {/* Sits in the gap above this line and inserts before it, so
+                    every position is reachable — the composer covers the end.
+                    Invisible isn't gone: without pointer-events-none it stays
+                    clickable across the full width while reading as absent. */}
+                <button
+                  onClick={() =>
+                    setInserting({
+                      at: hiddenCount + i,
+                      turn: { id: crypto.randomUUID(), speaker: 'context', text: '' },
+                    })
+                  }
+                  title="Add a note here"
+                  className="pointer-events-none absolute -top-2.5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-dashed border-border bg-surface px-2 py-0.5 text-[10px] text-fg-3 opacity-0 transition hover:border-action hover:text-action focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                >
+                  <Plus size={9} /> note
+                </button>
                 <span className="tabular mt-2 w-5 flex-none text-right font-mono text-[10px] text-neutral-300">
                   {hiddenCount + i + 1}
                 </span>
-                <div className={cn('min-w-0 max-w-[min(560px,78%)]', mine && 'text-right')}>
-                  <div
-                    className={cn(
-                      'inline-block whitespace-pre-wrap break-words rounded-lg px-3.5 py-2 text-left text-[13.5px] leading-relaxed',
-                      mine
-                        ? 'bg-ink text-white'
-                        : 'border border-border bg-surface text-fg shadow-xs',
-                    )}
-                  >
-                    {turn.text}
-                  </div>
+                <div
+                  className={cn(
+                    'min-w-0',
+                    centred ? 'max-w-[min(560px,86%)] text-center' : 'max-w-[min(560px,78%)]',
+                    mine && !centred && 'text-right',
+                  )}
+                >
+                  {/* The question the answer belongs to. It already rides into
+                      the prompt inside the line's label; without it here the
+                      reader gets a three-word fragment with no subject. */}
+                  {turn.asked ? (
+                    <p className="mb-1 text-[11px] italic leading-snug text-fg-3">{turn.asked}</p>
+                  ) : null}
+                  {/* The bubble is the summary; the panel holds the drafts, the
+                      reasoning and what to watch for. Clicking opens it there
+                      rather than expanding inline — the advice was written to be
+                      read next to the profile it came from, and a conversation
+                      that unfolds into four hundred words stops being one. */}
+                  {isCoach ? (
+                    <button
+                      onClick={() => onOpenAdvice?.(turn.id)}
+                      className={cn(
+                        'block w-full whitespace-pre-wrap break-words rounded-md border px-3 py-2 text-left text-[12.5px] leading-relaxed transition',
+                        showing
+                          ? 'border-action-300 bg-action-soft text-fg'
+                          : 'border-dashed border-border bg-surface-sunken text-fg-2 hover:border-action-300 hover:bg-action-soft hover:text-fg',
+                      )}
+                    >
+                      {turn.text}
+                      <span className="mt-1.5 flex items-center gap-1 text-[10.5px] font-semibold text-action-700">
+                        <Sparkles size={9} />
+                        {showing ? 'shown in the panel' : 'see the drafts'}
+                      </span>
+                    </button>
+                  ) : (
+                    <div
+                      className={cn(
+                        'inline-block whitespace-pre-wrap break-words text-left text-[13.5px] leading-relaxed',
+                        isContext
+                          ? 'rounded-md border border-dashed border-border bg-surface-sunken px-3 py-1.5 text-[12.5px] text-fg-2'
+                          : 'rounded-lg px-3.5 py-2',
+                        !isContext &&
+                          (mine
+                            ? 'bg-ink text-white'
+                            : 'border border-border bg-surface text-fg shadow-xs'),
+                      )}
+                    >
+                      {turn.text}
+                    </div>
+                  )}
                   <div
                     className={cn(
                       'mt-1 flex items-center gap-2 text-[10.5px] text-fg-3',
-                      mine && 'justify-end',
+                      centred ? 'justify-center' : mine && 'justify-end',
                     )}
                   >
                     <span className="font-mono uppercase tracking-[0.1em]">
@@ -195,17 +280,23 @@ export function ConversationPanel({
                       </span>
                     ) : null}
                     {/* Hidden until hover, so it also has to appear on keyboard
-                        focus — same rule as FeedbackThread's drop button.
+                        focus.
                         Invisible isn't gone: without pointer-events-none, delete
                         stays clickable under the cursor while it reads as absent. */}
                     <span className="pointer-events-none flex items-center gap-1 opacity-0 transition focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
-                      <button
-                        onClick={() => setEditing(turn)}
-                        className="rounded p-0.5 hover:text-fg"
-                        title="Edit"
-                      >
-                        <Pencil size={11} />
-                      </button>
+                      {/* No edit on advice. It's a record of what was said to
+                          the user, not something they wrote — rewriting it
+                          would leave the panel showing drafts the summary above
+                          no longer describes. Delete still works. */}
+                      {isCoach ? null : (
+                        <button
+                          onClick={() => setEditing(turn)}
+                          className="rounded p-0.5 hover:text-fg"
+                          title="Edit"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                      )}
                       <button
                         onClick={() => onChange(record.turns.filter((t) => t.id !== turn.id))}
                         className="rounded p-0.5 hover:text-no"
@@ -235,10 +326,11 @@ export function ConversationPanel({
       <div className="border-t border-border bg-surface-sunken px-5 py-3">
         <div className="mb-2 flex items-center gap-2">
           <div className="flex overflow-hidden rounded-md border border-border">
-            {(['them', 'me'] as Speaker[]).map((s) => (
+            {(['them', 'me', 'context'] as Speaker[]).map((s) => (
               <button
                 key={s}
                 onClick={() => setSpeaker(s)}
+                title={s === 'context' ? "Something you know that nobody typed" : undefined}
                 className={cn(
                   'px-3 py-1 text-[12px] font-semibold transition',
                   speaker === s ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
@@ -251,25 +343,29 @@ export function ConversationPanel({
           <Input
             value={at}
             onChange={(e) => setAt(e.target.value)}
-            placeholder="when — 'Tue 9pm', 'next morning'"
+            placeholder={isNote ? "when you found out — optional" : "when — 'Tue 9pm', 'next morning'"}
             className="h-8 max-w-[220px] text-[12.5px]"
           />
-          <Select
-            value={channel}
-            onChange={(c) => setChannel(c as Channel)}
-            className="h-8 w-[130px] text-[12.5px]"
-            options={[
-              { value: 'text', label: 'Text' },
-              { value: 'call', label: 'Call' },
-              { value: 'irl', label: 'In person' },
-            ]}
-          />
-          <Input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="your note — tone, what you left out"
-            className="h-8 flex-1 text-[12.5px]"
-          />
+          {isNote ? null : (
+            <>
+              <Select
+                value={channel}
+                onChange={(c) => setChannel(c as Channel)}
+                className="h-8 w-[130px] text-[12.5px]"
+                options={[
+                  { value: 'text', label: 'Text' },
+                  { value: 'call', label: 'Call' },
+                  { value: 'irl', label: 'In person' },
+                ]}
+              />
+              <Input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="your note — tone, what you left out"
+                className="h-8 flex-1 text-[12.5px]"
+              />
+            </>
+          )}
         </div>
         <div className="flex items-end gap-2">
           <Textarea
@@ -279,11 +375,15 @@ export function ConversationPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) add()
             }}
-            placeholder={`What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add)`}
+            placeholder={
+              isNote
+                ? `Something you know that isn't in the messages — ${record.name} said it on a call, a friend mentioned it, you remembered it.   (⌘↵ to add)`
+                : `What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add)`
+            }
             className="flex-1"
           />
           <Button onClick={add} disabled={!text.trim()}>
-            Add turn
+            {isNote ? 'Add note' : 'Add turn'}
           </Button>
         </div>
       </div>
@@ -298,6 +398,24 @@ export function ConversationPanel({
           onSave={(updated) => {
             onChange(record.turns.map((t) => (t.id === updated.id ? updated : t)))
             setEditing(null)
+          }}
+        />
+      ) : null}
+
+      {inserting ? (
+        <EditTurnModal
+          key={inserting.turn.id}
+          turn={inserting.turn}
+          record={record}
+          isNew
+          onClose={() => setInserting(null)}
+          onSave={(created) => {
+            if (created.text.trim()) {
+              const next = [...record.turns]
+              next.splice(inserting.at, 0, created)
+              onChange(next)
+            }
+            setInserting(null)
           }}
         />
       ) : null}
@@ -320,22 +438,26 @@ export function ConversationPanel({
 function EditTurnModal({
   turn,
   record,
+  isNew,
   onClose,
   onSave,
 }: {
   turn: Turn
   record: DateRecord
+  isNew?: boolean
   onClose: () => void
   onSave: (turn: Turn) => void
 }) {
   const [draft, setDraft] = useState<Turn>(turn)
+  const isNote = draft.speaker === 'context'
+  const noun = isNote ? 'note' : 'turn'
 
   return (
     <Modal
       open
       onClose={onClose}
       eyebrow={speakerLabel(record, draft.speaker)}
-      title="Edit turn"
+      title={`${isNew ? 'Add' : 'Edit'} ${noun}`}
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>
@@ -348,7 +470,7 @@ function EditTurnModal({
       }
     >
       <div className="space-y-3">
-        <Field label="Said">
+        <Field label={isNote ? 'What you know' : 'Said'}>
           <Textarea
             rows={5}
             value={draft.text}
@@ -359,26 +481,37 @@ function EditTurnModal({
           <Field label="Who">
             <Select
               value={draft.speaker}
-              onChange={(speaker) => setDraft({ ...draft, speaker: speaker as Speaker })}
+              // Switching an entry to a note drops the fields that only describe
+              // speech, so saving can't leave a note carrying a channel.
+              onChange={(next) =>
+                setDraft(
+                  next === 'context'
+                    ? { ...draft, speaker: next, channel: undefined, note: undefined }
+                    : { ...draft, speaker: next as Speaker },
+                )
+              }
               options={[
                 { value: 'them', label: speakerLabel(record, 'them') },
                 { value: 'me', label: speakerLabel(record, 'me') },
+                { value: 'context', label: speakerLabel(record, 'context') },
               ]}
             />
           </Field>
-          <Field label="When">
+          <Field label={isNote ? 'When you found out' : 'When'}>
             <Input
               value={draft.at ?? ''}
               onChange={(e) => setDraft({ ...draft, at: e.target.value })}
             />
           </Field>
         </div>
-        <Field label="Your note" hint="tone, body language, what didn't make it into text">
-          <Input
-            value={draft.note ?? ''}
-            onChange={(e) => setDraft({ ...draft, note: e.target.value })}
-          />
-        </Field>
+        {isNote ? null : (
+          <Field label="Your note" hint="tone, body language, what didn't make it into text">
+            <Input
+              value={draft.note ?? ''}
+              onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+            />
+          </Field>
+        )}
       </div>
     </Modal>
   )

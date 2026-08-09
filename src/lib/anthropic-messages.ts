@@ -145,7 +145,13 @@ export function buildAnthropicBody(
     max_tokens: options.max_tokens,
     messages: converted,
   }
-  if (system) body.system = system
+  // A block array rather than a bare string, so the system prompt can carry a
+  // cache breakpoint. It holds the engine's whole task and knowledge base —
+  // the largest constant in the request, identical for that engine across every
+  // record — so it is the one entry most worth writing once and reading forever.
+  if (system) {
+    body.system = [{ type: 'text', text: system, cache_control: EPHEMERAL }]
+  }
   // Omitted when unset so the provider's default applies. Recent Claude models
   // (Opus 5, Sonnet 5, Opus 4.7+) reject an explicit temperature outright, and
   // *any* model rejects one alongside thinking — that pairing (a temperature

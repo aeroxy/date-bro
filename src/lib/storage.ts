@@ -1,9 +1,11 @@
+import { EMPTY_MIND, type Mind } from '@/coach/mind'
 import { DEFAULT_CONFIG, newLLMProfile, type CoachSettings, type LLMConfig, type LLMProfile } from '@/types/settings'
 
 const KEYS = {
   llmProfiles: 'dateBroLLMProfiles',
   activeProfileId: 'dateBroActiveProfileId',
   settings: 'dateBroSettings',
+  mind: 'dateBroCoachMind',
 } as const
 
 const DEFAULT_SETTINGS: CoachSettings = { customPrompt: '' }
@@ -66,6 +68,28 @@ export async function getActiveConfig(): Promise<LLMConfig> {
 export async function getSettings(): Promise<CoachSettings> {
   const result = await chrome.storage.local.get(KEYS.settings)
   return { ...DEFAULT_SETTINGS, ...(result[KEYS.settings] ?? {}) }
+}
+
+/**
+ * The coach itself — see `coach/mind.ts`.
+ *
+ * Here rather than on a `DateRecord` because it isn't about a particular person.
+ * Filing it under one of them would mean choosing which record owns a coach that
+ * every record shares, and losing it when that record is deleted.
+ *
+ * Empty `markdown` means "still tracking the shipped seed", so an installation
+ * nobody has edited keeps getting knowledge-base improvements from releases.
+ * `saveMind` is the fork: after it, this is the only copy that matters.
+ */
+export async function getMind(): Promise<Mind> {
+  const result = await chrome.storage.local.get(KEYS.mind)
+  return { ...EMPTY_MIND, ...(result[KEYS.mind] ?? {}) }
+}
+
+export async function saveMind(markdown: string): Promise<Mind> {
+  const mind: Mind = { markdown, updatedAt: Date.now() }
+  await chrome.storage.local.set({ [KEYS.mind]: mind })
+  return mind
 }
 
 /**

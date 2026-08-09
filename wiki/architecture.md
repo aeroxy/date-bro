@@ -38,7 +38,8 @@ app.html (extension page — full chrome.* access, no lifetime limit)
         coach/run.ts
           ├─ loads active LLMConfig + custom prompt
           ├─ coach/prompts.ts builds [system, user] from
-          │    knowledge module + seed context + transcript + prior contexts
+          │    knowledge module + transcript (messages + NOTE entries)
+          │    + whatever the rebuild engines last produced
           └─ lib/llm-client.completeJSON
                 ├─ backend 'openai'    ─► fetch → {base_url}/chat/completions
                 ├─ backend 'anthropic' ─► fetch SSE → {base_url}/messages
@@ -81,16 +82,63 @@ Plus one background → app page broadcast, `QWEN_CHAT_THINKING` (`{ requestId, 
 
 | Store | Key | Contents |
 |---|---|---|
-| IndexedDB `date-bro` v1 | `dates` (keyPath `id`, index `by-updated`) | `DateRecord[]` — the person, both seed contexts, all turns, both rebuilt contexts, suggestion history, accumulated research notes, per-engine feedback threads, and the two clocks (`updatedAt` for any write, `turnsUpdatedAt` for transcript writes only — see Freshness) |
+| IndexedDB `date-bro` v1 | `dates` (keyPath `id`, index `by-updated`) | `DateRecord[]` — the person, the stated goal, all turns (messages, NOTE entries and COACH advice), both markdown profiles with their judgments, accumulated research notes, and the two clocks (`updatedAt` for any write, `turnsUpdatedAt` for evidence writes only — see Freshness) |
 | `chrome.storage.local` | `dateBroLLMProfiles` | `LLMProfile[]` |
 | `chrome.storage.local` | `dateBroActiveProfileId` | `string` |
 | `chrome.storage.local` | `dateBroSettings` | `CoachSettings` (the house-rules prompt) |
+| `chrome.storage.local` | `dateBroCoachMind` | `Mind` — the coach itself: its identity, its whole playbook, and what it has learned. Not a `DateRecord` field precisely because every record shares it; see [coach.md](coach.md#mindts) |
 | `chrome.storage.local` | `dateBroLastOpened` | last-selected date id, so the app reopens where you left it |
 | `chrome.storage.local` | `qwen_device_id` | cached device id for the Qwen fingerprint |
+
+Four migrations in `lib/db.ts` run on every read, under the same rule: **derive everything, mint
+nothing.** `normalize` runs on reads, not once at startup, so a record can be read a hundred times
+before its next save — anything non-deterministic would churn on each pass. Every default in
+`normalize` reads from the migrated value, never from the original record: reading the original would
+quietly undo whatever a migration just did.
+
+- `migrateSeed` — records written when `seedThem`/`seedMe` existed come back carrying them, and
+  their text moves into `turns` as `context` entries ahead of turn one. Nothing written under the
+  old model is lost; it just enters the pool like anything else. Ids are derived from the record id
+  rather than minted, so it can't re-add a note after the first save persists it.
+- `migrateSectionNames` — renames profile headings that were renamed after profiles had already been
+  written under the old name (`Open threads` → `Threads to pick back up`). Matching is by heading, so
+  skipping this would give a profile two sections holding the same thing.
+- `migrateSuggestions` — the newest entry of the retired `suggestions` array becomes the `coach`
+  turn it would be today, appended at the end. Only the newest: a suggestion records `turnsAt` as a
+  wall clock rather than a position, so there is no way to work out where in the transcript the
+  older ones were given, and inventing an order for twenty of them would put fabricated chronology
+  into the one list this app treats as fact. The newest is the exception worth making — it was
+  generated from the transcript as it then stood — and it means the panel isn't empty after the
+  upgrade. Idempotent by taking the suggestion's own id for the turn.
+- `migrateContexts` — records carrying the retired `themContext`/`meContext` schemas get them
+  rendered into the markdown profiles by `personToMarkdown` / `selfToMarkdown`, with the structured
+  half (`interest_read`, flags, `goal_read`, open questions) lifted into the profile's `judgment`.
+  Pure and total: every old field has a home in the new layout, since the canonical headings were
+  derived from those very fields.
 
 A `DateRecord` holds everything for one person, turns included. The whole dataset is text measured
 in hundreds of KB, so there is no separate turns store and no pagination — `useDates` loads all
 records once and writes each mutation straight through.
+
+## The turn pool
+
+`turns` is the context pool, not only the messages. Two of the four speakers aren't speakers:
+
+- **`context`** — something the user knows that nobody typed. It lives in the same array so there is
+  one chronology and one numbering to cite, and so a fact learned today lands where it was learned.
+- **`coach`** — what this app advised, at the point it advised it, carrying the whole `Suggestion` in
+  `Turn.advice`. It replaced `DateRecord.suggestions`, a parallel history with its own pills, its own
+  20-cap and its own delete button, all describing a timeline the conversation was already keeping.
+  Advice in a side list is advice no later run can see; in the pool it sits directly above whatever
+  the user did next, which is the only evidence that exists about whether it worked. Only the
+  two-line summary reaches the prompt — `formatTurn` renders `text` and nothing else, so the panel
+  gets three drafts and later requests pay for two lines.
+
+**`turnsUpdatedAt` tracks evidence, not writes to `turns`.** Adding a `context` entry or a message
+bumps it and marks every existing read stale, which is right — a new fact is exactly what should
+trigger a rebuild. Adding a `coach` turn does not, and `useDates.update` takes `{ evidence: false }`
+to say so: a line the coach wrote itself is not something either person said, and without the
+opt-out every "What do I say?" would immediately flag both profiles as out of date.
 
 ## Freshness
 
@@ -98,9 +146,15 @@ Every read carries two stamps: `generatedAt` for "Rebuilt 2h ago", and `turnsAt`
 `turnsUpdatedAt` at the moment the run was built, i.e. the transcript the model actually saw. The
 "conversation has moved on" chip compares the record's current `turnsUpdatedAt` against it.
 
+A profile carries two more, because its halves age separately. An amendment rewrites the prose
+without regenerating the judgment, so `amendedAt`/`amendedTurnsAt` describe the prose and
+`generatedAt`/`turnsAt` describe the judgment. One pair could only ever be right about one half: with
+just `turnsAt`, an amendment that had read every current turn still reported "conversation has moved
+on".
+
 **Why not `updatedAt`.** `updatedAt` moves on *every* write, so comparing against it marked a read
-stale when the user rebuilt the other tab, saved the profile, or left a feedback note — in normal use
-at least one tab was always wrongly flagged. `turnsUpdatedAt` is stamped only when a write carries
+stale when the user rebuilt the other tab, saved the profile, or merged in research notes — in
+normal use at least one tab was always wrongly flagged. `turnsUpdatedAt` is stamped only when a write carries
 `turns`, so the signal means what it says. Comparing two turn-stamps rather than a turn-stamp against
 a wall-clock time also catches the case where a turn was added *during* the run: the model didn't see
 it, so the read is genuinely stale the moment it lands.

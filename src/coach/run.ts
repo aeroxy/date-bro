@@ -1,28 +1,48 @@
 import { createCachedExecutor, executeTool, runAgentWithValidation } from '@/lib/agent'
 import { completeJSON } from '@/lib/llm-client'
-import { getActiveConfig, getSettings } from '@/lib/storage'
+import { getActiveConfig, getMind, getSettings, saveMind } from '@/lib/storage'
 import { ALL_TOOLS, buildVerdictSchema, VERDICT_NAME } from '@/lib/tools/definitions'
 import type { ToolCall, ToolDefinition } from '@/lib/tools/types'
 import type { LLMConfig } from '@/types/settings'
-import type { PersonContext, SelfContext, Suggestion, ThinkingSummary } from '@/types/coach'
-import type { DateRecord } from '@/types/date'
+import type {
+  PersonJudgment,
+  PersonProfile,
+  SelfJudgment,
+  SelfProfile,
+  Suggestion,
+  ThinkingSummary,
+} from '@/types/coach'
+import type { ChatEngine, DateRecord } from '@/types/date'
 
-import { buildPersonMessages, buildSelfMessages, buildSuggestionMessages } from './prompts'
+import { mindText } from './mind'
+import { applyProfileUpdate, type ProfileUpdate } from './profile'
 import {
+  buildChatMessages,
+  buildPersonMessages,
+  buildSelfMessages,
+  buildSuggestionMessages,
+} from './prompts'
+import {
+  CHAT_SCHEMA,
   PERSON_SCHEMA,
   SELF_SCHEMA,
   SUGGESTION_SCHEMA,
+  validateChat,
   validatePerson,
   validateSelf,
   validateSuggestion,
 } from './schemas'
 
 async function context() {
-  const [config, settings] = await Promise.all([getActiveConfig(), getSettings()])
+  const [config, settings, mind] = await Promise.all([
+    getActiveConfig(),
+    getSettings(),
+    getMind(),
+  ])
   if (config.backend !== 'qwen-chat' && (!config.base_url.trim() || !config.model.trim())) {
     throw new Error('Set a base URL and model in Settings, or switch to the Qwen backend.')
   }
-  return { config, customPrompt: settings.customPrompt }
+  return { config, customPrompt: settings.customPrompt, mind: mindText(mind) }
 }
 
 /**
@@ -50,8 +70,14 @@ function describeToolCall(call: ToolCall): string {
   return `Running ${call.function.name}`
 }
 
+/** What both rebuild engines return: a delta for the prose, the judgment whole. */
+type Rebuild<J> = J & { profile: ProfileUpdate }
+
 /**
- * Rebuild the picture of the date, from seed context + everything since.
+ * Update what's known about the date. The model returns only what changed, so
+ * the stored markdown is the input as well as the output — a rebuild that finds
+ * nothing new returns `changed: false` and the document survives byte-for-byte.
+ *
  * `onThinking` streams the model's reasoning summary: Qwen always, Anthropic
  * when the profile opts in, never OpenAI (that path doesn't stream).
  */
@@ -59,31 +85,85 @@ export async function rebuildPersonContext(
   record: DateRecord,
   signal?: AbortSignal,
   onThinking?: (thinking: ThinkingSummary) => void,
-): Promise<PersonContext> {
-  const { config, customPrompt } = await context()
-  const result = await completeJSON<Omit<PersonContext, 'generatedAt'>>(
+): Promise<PersonProfile> {
+  const { config, customPrompt, mind } = await context()
+  const { profile, ...judgment } = await completeJSON<Rebuild<PersonJudgment>>(
     config,
-    buildPersonMessages(record, customPrompt),
+    buildPersonMessages(record, mind, customPrompt),
     validatePerson,
-    { signal, jsonSchema: PERSON_SCHEMA, onThinking },
+    { signal, jsonSchema: PERSON_SCHEMA, onThinking, sessionId: record.id },
   )
-  return { ...result, generatedAt: Date.now(), turnsAt: record.turnsUpdatedAt }
+  return {
+    generatedAt: Date.now(),
+    turnsAt: record.turnsUpdatedAt,
+    markdown: applyProfileUpdate(record.themProfile?.markdown ?? '', profile),
+    judgment,
+  }
 }
 
-/** Rebuild the read of the user, in this specific connection. */
+/** The same, for the read of the user in this specific connection. */
 export async function rebuildSelfContext(
   record: DateRecord,
   signal?: AbortSignal,
   onThinking?: (thinking: ThinkingSummary) => void,
-): Promise<SelfContext> {
-  const { config, customPrompt } = await context()
-  const result = await completeJSON<Omit<SelfContext, 'generatedAt'>>(
+): Promise<SelfProfile> {
+  const { config, customPrompt, mind } = await context()
+  const { profile, ...judgment } = await completeJSON<Rebuild<SelfJudgment>>(
     config,
-    buildSelfMessages(record, customPrompt),
+    buildSelfMessages(record, mind, customPrompt),
     validateSelf,
-    { signal, jsonSchema: SELF_SCHEMA, onThinking },
+    { signal, jsonSchema: SELF_SCHEMA, onThinking, sessionId: record.id },
   )
-  return { ...result, generatedAt: Date.now(), turnsAt: record.turnsUpdatedAt }
+  return {
+    generatedAt: Date.now(),
+    turnsAt: record.turnsUpdatedAt,
+    markdown: applyProfileUpdate(record.meProfile?.markdown ?? '', profile),
+    judgment,
+  }
+}
+
+/**
+ * One turn of the standing conversation about a profile.
+ *
+ * Returns rather than persists, and deliberately: the caller writes the user's
+ * message and the reply together, only once this has succeeded. A failed call
+ * must not leave a user turn stranded at the end of the history — the prompt
+ * layout needs it strictly alternating and ending on an assistant turn, or the
+ * cache mark lands on the wrong message and the next request sends two user
+ * messages in a row.
+ *
+ * `changed` is the headings this reply touched, for the thread's caption. A
+ * rewrite reports no headings because there is no meaningful list to give — it
+ * replaced everything.
+ */
+export async function chatAboutProfile(
+  record: DateRecord,
+  engine: ChatEngine,
+  message: string,
+  signal?: AbortSignal,
+  onThinking?: (thinking: ThinkingSummary) => void,
+): Promise<{ reply: string; headline: string; markdown: string; changed: string[] }> {
+  const { config, customPrompt, mind } = await context()
+  const current = (engine === 'them' ? record.themProfile : record.meProfile)?.markdown ?? ''
+
+  const { reply, headline, profile } = await completeJSON<{
+    reply: string
+    headline?: string
+    profile: ProfileUpdate
+  }>(config, buildChatMessages(record, engine, message, mind, customPrompt), validateChat, {
+    signal,
+    jsonSchema: CHAT_SCHEMA,
+    onThinking,
+    sessionId: record.id,
+  })
+
+  return {
+    reply: reply.trim(),
+    // Empty means "leave it", which is the common and correct answer.
+    headline: headline?.trim() ?? '',
+    markdown: applyProfileUpdate(current, profile),
+    changed: profile.changed ? (profile.sections ?? []).map((s) => s.heading) : [],
+  }
 }
 
 /**
@@ -93,18 +173,25 @@ export async function rebuildSelfContext(
  */
 export async function suggestMove(
   record: DateRecord,
-  question: string,
+  message: string,
   signal?: AbortSignal,
   onActivity?: (label: string) => void,
   onThinking?: (thinking: ThinkingSummary) => void,
 ): Promise<Suggestion> {
-  const { config, customPrompt } = await context()
+  const { config, customPrompt, mind } = await context()
   const { tools, verdictName } = resolveSuggestionOutput(config)
-  const messages = buildSuggestionMessages(record, question, customPrompt, tools.length > 0)
+  const messages = buildSuggestionMessages(
+    record,
+    message,
+    mind,
+    customPrompt,
+    tools.length > 0,
+  )
 
-  const result =
+  type Raw = Omit<Suggestion, 'id' | 'generatedAt' | 'question'> & { mind?: ProfileUpdate }
+  const { mind: amendment, ...result } =
     tools.length > 0
-      ? await runAgentWithValidation<Omit<Suggestion, 'id' | 'generatedAt' | 'question'>>(config, messages, {
+      ? await runAgentWithValidation<Raw>(config, messages, {
           tools,
           executeTool: createCachedExecutor(executeTool),
           signal,
@@ -112,18 +199,32 @@ export async function suggestMove(
           validate: validateSuggestion,
           onToolCall: onActivity ? (call) => onActivity(describeToolCall(call)) : undefined,
           onThinking,
+          sessionId: record.id,
         })
-      : await completeJSON<Omit<Suggestion, 'id' | 'generatedAt' | 'question'>>(
-          config,
-          messages,
-          validateSuggestion,
-          { signal, jsonSchema: SUGGESTION_SCHEMA, onThinking },
-        )
+      : await completeJSON<Raw>(config, messages, validateSuggestion, {
+          signal,
+          jsonSchema: SUGGESTION_SCHEMA,
+          onThinking,
+          sessionId: record.id,
+        })
+
+  // The coach amending itself. Written here rather than handed back for the
+  // caller to store, unlike the profile amendments: the mind isn't a field of any
+  // record, so there is no record-merge for a caller to get right.
+  //
+  // Applied to a fresh read, not to the copy this run was built from — a run
+  // takes half a minute and the user may have edited it by hand in the meantime.
+  // `mindText` resolves the seed on a first write, so an amendment forks the
+  // whole document rather than landing on an empty one.
+  if (amendment?.changed) {
+    await saveMind(applyProfileUpdate(mindText(await getMind()), amendment))
+  }
+
   return {
     ...result,
     id: crypto.randomUUID(),
     generatedAt: Date.now(),
     turnsAt: record.turnsUpdatedAt,
-    question: question.trim() || undefined,
+    question: message.trim() || undefined,
   }
 }

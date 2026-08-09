@@ -6,12 +6,23 @@ do next. All input is manual — there is no scraping, no site integration, no c
 
 ## What It Does
 
-1. **Stores people.** One record per person, with a free-text seed context about them, a seed
-   context about the user *in relation to them*, and a stated goal.
-2. **Stores conversation turns.** Typed one at a time, or bulk-imported by pasting a labelled log.
-3. **Rebuilds their context** — an evidence-cited portrait derived from seed + transcript.
-4. **Rebuilds the user's context** — the same, turned inward.
-5. **Suggests the next move** — 2–3 differentiated options with sendable drafts.
+1. **Stores people.** One record per person: name, stage, and what the user wants out of it.
+2. **Stores the conversation.** Turns typed one at a time or bulk-imported from a pasted log, plus
+   `NOTE` entries for anything the user knows that nobody typed. One pool — there is no separate
+   "what you know about them" field, and nothing the user writes lives outside this list.
+3. **Keeps a profile of them** — an evidence-cited portrait derived from that pool, amended section
+   by section rather than regenerated from zero, so detail accumulates instead of being thrown away.
+4. **Keeps a profile of the user** — the same, turned inward.
+5. **Lets you correct either one.** Tell it what to change — "drop the avoidant read, she works
+   nights" — and it amends the profile and says what it did. The instruction is applied once and
+   discarded; the profile is the thing that's kept.
+6. **Suggests the next move** — 2–3 differentiated options with sendable drafts. The advice is
+   written into the conversation as a `COACH` line where it was given, and "I sent this" puts a
+   draft back in as a message, so the next run can see what was tried and what came of it. Click a
+   `COACH` bubble to read that suggestion in full again.
+7. **Evolves.** The coach — its voice, everything it believes about reading people and about what
+   to do next — is one editable markdown document, not a fixed prompt. You can rewrite any of it,
+   and it amends itself after a next move when something it advised actually landed or didn't.
 
 ## Tech Stack
 
@@ -22,7 +33,7 @@ do next. All input is manual — there is no scraping, no site integration, no c
 | UI | React 19 |
 | Styling | Tailwind CSS 4, custom design tokens |
 | Icons | Lucide React |
-| Storage | IndexedDB (`idb`) for records · `chrome.storage.local` for settings |
+| Storage | IndexedDB (`idb`) for records · `chrome.storage.local` for settings and the coach |
 | LLM | OpenAI-compatible HTTP (BYOK) · Anthropic `/v1/messages` (BYOK) · Qwen Chat (delegated agent via the user's `chat.qwen.ai` session) |
 | Build | Vite (via WXT) |
 | Package Manager | Bun |
@@ -43,5 +54,7 @@ do next. All input is manual — there is no scraping, no site integration, no c
 - **No Chrome built-in AI.** Gemini Nano can't hold a transcript plus a knowledge base and return
   structured judgement. Deliberately omitted rather than offered and broken.
 - **Everything is local.** Nothing leaves the browser except the model call the user triggers.
-- **The knowledge base is versioned as prose.** `src/coach/knowledge.ts` is the source of record —
-  what you read there is verbatim what the model is told. No separate research document.
+- **The knowledge base is versioned as prose, and is only the seed.** `src/coach/knowledge.ts` is
+  the source of record for what ships — no separate research document — but it is assembled into an
+  editable document (`src/coach/mind.ts`) that the user and the coach both rewrite. Editing the
+  module changes what new installations start from and what "revert to shipped" restores.

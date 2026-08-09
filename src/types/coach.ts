@@ -47,6 +47,87 @@ interface TurnBasis {
   turnsAt?: number
 }
 
+/**
+ * The part of a rebuild that stays structured.
+ *
+ * The profile itself is prose, which is the point — but `interest_read`, the
+ * flags and the confidence marks are what make this a read rather than a
+ * chatbot summary, and prose loses them. `open_questions` is load-bearing for a
+ * different reason: the UI turns each one into something answerable in a few
+ * words, so it has to arrive as a list rather than as a paragraph to skim.
+ *
+ * Regenerated whole on every rebuild, unlike the profile. That's the right
+ * lifecycle here — a judgment about where things stand *should* be recomputed
+ * from current evidence, and there is nothing to accumulate.
+ */
+export interface PersonJudgment {
+  headline: string
+  interest_read: {
+    level: InterestLevel
+    confidence: Confidence
+    signals_for: string[]
+    signals_against: string[]
+    honest_note: string
+  }
+  flags: Flag[]
+  open_questions: string[]
+}
+
+/** The same, for the read of the user. */
+export interface SelfJudgment {
+  headline: string
+  goal_read: {
+    stated: string
+    revealed: string
+    tension: string
+  }
+  open_questions: string[]
+}
+
+interface ProfileBase extends TurnBasis {
+  /** When the last full rebuild ran — which is what `judgment` reflects. */
+  generatedAt: number
+  /**
+   * When the prose was last amended by a chat reply, if it has been. Kept apart
+   * from `generatedAt` rather than folded into it because the two halves age
+   * separately: a chat turn amends `markdown` and leaves `judgment` alone, so
+   * one clock would have to lie about one of them. The UI shows both.
+   */
+  amendedAt?: number
+  /**
+   * The record's `turnsUpdatedAt` as the last *amendment* saw it — the same
+   * thing `turnsAt` is for the last rebuild.
+   *
+   * The two halves read the transcript at different times, so one stamp can only
+   * describe one of them. Without this, an amendment that had just read every
+   * turn still left the panel saying "conversation has moved on", because the
+   * only stamp available belonged to a rebuild from the day before.
+   */
+  amendedTurnsAt?: number
+  /**
+   * Markdown, amended by section rather than regenerated — see
+   * `coach/profile.ts`. Never persisted into any message history: injected
+   * fresh from storage on every call, so nothing that happens in a prompt can
+   * corrupt what's stored.
+   */
+  markdown: string
+}
+
+export interface PersonProfile extends ProfileBase {
+  judgment: PersonJudgment
+}
+
+export interface SelfProfile extends ProfileBase {
+  judgment: SelfJudgment
+}
+
+// --- Legacy ------------------------------------------------------------------
+//
+// The shapes rebuilds used to return, kept only so records written before the
+// markdown profiles can be migrated on read (`lib/db.ts`). Nothing generates
+// these any more. Delete once no stored record can still carry one — which is
+// not knowable from here, so they stay.
+
 /** Output of "rebuild their context". */
 export interface PersonContext extends TurnBasis {
   generatedAt: number
@@ -80,6 +161,16 @@ export interface PersonContext extends TurnBasis {
 export interface SelfContext extends TurnBasis {
   generatedAt: number
   headline: string
+  /**
+   * Facts about the user, as they bear on *this* connection — the mirror of
+   * `PersonContext.who_they_are`, and for a long time the thing this shape was
+   * missing. Every other field here describes behaviour in the conversation, so
+   * a fact the user wrote down about themselves had nowhere to land: the rebuild
+   * read it, kept nothing, and deleting the note lost it for good. With a slot
+   * to absorb into, a rebuild makes the raw note redundant, which is the whole
+   * bargain — write it roughly once, let the engine keep the part that matters.
+   */
+  who_you_are: Claim[]
   how_you_come_across: Claim[]
   your_voice: {
     summary: string

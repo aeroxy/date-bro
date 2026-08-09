@@ -42,6 +42,13 @@ export interface AgentOptions {
   // Names the in-house structured-output channel for this run — see
   // lib/tools/definitions.ts for how `provide_verdict` works.
   verdictName?: string
+  /**
+   * Stable conversation identity, forwarded to every turn of the loop. It has to
+   * be the same on all of them: the whole point is that a research round appends
+   * to a prefix the previous turn already cached, and a per-turn session id would
+   * put each of them in its own cache partition. See `CompletionOptions`.
+   */
+  sessionId?: string
 }
 
 export const executeTool: ToolExecutor = async (call, signal) => {
@@ -136,7 +143,7 @@ export async function runAgent(
 ): Promise<{ content: string; messages: ChatMessage[] }> {
   // `exec`, not `executeTool` — that name is the module-level default export
   // just above, and shadowing it here reads as a recursive call.
-  const { tools, executeTool: exec, signal, onToolCall, onThinking, maxIterations = MAX_AGENT_ITERATIONS, jsonSchema, verdictName } = options
+  const { tools, executeTool: exec, signal, onToolCall, onThinking, maxIterations = MAX_AGENT_ITERATIONS, jsonSchema, verdictName, sessionId } = options
   const working: ChatMessage[] = [...messages]
 
   const hasVerdict = !!verdictName && tools.some((t) => t.function.name === verdictName)
@@ -148,7 +155,7 @@ export async function runAgent(
     // After MAX_TOOL_ROUNDS, strip research tools but keep the structured-
     // output channel (if any) so the model can still submit its answer.
     const activeTools = i < MAX_TOOL_ROUNDS ? tools : hasVerdict ? verdictOnlyTools : []
-    const response = await chatCompletionWithTools(config, working, { tools: activeTools, signal, jsonSchema, onThinking })
+    const response = await chatCompletionWithTools(config, working, { tools: activeTools, signal, jsonSchema, onThinking, sessionId })
 
     // The structured-output channel is terminal: extract the provide_verdict
     // arguments as the final content and end the loop. Sibling research tool
