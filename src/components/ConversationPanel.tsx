@@ -108,10 +108,15 @@ export function ConversationPanel({
     onChange([...record.turns, turn])
     setText('')
     setNote('')
-    // Alternating is the common case — flip the speaker so the next turn is
-    // one keystroke closer. A note isn't part of that rhythm: it interrupts the
-    // conversation rather than continuing it, so it leaves the toggle alone.
-    if (!isNote) setSpeaker(speaker === 'them' ? 'me' : 'them')
+    // `at` too. It describes the message just added, not the next one, and
+    // leaving it filled meant the following turn silently inherited a timestamp
+    // that was only ever right for the one before it.
+    setAt('')
+    // The speaker deliberately does *not* flip. It used to, on the theory that
+    // conversations alternate — but people send three messages in a row and then
+    // read four back, so the flip was wrong about as often as it was right, and
+    // a wrong speaker is worse than an unset one: it's silent, and it puts words
+    // in the other person's mouth in the one list this app treats as fact.
   }
 
   return (
@@ -196,20 +201,30 @@ export function ConversationPanel({
               >
                 {/* Sits in the gap above this line and inserts before it, so
                     every position is reachable — the composer covers the end.
-                    Invisible isn't gone: without pointer-events-none it stays
-                    clickable across the full width while reading as absent. */}
-                <button
-                  onClick={() =>
-                    setInserting({
-                      at: hiddenCount + i,
-                      turn: { id: crypto.randomUUID(), speaker: 'context', text: '' },
-                    })
-                  }
-                  title="Add a note here"
-                  className="pointer-events-none absolute -top-2.5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-dashed border-border bg-surface px-2 py-0.5 text-[10px] text-fg-3 opacity-0 transition hover:border-action hover:text-action focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-                >
-                  <Plus size={9} /> note
-                </button>
+                    All three speakers, not just NOTE: inserting a missed message
+                    was already possible via NOTE-then-change-the-who, but that's
+                    a modal round trip to correct something the thread could just
+                    have asked for. Invisible isn't gone: without
+                    pointer-events-none they stay clickable across the full width
+                    while reading as absent. */}
+                <span className="pointer-events-none absolute -top-2.5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 opacity-0 transition focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+                  {(['them', 'me', 'context'] as Speaker[]).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() =>
+                        setInserting({
+                          at: hiddenCount + i,
+                          turn: { id: crypto.randomUUID(), speaker: s, text: '' },
+                        })
+                      }
+                      title={`Insert ${s === 'context' ? 'a note' : `a turn from ${speakerLabel(record, s)}`} here`}
+                      className="flex items-center gap-0.5 rounded-full border border-dashed border-border bg-surface px-2 py-0.5 text-[10px] text-fg-3 transition hover:border-action hover:text-action"
+                    >
+                      <Plus size={9} />
+                      {speakerLabel(record, s)}
+                    </button>
+                  ))}
+                </span>
                 <span className="tabular mt-2 w-5 flex-none text-right font-mono text-[10px] text-neutral-300">
                   {hiddenCount + i + 1}
                 </span>
