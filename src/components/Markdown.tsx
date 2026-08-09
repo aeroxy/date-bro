@@ -48,18 +48,28 @@ function inline(text: string): ReactNode[] {
 // back; only the confidence is lifted out.
 const CONFIDENCE = /\s*\((high|medium|low)\)(\s*(?:\[[\d,\s]+\]\s*)*)$/i
 
-function Bullet({ text }: { text: string }) {
+function Bullet({ text, marker }: { text: string; marker?: string }) {
   const match = text.match(CONFIDENCE)
   const level = match?.[1]?.toLowerCase() as 'high' | 'medium' | 'low' | undefined
   const body = level ? text.replace(CONFIDENCE, '$2').trimEnd() : text
 
   return (
     <li className="flex gap-2 text-[12.5px] leading-relaxed text-fg-2">
-      <span className="mt-1.5 h-1 w-1 flex-none rounded-full bg-neutral-300" />
+      {marker ? (
+        <span className="tabular mt-px w-3.5 flex-none text-right font-mono text-[11px] text-neutral-400">
+          {marker}
+        </span>
+      ) : (
+        <span className="mt-1.5 h-1 w-1 flex-none rounded-full bg-neutral-300" />
+      )}
       <span className="min-w-0 flex-1">
         {inline(body)}
+        {/* Bound to the text with a non-breaking space: as an ordinary inline
+            child the mark could wrap on its own, leaving three glyphs stranded
+            on a line under the bullet they belong to. */}
         {level ? (
-          <span className="ml-1.5">
+          <span className="whitespace-nowrap">
+            {' '}
             <ConfidenceMark level={level} />
           </span>
         ) : null}
@@ -70,22 +80,38 @@ function Bullet({ text }: { text: string }) {
 
 type Chunk =
   | { kind: 'heading'; text: string }
-  | { kind: 'list'; items: string[] }
+  | { kind: 'list'; items: string[]; markers?: string[] }
   | { kind: 'para'; text: string }
 
 const HEADING = /^#{1,6}\s+(.*)$/
 const BULLET = /^\s*[-*]\s+(.*)$/
+// `1.` / `2)`, capped at three digits so a paragraph opening with a year —
+// "2026. The year she moves" — stays a paragraph. The written number is kept
+// rather than recounted, so what renders always matches the markdown behind it.
+const ORDERED = /^\s*(\d{1,3})[.)]\s+(.*)$/
 
 function chunk(markdown: string): Chunk[] {
   const chunks: Chunk[] = []
-  let list: string[] | null = null
+  let list: { items: string[]; markers: string[] | null } | null = null
   let para: string[] | null = null
 
   const flush = () => {
-    if (list?.length) chunks.push({ kind: 'list', items: list })
+    if (list?.items.length) {
+      chunks.push({ kind: 'list', items: list.items, ...(list.markers ? { markers: list.markers } : {}) })
+    }
     if (para?.length) chunks.push({ kind: 'para', text: para.join(' ') })
     list = null
     para = null
+  }
+
+  // A run of `-` and a run of `1.` are different lists, so switching between
+  // them starts a new one instead of appending into whichever came first.
+  const item = (text: string, marker: string | null) => {
+    if (para) flush()
+    if (list && (list.markers === null) !== (marker === null)) flush()
+    list ??= { items: [], markers: marker === null ? null : [] }
+    list.items.push(text)
+    if (marker !== null) list.markers?.push(marker)
   }
 
   for (const line of markdown.split('\n')) {
@@ -97,9 +123,12 @@ function chunk(markdown: string): Chunk[] {
     }
     const bullet = line.match(BULLET)
     if (bullet) {
-      if (para) flush()
-      list ??= []
-      list.push(bullet[1]!.trim())
+      item(bullet[1]!.trim(), null)
+      continue
+    }
+    const ordered = line.match(ORDERED)
+    if (ordered) {
+      item(ordered[2]!.trim(), `${ordered[1]}.`)
       continue
     }
     if (!line.trim()) {
@@ -132,12 +161,13 @@ export function Markdown({ children }: { children: string }) {
           )
         }
         if (c.kind === 'list') {
+          const List = c.markers ? 'ol' : 'ul'
           return (
-            <ul key={i} className="space-y-1.5">
+            <List key={i} className="space-y-1.5">
               {c.items.map((item, j) => (
-                <Bullet key={j} text={item} />
+                <Bullet key={j} text={item} marker={c.markers?.[j]} />
               ))}
-            </ul>
+            </List>
           )
         }
         return (
