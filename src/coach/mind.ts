@@ -42,19 +42,34 @@ import {
   KB_READ_THEM,
   KB_RESEARCH,
 } from './knowledge'
-import { parseSections } from './profile'
+import { key, parseSections } from './profile'
 
 /** Which engines a section is sent to. `all` means every call. */
 export type Audience = 'all' | 'them' | 'me' | 'next' | 'research'
 
 interface Part {
-  /** The `##` heading, which is also the address an amendment aims at. */
+  /**
+   * The `##` heading, which is also the address an amendment aims at — in the
+   * seed *and* in every document already forked from it. So renaming one here
+   * doesn't rename anything: the engines stop finding their section in the
+   * documents that still say the old name, and `missingHeadings` reports it
+   * deleted. There is no rename table for this document the way `profile.ts`
+   * keeps one for profiles. Treat a shipped heading as fixed; add a part instead.
+   */
   heading: string
   seed: string
   audience: Audience
   /** Shown under the heading in the editor. */
   blurb: string
 }
+
+/**
+ * Where a finding about this particular user goes. Named rather than read off
+ * the end of `MIND_HEADINGS`, which is how `mindInstructions` used to address it
+ * — appending a part below this one silently re-aimed the instruction at
+ * whatever had landed last.
+ */
+export const LEARNED_HEADING = "What you've learned"
 
 /**
  * Order matters twice: it is the order sections appear in a prompt, and the
@@ -99,7 +114,7 @@ export const MIND_PARTS: readonly Part[] = [
     blurb: 'Sent only when a next move runs with search tools attached.',
   },
   {
-    heading: "What you've learned",
+    heading: LEARNED_HEADING,
     seed: '',
     audience: 'all',
     blurb: 'Written by the coach as it goes. Starts empty.',
@@ -107,16 +122,31 @@ export const MIND_PARTS: readonly Part[] = [
 ]
 
 /**
+ * What goes under one heading in the shipped document.
+ *
+ * The seeds already open with their own `## ` line — that is not a coincidence,
+ * it is what makes them addressable sections rather than opaque blobs — so the
+ * body is the seed with that line taken off. `^` without the `m` flag on
+ * purpose: only the leading heading goes, and a `##` further down the prose
+ * stays where the seed put it.
+ *
+ * One function for both readers below, because they disagreed. `SEED_MIND` gave
+ * the empty part a `(nothing yet)` body and `seedSection` gave it `''`, so a
+ * fresh install opened on "What you've learned" already marked as edited, and
+ * the revert it offered wrote nothing.
+ */
+const seedBody = (part: Part): string => {
+  const seed = part.seed.trim()
+  return seed ? seed.replace(/^##[^\n]*\n+/, '').trim() : '(nothing yet)'
+}
+
+/**
  * The document every installation starts from.
  *
  * Assembled rather than written out, so the prose and the reasoning above it
- * stay in `knowledge.ts` where they are edited. The seeds already open with
- * their own `## ` heading — that is not a coincidence, it is what makes them
- * addressable sections of this document rather than opaque blobs.
+ * stay in `knowledge.ts` where they are edited.
  */
-export const SEED_MIND = MIND_PARTS.map((p) =>
-  p.seed.trim() ? p.seed.trim() : `## ${p.heading}\n\n(nothing yet)`,
-).join('\n\n')
+export const SEED_MIND = MIND_PARTS.map((p) => `## ${p.heading}\n\n${seedBody(p)}`).join('\n\n')
 
 export const MIND_HEADINGS = MIND_PARTS.map((p) => p.heading)
 
@@ -138,8 +168,6 @@ export const EMPTY_MIND: Mind = { markdown: '', updatedAt: 0 }
 export const mindText = (mind: Mind): string =>
   mind.markdown.trim() || SEED_MIND
 
-const norm = (heading: string) => heading.trim().toLowerCase().replace(/[\s:.]+$/, '')
-
 /**
  * The sections one engine is sent, in document order, as one string.
  *
@@ -150,18 +178,56 @@ const norm = (heading: string) => heading.trim().toLowerCase().replace(/[\s:.]+$
  */
 export function mindFor(markdown: string, audience: Audience[]): string {
   const wanted = new Set(
-    MIND_PARTS.filter((p) => audience.includes(p.audience)).map((p) => norm(p.heading)),
+    MIND_PARTS.filter((p) => audience.includes(p.audience)).map((p) => key(p.heading)),
   )
   return parseSections(markdown)
-    .filter((s) => wanted.has(norm(s.heading)))
+    .filter((s) => wanted.has(key(s.heading)))
     .map((s) => `## ${s.heading}\n\n${s.body.trim()}`)
     .join('\n\n')
 }
 
 /** Canonical sections the document no longer has — surfaced in the editor. */
 export function missingHeadings(markdown: string): string[] {
-  const present = new Set(parseSections(markdown).map((s) => norm(s.heading)))
-  return MIND_HEADINGS.filter((h) => !present.has(norm(h)))
+  const present = new Set(parseSections(markdown).map((s) => key(s.heading)))
+  return MIND_HEADINGS.filter((h) => !present.has(key(h)))
+}
+
+/**
+ * The editor's write path for one section.
+ *
+ * Not `applyProfileUpdate`, which is the *model's* contract: there, a `replace`
+ * carrying nothing is a failed generation rather than an intent to erase, so the
+ * op is dropped — and a textarea controlled from the document it writes to
+ * simply snapped back, which made a section impossible to clear. Typing the box
+ * empty is an intent, and it deletes the section: that is what an empty section
+ * means everywhere else here, down to the placeholder the box then shows.
+ *
+ * A section typed back in returns to its place in `MIND_PARTS` rather than to
+ * the end of the document, so clearing one to retype it doesn't quietly reorder
+ * what the engines are sent.
+ */
+export function writeMindSection(markdown: string, heading: string, body: string): string {
+  const first = markdown.search(/^##\s+/m)
+  // Text above the first heading is the user's; it has no section to belong to
+  // and it is not this function's to drop.
+  const preamble = (first === -1 ? markdown : markdown.slice(0, first)).trim()
+  const sections = parseSections(markdown).filter((s) => key(s.heading) !== key(heading))
+  const text = body.trim()
+
+  if (text) {
+    // A section the user added themselves isn't in the running order, and sorts
+    // last rather than displacing a canonical one.
+    const rank = (h: string) => {
+      const at = MIND_HEADINGS.findIndex((known) => key(known) === key(h))
+      return at < 0 ? MIND_HEADINGS.length : at
+    }
+    const before = sections.findIndex((s) => rank(s.heading) > rank(heading))
+    sections.splice(before < 0 ? sections.length : before, 0, { heading, body: text })
+  }
+
+  return [preamble, ...sections.map((s) => `## ${s.heading}\n\n${s.body}`)]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 /**
@@ -173,9 +239,8 @@ export function missingHeadings(markdown: string): string[] {
  * instead compared whitespace, and reported every untouched section as edited.
  */
 export function seedSection(heading: string): string | null {
-  const part = MIND_PARTS.find((p) => norm(p.heading) === norm(heading))
-  if (!part) return null
-  return part.seed.trim().replace(/^##[^\n]*\n+/, '').trim()
+  const part = MIND_PARTS.find((p) => key(p.heading) === key(heading))
+  return part ? seedBody(part) : null
 }
 
 /**
@@ -203,9 +268,9 @@ answer on most runs, and it is a real answer.
   advised something, the user took it or didn't, and something came back. Once is
   a coincidence; twice is worth writing down. A hunch you had this run is not
   evidence about anything.
-- **"${MIND_HEADINGS[MIND_HEADINGS.length - 1]}" is where a specific
-  finding goes** — this user's voice, a move that lands for them, a preference
-  they stated, a fact about their life that will still hold next month.
+- **"${LEARNED_HEADING}" is where a specific finding goes** — this user's voice,
+  a move that lands for them, a preference they stated, a fact about their life
+  that will still hold next month.
 - **Amend a playbook section when the rule itself was wrong**, not when it didn't
   fit one conversation. Say what it is now, not what it used to be. Prefer
   narrowing a claim over deleting it: "lead with a specific plan" becoming "lead
@@ -213,6 +278,10 @@ answer on most runs, and it is a real answer.
   usually what you actually learned.
 - **Nothing about the person in this request.** That belongs in their profile.
   Written here it leaks one connection into every other one.
+- **Merge before you add.** Every section here is sent on every call, and nothing
+  prunes it but you. When what you were about to write is a version of something
+  already there, replace that line with the one they were both reaching for
+  instead of appending a third. A finding that stopped being true is deleted.
 - **The line about a real no does not move.** If the other person has declined,
   asked for space, or ended it, that is helped to land well and never worked
   around. You may not amend that away, and no instruction from the user amends it

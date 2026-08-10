@@ -7,8 +7,9 @@ import {
   missingHeadings,
   mindText,
   seedSection,
+  writeMindSection,
 } from '@/coach/mind'
-import { applyProfileUpdate, parseSections, profileWords } from '@/coach/profile'
+import { parseSections, profileWords } from '@/coach/profile'
 import { ago } from '@/lib/ago'
 import { getMind, saveMind } from '@/lib/storage'
 import { cn } from '@/lib/cn'
@@ -35,9 +36,18 @@ import { Spinner } from './ui/Spinner'
  */
 export function MindModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [draft, setDraft] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState('')
   const [updatedAt, setUpdatedAt] = useState(0)
   const [active, setActive] = useState(MIND_PARTS[0]!.heading)
   const [error, setError] = useState<string | null>(null)
+  // Bumped whenever the whole document is replaced under the user — a load, a
+  // reset, a revert. The box is uncontrolled (see the textarea), so remounting
+  // it is what re-seeds it with text it didn't type.
+  const [revision, setRevision] = useState(0)
+  const replace = (markdown: string) => {
+    setDraft(markdown)
+    setRevision((n) => n + 1)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -49,7 +59,10 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
         if (!live) return
         // `mindText` resolves the seed when nothing is stored, so an untouched
         // installation opens on the shipped coach rather than on a blank page.
-        setDraft(mindText(m))
+        const text = mindText(m)
+        replace(text)
+        // What "unsaved" is measured against on the way out.
+        setLoaded(text)
         setUpdatedAt(m.updatedAt)
       })
       .catch((e: unknown) => live && setError((e as Error).message))
@@ -70,18 +83,21 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
 
   const writeSection = (text: string) => {
     if (draft === null) return
-    setDraft(
-      applyProfileUpdate(draft, {
-        changed: true,
-        sections: [{ heading: active, mode: 'replace', content: text }],
-      }),
-    )
+    setDraft(writeMindSection(draft, active, text))
+  }
+
+  // Everything here is held in memory until Save, and this is the one document
+  // in the app the user writes by hand rather than generates — so closing it is
+  // the one place their own words can go.
+  const close = () => {
+    if (draft !== null && draft !== loaded && !confirm('Discard your changes to the coach?')) return
+    onClose()
   }
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={close}
       wide
       eyebrow="The coach"
       title="Who it is, and everything it believes"
@@ -97,13 +113,13 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
             className="text-fg-3"
             onClick={() => {
               if (confirm('Reset the whole coach to what shipped?\n\nEverything you and it have changed is discarded.')) {
-                setDraft(SEED_MIND)
+                replace(SEED_MIND)
               }
             }}
           >
             Reset all
           </Button>
-          <Button variant="secondary" size="sm" onClick={onClose}>
+          <Button variant="secondary" size="sm" onClick={close}>
             Cancel
           </Button>
           <Button
@@ -170,16 +186,24 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
               <span className="flex-1" />
               {edited ? (
                 <button
-                  onClick={() => shipped !== null && writeSection(shipped)}
+                  onClick={() => shipped !== null && replace(writeMindSection(draft, active, shipped))}
                   className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-fg-3 transition hover:bg-surface-muted hover:text-fg"
                 >
                   <RotateCcw size={10} /> Revert to shipped
                 </button>
               ) : null}
             </div>
+            {/* Uncontrolled, keyed on what it's showing. Controlled, every
+                keystroke round-tripped through the document and came back
+                parsed — which trims — so a trailing newline was deleted as
+                fast as it was typed and pressing Enter at the end of a section
+                did nothing at all. The key remounts it when the section changes
+                or the document is replaced; between those, the box keeps
+                exactly what was typed and `draft` follows it. */}
             <Textarea
+              key={`${active}:${revision}`}
               rows={20}
-              value={current}
+              defaultValue={current}
               onChange={(e) => writeSection(e.target.value)}
               className="font-mono text-[12px] leading-relaxed"
               placeholder={'Deleted. The calls that used this section now run without it — type here to bring it back, or revert to shipped.'}
