@@ -111,6 +111,13 @@ describe('the learned section rides the tail, not the system block', () => {
     expect(all).not.toContain(LEARNED_HEADING)
   })
 
+  // Not reachable from any engine today, which is exactly why it's pinned: the
+  // ask is one word in an audience list, it type-checks, and the only symptom of
+  // getting it wrong is a cache bill nobody reads.
+  test('asking for it by name gets nothing, not the section', () => {
+    expect(mindFor(DOC, ['tail'])).toBe('')
+  })
+
   test('learnedText returns the bare body', () => {
     expect(learnedText(DOC)).toBe('- He writes short.')
   })

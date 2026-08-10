@@ -53,8 +53,13 @@ import { key, parseSections } from './profile'
  * Which engines a section is sent to. `all` means every call. `tail` also means
  * every call, but delivered below the transcript rather than in the system
  * block — the slot for the section the coach itself rewrites, so amending it
- * leaves the cached strata above byte-identical. `mindFor` never sees a 'tail'
- * part because no engine asks for one; `learnedText` is how it travels.
+ * leaves the cached strata above byte-identical. `learnedText` is how it
+ * travels.
+ *
+ * `mindFor` drops 'tail' parts outright rather than trusting that no engine asks
+ * for one. Asking is a single word in an audience list, it type-checks, and what
+ * it buys is the ~47k-token regression the split exists to prevent — silently,
+ * since the only visible effect is the bill.
  */
 export type Audience = 'all' | 'them' | 'me' | 'next' | 'research' | 'tail'
 
@@ -192,7 +197,9 @@ export const mindText = (mind: Mind): string =>
  */
 export function mindFor(markdown: string, audience: Audience[]): string {
   const wanted = new Set(
-    MIND_PARTS.filter((p) => audience.includes(p.audience)).map((p) => key(p.heading)),
+    MIND_PARTS.filter((p) => p.audience !== 'tail' && audience.includes(p.audience)).map((p) =>
+      key(p.heading),
+    ),
   )
   return parseSections(markdown)
     .filter((s) => wanted.has(key(s.heading)))
