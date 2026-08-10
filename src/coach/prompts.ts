@@ -565,7 +565,12 @@ export function buildChatMessages(
   mind: string,
   customPrompt: string,
 ): ChatMessage[] {
-  const who = engine === 'them' ? record.name : 'the user'
+  // Not `record.name`, which is what this used to be. `buildSystem` is shared
+  // across every record precisely because nothing person-specific enters it, and
+  // a name here quietly turned one cached entry per engine into one per person —
+  // the exact cost this layout exists to avoid. The name is directly below, in
+  // `whoBlock`, where a per-record value belongs.
+  const who = engine === 'them' ? 'the person the user is seeing' : 'the user'
   const sections = engine === 'them' ? PERSON_SECTIONS : SELF_SECTIONS
 
   const task = `<task>
