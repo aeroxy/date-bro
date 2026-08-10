@@ -70,7 +70,7 @@ if every byte before it is unchanged.
 | `user[0]` | `<the_person>` (name, stage, birthday-derived age) + `<the_user>` (the stated goal) | the profile is edited; the age line, yearly |
 | `user[1]` **[cache]** | `<profile_of_them>` / `<profile_of_the_user>` — the markdown, injected whole | a rebuild changes the document |
 | `user[2…n]` | `<transcript>`, **one segment per turn**, `[cache]` on the last | a turn added, edited, deleted, or a log imported |
-| `user[n+1]` | `<research_notes>`, `<right_now>`, `<from_the_user>`, closing instruction | every run |
+| `user[n+1]` | `<what_you_have_learned>`, `<research_notes>`, `<right_now>`, `<from_the_user>`, closing instruction | every run |
 
 Three of Anthropic's four breakpoints, one spare. See [lib.md](lib.md) for how the strata reach the
 wire.
@@ -96,10 +96,14 @@ ask names the required top-level fields outright.
 entry gets written and never read. That is why `<research_notes>` lives in the tail despite reading
 like material — one researched `suggestMove` rewrites it.
 
-**The coach amending itself invalidates the system entry**, and that is accepted rather than
-optimised around. Splitting the document across two positions in the request — the stable playbook
-above, the learned part below — would save a cache write by putting the coach's mind in two places.
-Amendments are rare by construction: `changed: false` is stated as the expected answer.
+**The coach's mind is split across two positions, and that used to be the rejected option.** The
+belief sections ride in `system`; "What you've learned" rides in the tail (`<what_you_have_learned>`,
+`audience: 'tail'` in `MIND_PARTS`). The one-document position — everything in `system`, amendments
+accepted as a rare cache write — didn't survive measurement: the learned section is where amendments
+land *by design*, `system` sits above the profile and the whole transcript, and one ~250-char
+amendment between two next-move runs re-wrote ~47k of ~49k cached tokens (`refs/raw1` → `raw2`).
+Amending a *belief* section still invalidates the system entry, and that remains accepted: it means
+a rule actually changed, and `changed: false` is stated as the expected answer.
 
 **Why the transcript is one segment per turn.** Caching writes an entry *at* a breakpoint but reads by longest
 matching prefix, so a cached entry survives only if every byte before it is unchanged. Appending a
@@ -184,7 +188,7 @@ about an engine's output. The split is by what the input is **about**, not when 
 | `turns` (`them` / `me`) | what was actually said | all three | chronological, numbered, citable |
 | `turns` (`context`) | what the user knows that nobody typed | all three, in the same list | same — a `NOTE:` line |
 | `turns` (`coach`) | what this app advised, and when | all three, in the same list | same — a `COACH:` line |
-| the coach's mind | what transfers to every person | all three, in the system block | markdown, amended by section |
+| the coach's mind | what transfers to every person | all three — beliefs in the system block, "What you've learned" in the tail | markdown, amended by section |
 | `goal` | what the user wants out of this | all three, in the first user block | one short field |
 
 The rows are split by what the input is **about**, and that's why it isn't one list. "She works
@@ -393,7 +397,7 @@ the sections an engine needs, so a rebuild never pays for the 2.4k tokens of the
 | Reading the user | rebuild/amend you | ~400 |
 | Choosing what to say or do | next move | ~1,920 |
 | Using web research | next move, tools attached | ~790 |
-| What you've learned | every call | starts empty |
+| What you've learned | every call, in the volatile tail | starts empty |
 
 Whole document ~4.9k tokens; the heaviest engine (next move with research) sees ~3.6k, a rebuild
 ~1.8k. A heading the user renames or deletes simply isn't found and that engine goes without it —

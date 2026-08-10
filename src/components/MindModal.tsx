@@ -151,9 +151,9 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
 
       <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
         This <em>is</em> the coach — its voice, everything it believes about reading people and
-        about what to do next, and whatever it has worked out since. It's what gets sent as the
-        system prompt, so edit it and the advice changes. The coach amends it too, after a next
-        move, when something it tried actually landed or didn't.
+        about what to do next, and whatever it has worked out since. Every call carries it, so
+        edit it and the advice changes. The coach amends it too, after a next move, when
+        something it tried actually landed or didn't.
       </p>
 
       {draft === null ? (

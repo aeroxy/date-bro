@@ -1,14 +1,16 @@
 // Every request is ordered strictly slowest-changing first, because a cached
 // prefix survives only if every byte before it is unchanged:
 //
-//   system   the coach itself — the sections of `mind.ts` this engine is sent —
-//            plus its task, output rules and shape, and the user's house
-//            rules  [cache]        — constant per engine, across every record
+//   system   the coach itself — the belief sections of `mind.ts` this engine
+//            is sent — plus its task, output rules and shape, and the user's
+//            house rules  [cache]  — constant per engine, across every record
 //   user[0]  name, stage, what the user wants   — changes on a profile edit
 //   user[1]  the markdown profiles  [cache]     — rewritten only by a rebuild
 //   user[2…] the transcript, one block per turn, [cache] on the last
 //                                               — appended to constantly
-//   user[n]  research notes, the time, what was asked
+//   user[n]  what the coach has learned, research notes, the time, what was
+//            asked — the learned section lives down here, not in system,
+//            because the coach itself rewrites it (see `learnedBlock`)
 //
 // Three of Anthropic's four breakpoints, one spare.
 //
@@ -35,7 +37,7 @@ import { layeredUser, type ChatMessage, type ContentSegment } from '@/lib/llm-cl
 import { describeBirthday } from '@/lib/birthday'
 import { formatTurn } from '@/lib/transcript'
 import type { ChatEngine, DateRecord } from '@/types/date'
-import { mindFor, mindInstructions, type Audience } from './mind'
+import { LEARNED_HEADING, learnedText, mindFor, mindInstructions, type Audience } from './mind'
 import { PERSON_SECTIONS, PROFILE_WORD_CEILING, SELF_SECTIONS } from './profile'
 import { CHAT_SHAPE, PERSON_SHAPE, SELF_SHAPE, SUGGESTION_SHAPE } from './schemas'
 
@@ -116,6 +118,30 @@ Only where the material supports it. Turn timestamps are optional free text the
 user may never have entered, so unless a turn says when it happened, you do not
 know how long ago it was. Say that instead of estimating. "How long since her
 last message?" is a good open question; an invented interval is not.`
+}
+
+/**
+ * The one section of the mind that rides below the transcript instead of in the
+ * system block: the coach's own findings, which are also the exact thing a
+ * next-move run is most likely to rewrite.
+ *
+ * Position is the whole point. The system block sits above the profile and the
+ * entire transcript, so an amendment up there re-writes the whole prefix —
+ * measured on a real record (refs/raw1 → raw2), one ~250-char learned-section
+ * amendment between two next-move runs turned a would-be ~49k-token cache read
+ * into 2k read and 47k re-written. Down here it costs only itself, on every
+ * call, which for a section capped by "merge before you add" is the far
+ * cheaper side of the trade.
+ */
+function learnedBlock(mind: string): string | null {
+  const learned = learnedText(mind)
+  if (!learned) return null
+  return `<what_you_have_learned>
+${learned}
+</what_you_have_learned>
+Findings you wrote down for yourself on earlier runs — the "${LEARNED_HEADING}"
+section of your own mind. It arrives late in the request, but it is not lesser:
+read it with the same authority as the rest of what you believe.`
 }
 
 function researchNotesBlock(record: DateRecord): string | null {
@@ -269,11 +295,11 @@ something that happened. Only their replies and the user's notes are material.`
  * sits lowest. Everything here is below every breakpoint, so none of it can
  * disturb the profile or the transcript above.
  */
-function volatileBlock(record: DateRecord, ...trailing: (string | null)[]): string {
+function volatileBlock(record: DateRecord, mind: string, ...trailing: (string | null)[]): string {
   // `nowBlock` sits last of the standing blocks — see its comment. It is the
   // most volatile thing in the request, so it belongs as late as possible, and
   // below every breakpoint including the profile one above.
-  return [researchNotesBlock(record), nowBlock(), ...trailing]
+  return [learnedBlock(mind), researchNotesBlock(record), nowBlock(), ...trailing]
     .filter(Boolean)
     .join('\n\n')
 }
@@ -416,7 +442,9 @@ ${sections.map((s) => `  - ${s}`).join('\n')}
  * rebuild never pays for the 2.4k tokens of the next-move playbook. See
  * `mind.ts` — the sections are addressable by heading precisely so the coach can
  * amend them, and sliceable by audience so nobody pays for the ones they don't
- * need.
+ * need. The learned section is never among them: the coach rewrites it, so it
+ * rides in `volatileBlock`, and this entry stays cached across the runs that
+ * amend it.
  */
 function buildSystem(
   mind: string,
@@ -473,6 +501,7 @@ ${PERSON_SHAPE}`
       {
         text: volatileBlock(
           record,
+          mind,
           `Update what you know about ${record.name}. Return the JSON object only, with all of headline, interest_read, flags, open_questions and profile.`,
         ),
       },
@@ -529,6 +558,7 @@ ${SELF_SHAPE}`
       {
         text: volatileBlock(
           record,
+          mind,
           'Update the read of the user in this connection. Return the JSON object only, with all of headline, goal_read, open_questions and profile.',
         ),
       },
@@ -613,7 +643,7 @@ ${CHAT_SHAPE}`
       { text: profileBlock(record, engine, true), cache: true },
       ...transcriptSegments(record),
       {
-        text: volatileBlock(record, fromUserBlock(message)),
+        text: volatileBlock(record, mind, fromUserBlock(message)),
       },
     ]),
   ]
@@ -705,6 +735,7 @@ ${SUGGESTION_SHAPE}`
       {
         text: volatileBlock(
           record,
+          mind,
           fromUserBlock(message),
           'What should the user say or do next? Return the JSON object only.',
         ),
