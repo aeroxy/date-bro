@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Copy, MessageSquare, Send, Zap } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
@@ -49,6 +49,14 @@ function SentButton({ done, onSend }: { done: boolean; onSend: () => void }) {
   // transcript twice. A ref, not state: it has to close the door in the same
   // tick the first click opens it.
   const fired = useRef(false)
+  // ...and open it again once `done` has answered, because this instance
+  // outlives the draft it fired for. The options are keyed by index, so clicking
+  // a different COACH bubble swaps the suggestion underneath the same component
+  // — and a ref left latched made "I sent this" silently dead for the rest of
+  // the session. Guards only the same-tick double click, which is all it was for.
+  useEffect(() => {
+    fired.current = false
+  }, [done])
   if (done) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-yes">
