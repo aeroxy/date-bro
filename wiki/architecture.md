@@ -38,7 +38,10 @@ app.html (extension page — full chrome.* access, no lifetime limit)
         coach/run.ts
           ├─ loads active LLMConfig + custom prompt
           ├─ coach/prompts.ts builds [system, user] from
-          │    knowledge module + transcript (messages + NOTE entries)
+          │    the coach's mind (coach/mind.ts assembles the knowledge
+          │      exports into the editable document; knowledge.ts is only
+          │      the shipped seed and what "revert" restores)
+          │    + transcript (messages + NOTE entries)
           │    + whatever the rebuild engines last produced
           └─ lib/llm-client.completeJSON
                 ├─ backend 'openai'    ─► fetch → {base_url}/chat/completions
@@ -154,8 +157,11 @@ on".
 
 **Why not `updatedAt`.** `updatedAt` moves on *every* write, so comparing against it marked a read
 stale when the user rebuilt the other tab, saved the profile, or merged in research notes — in
-normal use at least one tab was always wrongly flagged. `turnsUpdatedAt` is stamped only when a write carries
-`turns`, so the signal means what it says. Comparing two turn-stamps rather than a turn-stamp against
+normal use at least one tab was always wrongly flagged. `turnsUpdatedAt` is stamped when a write carries
+`turns` *as evidence* — a write may pass `{ evidence: false }` to say it doesn't, and appending or
+deleting a `coach` turn does, because the coach's own line is not something either person said.
+Without that, asking "what do I say?" marked both profiles stale the moment it answered. So the signal
+means what it says. Comparing two turn-stamps rather than a turn-stamp against
 a wall-clock time also catches the case where a turn was added *during* the run: the model didn't see
 it, so the read is genuinely stale the moment it lands.
 

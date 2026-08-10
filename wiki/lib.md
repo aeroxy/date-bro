@@ -12,7 +12,8 @@ Three backends behind one `chatCompletion`.
 | `parseJSON<T>(raw)` | Fence → outermost `{…}` → `JSON.parse` → `jsonrepair` → descriptive throw. Rejects a bare `null`/array, which would otherwise crash the validators with an opaque message. |
 
 **`sessionId` is not optional in practice.** Cache entries are partitioned by session, and if the
-client doesn't name one, whatever sits in front of the API invents one. `../claude-proxy` invents it
+client doesn't name one, whatever sits in front of the API invents one.
+[claude-proxy](https://github.com/aeroxy/claude-proxy) invents it
 by hashing the first user message — and since we send one user message carrying every stratum, that
 hash changed on every call, so a byte-identical system block was read *zero* times against 22,620
 tokens of cache creation. Every engine now passes `sessionId: record.id` (immutable for the life of a
@@ -277,4 +278,4 @@ can't produce a false staleness chip. It also runs the four migrations; see
 | `speakerLabel(record, speaker)` | `ME`, `NOTE`, `COACH`, or the person's name uppercased — the same label in prompts, UI, and pasted logs |
 | `adviceTurn(suggestion)` | A suggestion as the `coach` turn that goes in the pool: the priority plus the option labels, two lines out of a four-hundred-word generation. Derived here rather than asked of the model — no output field to get wrong, no tokens spent, and the same suggestion always renders the same way. The whole `Suggestion` rides along in `Turn.advice` for the panel; only `text` reaches the prompt. The turn takes the suggestion's own id, so the two can't drift apart |
 | `parsePastedLog(raw, theirName)` | `Name: text` lines with the common label variants plus the person's own name, plus an optional bracketed timestamp right after the label — `Name [Tue 9pm]: text`. The bracket is free-form, same string the manual composer's "when" field takes; omit it and the line parses exactly as before. Unlabelled lines join the previous turn, so multi-line messages survive. Anything before the first recognised label is dropped. |
-| `transcriptStats(record)` | Turn, word, and question counts per side — shown in the UI header and injected into every prompt. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |
+| `transcriptStats(record)` | Turn, word, and question counts per side — the UI header, and nothing else. The prompt used to carry them as `<counts>`; it doesn't, and the reasoning is in `transcriptSegments`. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |

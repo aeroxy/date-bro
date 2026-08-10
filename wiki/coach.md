@@ -386,6 +386,12 @@ Whole document ~5.1k tokens; the heaviest engine (next move with research) sees 
 deliberately not backfilled from the seed, since the point of an editable coach is that deleting
 something deletes it. `missingHeadings` is what tells them, in the editor rather than silently.
 
+Heading matching is `profile.ts`'s `key` on both sides — the same normalisation an amendment is
+matched with, so `What you've learned` and `What you’ve learned` can't be one section to the coach
+and two to the engine reading it. Renaming a *shipped* heading in `MIND_PARTS` is the one edit to
+avoid: there is no rename table here the way there is for profiles, so it detaches the section from
+every document already forked from the seed.
+
 ### Who writes, and on what evidence
 
 `suggestMove` only, and not for safety — it is the engine that gives advice and, a run later, reads
