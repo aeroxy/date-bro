@@ -321,11 +321,18 @@ describe('the suggestion contract', () => {
     for (const field of required) expect(SUGGESTION_SHAPE).toContain(`"${field}"`)
   })
 
-  test('the mind amendment is emitted before the long part', () => {
+  test('the mind amendment is emitted after the drafts, not before them', () => {
     const { required } = SUGGESTION_SCHEMA.schema as { required: string[] }
-    // The lesson `open_questions` cost: a field that comes after three drafts is
-    // a field the model comes back to, and sometimes doesn't.
-    expect(required.indexOf('mind')).toBeLessThan(required.indexOf('options'))
+    // This assertion used to run the other way, on the lesson `open_questions`
+    // cost: a field that comes after three drafts is one the model sometimes
+    // never comes back to. It flipped when a captured run showed the larger
+    // cost of the early slot — the model left JSON at this nested object and
+    // stopped, so nothing below it was written and the whole answer was lost.
+    // Dropping the amendment costs one finding; corrupting it early costs the
+    // drafts. Ordering can't make the nested object safe, only decide what it
+    // takes down with it.
+    expect(required.indexOf('mind')).toBeGreaterThan(required.indexOf('options'))
+    expect(required.at(-1)).toBe('mind')
   })
 
   test('an absent mind amendment is allowed — it means nothing was learned', () => {
