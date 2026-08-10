@@ -8,13 +8,19 @@ import type { ToolDefinition, ToolParameterSchema } from './types'
 
 const SCOPE_NOTE =
   'Scope: (1) date logistics — venues, events, restaurants, opening hours, etiquette, gift ideas; ' +
-  '(2) verifying a SPECIFIC stated claim about the person, for safety — does their claimed job or ' +
-  'employer check out, does a place they say they run exist, does their photo/bio turn up reused ' +
-  "elsewhere (catfish signal), public safety records. Confirming someone is who they say they are " +
-  'before meeting a stranger is normal safety practice, not surveillance. The line: answering one ' +
-  'stated claim is verification; "everything about [name]", their social media, exes, or ' +
-  "whereabouts is not. Never a search meant to monitor, control, or dig up leverage on someone " +
-  'already trusted. If unsure which lane a search falls in, do not run it.'
+  '(2) what the person has said about themselves, followed outward — the employer or studio they ' +
+  'named, the field they work in, the race they are training for, the band they mentioned — which ' +
+  'is what makes a specific plan and a good question possible; (3) whether those claims hold up, ' +
+  'for safety: does the job or employer check out, does their photo/bio turn up reused elsewhere ' +
+  '(catfish signal), public safety records. Confirming someone is who they say they are before ' +
+  'meeting a stranger is normal safety practice, not surveillance. Inside those lanes, search what ' +
+  'would change the advice and nothing for its own sake — and build the query from the current ' +
+  'state of the thread, not a stale detail (their old city, a plan already dropped). The line is ' +
+  'where a ' +
+  'search STARTS: outward from something they disclosed is research; "everything about [name]", ' +
+  'their address, family, old accounts, or whereabouts is a file on a private individual, and no ' +
+  'answer needs one. Never a search meant to monitor, control, or find leverage on someone. If ' +
+  'unsure which side a search falls on, do not run it.'
 
 export const WEB_SEARCH_TOOL: ToolDefinition = {
   type: 'function',

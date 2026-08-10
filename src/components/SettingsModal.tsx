@@ -349,13 +349,15 @@ export function SettingsModal({
                 />
                 <span className="text-[12.5px] leading-relaxed text-fg-2">
                   <span className="font-semibold text-fg">Web research</span> — lets "What do I
-                  say?" search the web and read pages. Two lanes only: date logistics (venues,
-                  hours, etiquette), and checking one specific thing they've told you, for your own
-                  safety — whether their stated job checks out, whether their photos turn up
-                  elsewhere. That kind of check does use their name. What it won't do is look them
-                  up in general, go through their social media, or track where they are. Turn off
-                  for local servers that don't support function-calling (small models, llama.cpp,
-                  older Ollama).
+                  say?" search the web and read pages, and it will use them: date logistics (venues,
+                  hours, etiquette), whatever they've told you about themselves followed outward
+                  (their studio, their field, the race they're running — it's how you get a specific
+                  plan instead of "grab a drink"), and whether those claims hold up, for your own
+                  safety. That last one does use their name, and it's the normal thing to do before
+                  meeting a stranger. What it won't do is start from their name and see what falls
+                  out — no general look-up, no social media sweep, no address, no tracking where
+                  they are. Turn off for local servers that don't support function-calling (small
+                  models, llama.cpp, older Ollama).
                 </span>
               </label>
               <label className="flex cursor-pointer items-start gap-2.5">

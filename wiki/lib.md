@@ -164,15 +164,25 @@ agent loop intercepts the call and returns its arguments as the final JSON. Surv
 | `createCachedExecutor()` | Wraps the executor with a per-run cache keyed by normalized query/URL, so the model re-searching the same thing across loop iterations hits one fetch, not several. |
 | `ALL_TOOLS` | `[WEB_SEARCH_TOOL, READ_PAGE_TOOL]` — both descriptions carry the same privacy scope note as the prompt (see below), so the model sees the boundary twice. |
 
-**Where the research scope actually draws the line.** `web_search` / `read_page` cover two lanes:
-date logistics (venues, events, opening hours, etiquette), and verifying one *specific, stated*
-claim about the person for safety — does their claimed job check out, does their photo turn up
-reused elsewhere. Confirming someone is who they say they are before meeting a stranger is normal
-safety practice, not surveillance, and a tool that refused to help wouldn't stop the user from doing
-it in a browser tab anyway. The line isn't whether a search includes their name — legitimate safety
-checks often do — it's specific-claim-verification versus fishing for an open-ended profile
-("everything about \[name]", their social media, their whereabouts) or monitoring someone already
-trusted. That boundary is stated in three places on purpose: the tool descriptions themselves,
+**Where the research scope actually draws the line.** `web_search` / `read_page` cover three lanes:
+date logistics (venues, events, opening hours, etiquette), whatever the person has said about
+themselves followed outward (the studio they named, the field they work in, the race they're
+training for — this is what makes a specific plan possible), and whether those claims hold up, for
+safety. Confirming someone is who they say they are before meeting a stranger is normal safety
+practice, not surveillance, and a tool that refused to help wouldn't stop the user from doing it in
+a browser tab anyway. Inside those lanes the instruction is to search what would change the advice,
+taking as many calls as that needs — but still not for its own sake, and with the query built from
+the *current* state of the thread. "Most good answers need zero searches" survived the widening: it
+only ever contradicted profile-every-date-every-run, and it is what stops a search for a café in the
+city they left four turns ago, which is the failure mode that costs more than the missing search
+would have.
+
+The line is **where a search starts**, not whether it includes their name — legitimate checks
+routinely do. Outward from something they disclosed is research; starting from the name to see what
+falls out ("everything about \[name]", their address, family, old accounts, whereabouts) is a file
+on a private individual. Each fact in it may be public; the assembly is the thing that isn't, and no
+answer this app gives needs one. Same for monitoring someone already trusted, and for anything aimed
+at finding leverage rather than understanding. That boundary is stated in three places on purpose: the tool descriptions themselves,
 `KB_RESEARCH` in `coach/knowledge.ts` (injected only when tools are actually attached), and the
 "Web research" checkbox in `SettingsModal` — the last one matters most, because it's the only one
 the user reads, and it's read at the moment they turn the capability on.
