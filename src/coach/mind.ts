@@ -27,12 +27,17 @@
  * do`. That is the same split `knowledge.ts` had as separate exports; it is
  * expressed as headings now because headings are what an amendment can address.
  *
- * The whole thing sits in the system block, which is the cost of it being one
- * document: a run that rewrites any part invalidates the largest cached entry
- * for that engine. That is accepted rather than optimised around — splitting the
- * document across two positions in the request to save a cache write would put
- * the coach's mind in two places to make a rare event cheaper. Amendments are
- * rare by construction: `changed: false` is stated as the expected answer.
+ * The belief sections sit in the system block. "What you've learned" rides below
+ * the transcript instead (`audience: 'tail'`) — a reversal this comment used to
+ * argue against, on the grounds that splitting the document across two positions
+ * put the coach's mind in two places to make a rare event cheaper. Measurement
+ * won the argument (refs/raw1 → raw2): the learned section is where amendments
+ * land *by design*, the system block sits above the profile and the whole
+ * transcript, and one ~250-char amendment between two next-move runs re-wrote
+ * ~47k of ~49k cached tokens. The belief sections stay above because amending
+ * one means a rule actually changed — rare, `changed: false` is stated as the
+ * expected answer — and that price keeps everything the engines *reason from*
+ * in one place.
  */
 import {
   KB_EVIDENCE,
@@ -44,8 +49,14 @@ import {
 } from './knowledge'
 import { key, parseSections } from './profile'
 
-/** Which engines a section is sent to. `all` means every call. */
-export type Audience = 'all' | 'them' | 'me' | 'next' | 'research'
+/**
+ * Which engines a section is sent to. `all` means every call. `tail` also means
+ * every call, but delivered below the transcript rather than in the system
+ * block — the slot for the section the coach itself rewrites, so amending it
+ * leaves the cached strata above byte-identical. `mindFor` never sees a 'tail'
+ * part because no engine asks for one; `learnedText` is how it travels.
+ */
+export type Audience = 'all' | 'them' | 'me' | 'next' | 'research' | 'tail'
 
 interface Part {
   /**
@@ -116,7 +127,7 @@ export const MIND_PARTS: readonly Part[] = [
   {
     heading: LEARNED_HEADING,
     seed: '',
-    audience: 'all',
+    audience: 'tail',
     blurb: 'Written by the coach as it goes. Starts empty.',
   },
 ]
@@ -135,9 +146,11 @@ export const MIND_PARTS: readonly Part[] = [
  * fresh install opened on "What you've learned" already marked as edited, and
  * the revert it offered wrote nothing.
  */
+const EMPTY_BODY = '(nothing yet)'
+
 const seedBody = (part: Part): string => {
   const seed = part.seed.trim()
-  return seed ? seed.replace(/^##[^\n]*\n+/, '').trim() : '(nothing yet)'
+  return seed ? seed.replace(/^##[^\n]*\n+/, '').trim() : EMPTY_BODY
 }
 
 /**
@@ -169,7 +182,8 @@ export const mindText = (mind: Mind): string =>
   mind.markdown.trim() || SEED_MIND
 
 /**
- * The sections one engine is sent, in document order, as one string.
+ * The sections one engine is sent in its system block, in document order, as one
+ * string. The 'tail' section never appears here — see `learnedText`.
  *
  * A heading the user renamed or deleted simply isn't found, and that engine goes
  * without it. Deliberately not backfilled from the seed: the point of an
@@ -184,6 +198,17 @@ export function mindFor(markdown: string, audience: Audience[]): string {
     .filter((s) => wanted.has(key(s.heading)))
     .map((s) => `## ${s.heading}\n\n${s.body.trim()}`)
     .join('\n\n')
+}
+
+/**
+ * The tail section's body, for the volatile end of a request. `''` when the
+ * section is absent, emptied, or still the seed placeholder, so callers skip the
+ * block entirely instead of shipping "(nothing yet)" with every call.
+ */
+export function learnedText(markdown: string): string {
+  const body =
+    parseSections(markdown).find((s) => key(s.heading) === key(LEARNED_HEADING))?.body.trim() ?? ''
+  return body === EMPTY_BODY ? '' : body
 }
 
 /** Canonical sections the document no longer has — surfaced in the editor. */
@@ -256,10 +281,11 @@ export function mindInstructions(): string {
   return `## Amending yourself
 
 Everything you have been told above — who you are, how you read people, what to
-do next — is one markdown document — your own mind — and you keep it. Return
-what to change in it, addressed by heading, exactly as you would amend a profile.
-Only the sections this engine is sent are shown to you; you can still amend any
-of them, and create a new one.
+do next — is one markdown document — your own mind — and you keep it. So is
+<what_you_have_learned> below the material, when present: the same document's
+findings section. Return what to change in it, addressed by heading, exactly as
+you would amend a profile. Only the sections this engine is sent are shown to
+you; you can still amend any of them, and create a new one.
 
 Return changed: false when nothing you saw changes what you believe. That is the
 answer on most runs, and it is a real answer.

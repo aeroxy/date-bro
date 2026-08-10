@@ -5,6 +5,8 @@ import {
   LEARNED_HEADING,
   MIND_HEADINGS,
   SEED_MIND,
+  learnedText,
+  mindFor,
   missingHeadings,
   seedSection,
   writeMindSection,
@@ -95,5 +97,35 @@ describe('the heading the instructions address', () => {
   // appending a part re-aimed the instruction at whatever landed last.
   test('is one of the sections that ships', () => {
     expect(MIND_HEADINGS).toContain(LEARNED_HEADING)
+  })
+})
+
+describe('the learned section rides the tail, not the system block', () => {
+  // The coach rewrites this section on next-move runs, and the system block sits
+  // above the profile and the whole transcript — refs/raw1 → raw2 measured one
+  // amendment re-writing ~47k cached tokens. `mindFor` feeds system; the tail
+  // reads it through `learnedText`.
+  test('mindFor never returns it', () => {
+    const all = mindFor(DOC, ['all'])
+    expect(all).toContain('## Who you are')
+    expect(all).not.toContain(LEARNED_HEADING)
+  })
+
+  test('learnedText returns the bare body', () => {
+    expect(learnedText(DOC)).toBe('- He writes short.')
+  })
+
+  test('the seed placeholder reads as empty, so a fresh install sends no block', () => {
+    expect(learnedText(SEED_MIND)).toBe('')
+  })
+
+  test('a deleted section reads as empty', () => {
+    expect(learnedText(writeMindSection(DOC, LEARNED_HEADING, ''))).toBe('')
+  })
+
+  test('matches the heading when the coach retyped its apostrophe', () => {
+    expect(learnedText(DOC.replace("What you've learned", 'What you’ve learned'))).toBe(
+      '- He writes short.',
+    )
   })
 })
