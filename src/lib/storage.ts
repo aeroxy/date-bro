@@ -83,7 +83,14 @@ export async function getSettings(): Promise<CoachSettings> {
  */
 export async function getMind(): Promise<Mind> {
   const result = await chrome.storage.local.get(KEYS.mind)
-  return { ...EMPTY_MIND, ...(result[KEYS.mind] ?? {}) }
+  const stored = result[KEYS.mind] as Partial<Mind> | undefined
+  // Field by field rather than spread over `EMPTY_MIND`: a spread copies a key
+  // that is present-but-undefined straight over the default it was supposed to
+  // fall back to, and every reader of this calls `.trim()` on `markdown`.
+  return {
+    markdown: stored?.markdown ?? EMPTY_MIND.markdown,
+    updatedAt: stored?.updatedAt ?? EMPTY_MIND.updatedAt,
+  }
 }
 
 export async function saveMind(markdown: string): Promise<Mind> {

@@ -368,9 +368,10 @@ export function validateSuggestion(r: object): string | null {
     // Absent is allowed, and means "nothing changed" — the strict schema makes
     // it required for providers that enforce one, but a backend with no schema
     // enforcement (Qwen) shouldn't burn a whole retry on the one field whose
-    // correct value is empty on most runs. Present and malformed still fails:
-    // a half-formed update would be applied to the coach itself.
-    (mind === undefined ? null : validateProfileUpdate(mind, 'mind'))
+    // correct value is empty on most runs. An explicit `null` is the same
+    // answer written differently, and gets the same pass. Present and malformed
+    // still fails: a half-formed update would be applied to the coach itself.
+    (mind == null ? null : validateProfileUpdate(mind, 'mind'))
   if (structural) return structural
 
   const options = (r as { options: Array<Record<string, unknown>> }).options

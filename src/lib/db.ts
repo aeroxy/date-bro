@@ -135,34 +135,50 @@ function migrateSectionNames(record: DateRecord): DateRecord {
 }
 
 /**
- * The most recent stored suggestion becomes the `coach` turn it would be today.
+ * The most recent stored suggestion becomes the `coach` turn it would be today,
+ * and the retired array goes with it.
  *
- * Only the newest one. The rest stay in the retired `suggestions` array, unread
- * — they can't be placed. A suggestion records `turnsAt` as a wall clock, not
- * as a position, so there is no way to work out where in the transcript it was
- * given, and inventing an order for twenty of them would put fabricated
- * chronology into the one list this app treats as fact. The newest is the
- * exception worth making: it was generated from the transcript as it then
- * stood, so the end is where it goes, and it means the panel still has
- * something in it after the upgrade.
+ * Only the newest one is placed. The rest can't be: a suggestion records
+ * `turnsAt` as a wall clock, not as a position, so there is no way to work out
+ * where in the transcript it was given, and inventing an order for twenty of
+ * them would put fabricated chronology into the one list this app treats as
+ * fact. The newest is the exception worth making — it was generated from the
+ * transcript as it then stood, so the end is where it goes, and it means the
+ * panel still has something in it after the upgrade.
  *
- * Idempotent by taking the suggestion's own id for the turn — once the next
- * save persists it, the `some` check sees it and this stops firing.
+ * Dropping the array is what makes the turn deletable. Kept, it re-created the
+ * turn on the very next read every time the user deleted it: the only thing
+ * stopping a second placement was finding the id already in `turns`, and
+ * deleting it is precisely what takes it out of there.
+ *
+ * Validated rather than trusted. `adviceTurn` reads `priority` and every
+ * option's `label`, so a record predating a field — or one stored by a version
+ * that let a malformed response through — would throw here, inside `listDates`,
+ * and take down every read in the app.
  */
 function migrateSuggestions(record: DateRecord): DateRecord {
-  const latest = record.suggestions?.[0]
-  // `options` is what `adviceTurn` reads; a record predating the field, or one
-  // stored by a version that let a malformed response through, must not take
-  // down every read in the app.
-  if (!latest?.id || !Array.isArray(latest.options)) return record
-  if (record.turns.some((t) => t.id === latest.id)) return record
-  return { ...record, turns: [...record.turns, adviceTurn(latest)] }
+  if (!record.suggestions?.length) return record
+  const { suggestions, ...rest } = record
+  const latest = suggestions[0]
+  const placeable =
+    !!latest?.id &&
+    typeof latest.priority === 'string' &&
+    Array.isArray(latest.options) &&
+    latest.options.every((o) => o && typeof o.label === 'string') &&
+    !rest.turns.some((t) => t.id === latest.id)
+  return placeable ? { ...rest, turns: [...rest.turns, adviceTurn(latest)] } : rest
 }
 
 // Every default below reads from `migrated`, never from `record`. Reading the
 // original would quietly undo whatever a migration just did — a default built
 // from the untouched record restores exactly what a migration was there to
 // move, leaving the same content in two places forever.
+//
+// The order of the four is not arbitrary in one place: `migrateSectionNames`
+// rewrites headings inside `themProfile` / `meProfile`, and for a legacy record
+// `migrateContexts` is what creates those. Run the rename first and it finds
+// nothing to rename in exactly the documents it exists for. The other two touch
+// `turns` and are independent of both.
 function normalize(record: DateRecord): DateRecord {
   const migrated = migrateSuggestions(
     migrateSectionNames(migrateContexts(migrateSeed(record))),
