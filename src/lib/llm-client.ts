@@ -90,7 +90,8 @@ export interface CompletionOptions {
    *
    * This exists because prompt cache entries are partitioned by session, and a
    * session id that churns means every request writes a fresh entry and reads
-   * nothing. `../claude-proxy` derives one from the *first user message* when
+   * nothing. claude-proxy (github.com/aeroxy/claude-proxy) derives one from the
+   * *first user message* when
    * the client doesn't send this header (`disguise::session_id`), and its
    * `first_user_text` joins every content block of `messages[0]` — which for us
    * is the entire prompt, transcript and timestamp included. So the derived id

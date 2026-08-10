@@ -123,18 +123,17 @@ export async function rebuildSelfContext(
 }
 
 /**
- * One turn of the standing conversation about a profile.
+ * One instruction to amend a profile. Not a conversation: the request carries no
+ * history, and nothing here is kept but the document it changes.
  *
- * Returns rather than persists, and deliberately: the caller writes the user's
- * message and the reply together, only once this has succeeded. A failed call
- * must not leave a user turn stranded at the end of the history — the prompt
- * layout needs it strictly alternating and ending on an assistant turn, or the
- * cache mark lands on the wrong message and the next request sends two user
- * messages in a row.
+ * Returns rather than persists, and deliberately. The amendment and the reply
+ * are one result, and a failed call should leave the stored profile exactly as
+ * it was rather than half-written — so the caller applies both at once, once
+ * this has resolved.
  *
- * `changed` is the headings this reply touched, for the thread's caption. A
- * rewrite reports no headings because there is no meaningful list to give — it
- * replaced everything.
+ * `changed` is the headings this reply touched, for the caption the user sees
+ * once. A rewrite reports none, because there is no meaningful list to give —
+ * it replaced everything.
  */
 export async function chatAboutProfile(
   record: DateRecord,

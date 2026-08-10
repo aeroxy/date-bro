@@ -6,8 +6,8 @@
  * out (MBTI, love languages as a typology, misattribution-of-arousal, Gottman's
  * prediction percentages) are absent rather than argued with.
  *
- * **This module is the seed, not the live text.** `coach/notebook.ts` assembles
- * these into one markdown document — the notebook — which is what actually
+ * **This module is the seed, not the live text.** `coach/mind.ts` assembles
+ * these into one markdown document — the coach's mind — which is what actually
  * reaches a prompt, and which both the user and the coach can rewrite. Once
  * either has, this file stops being read for that installation. Editing here
  * still matters: it is what every new installation starts from, and what
