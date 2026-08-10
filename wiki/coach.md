@@ -234,7 +234,7 @@ isn't malformed JSON — it's a model that describes what to say instead of sayi
 `buildChatMessages(record, engine, message, mind, customPrompt)` sends **one instruction**, not a
 conversation, and is structurally identical to a rebuild — only the task and the tail differ:
 
-```
+```text
 [system ✂][who][profile ✂][turns… ✂][/transcript][research + now + the instruction]
 ```
 
@@ -275,6 +275,16 @@ they're pure re-reads of material the user already provided (plus whatever's alr
 
 Each stamps `generatedAt` and `turnsAt` (the record's `turnsUpdatedAt` as the run saw it — see
 [architecture.md](architecture.md#freshness)).
+
+**The no-tools path still has to fill `research_notes`.** `hasTools` flips "Using web research" in
+and out of the system block, and that section is the only place the coach is told what that output
+field is *for* — so Qwen, which researches natively and gets no tool schemas from us, did the
+research and was never asked to keep any of it. The field came back `[]` on the backend most runs
+actually use. `KEEP_WHAT_YOU_LOOKED_UP` in `prompts.ts` carries the persist rule on that path only,
+in the task rather than in the mind: it's a fact about an output field rather than something the
+coach believes, and a new `##` section would be missing from every document already forked from the
+seed — which is exactly the installations that need it. The tool-bearing path is left alone, so each
+variant stays one constant string and caches on its own.
 
 `suggestMove` also does two things the rebuild engines don't. It appends its answer to the
 conversation as a `coach` turn (`adviceTurn` in `lib/transcript.ts`) — see
@@ -421,7 +431,8 @@ type SectionUpdate = { heading: string; mode: 'replace' | 'append' | 'delete'; c
 type ProfileUpdate = { changed: boolean; sections?: SectionUpdate[]; rewrite?: string }
 ```
 
-`applyProfileUpdate(markdown, update)` splits on `## ` headings, applies ops in order, re-serialises.
+`applyProfileUpdate(markdown, update)` splits on `##` followed by a space, applies ops in order, and
+re-serialises.
 Both misses are forgiving on purpose: `replace`/`append` against an unknown heading creates it, and
 `delete` on one is a no-op. Failing a whole rebuild because a heading was renamed three turns ago
 would throw away the other four amendments in the same payload.
