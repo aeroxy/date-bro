@@ -23,7 +23,7 @@ are — they're the addresses an amendment aims at. Split so each engine only pa
 | `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), Big Five over MBTI/love-languages, bids for connection, honest interest signals ranked by diagnostic value, red/amber/green flags |
 | `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, voice, stated vs revealed goals |
 | `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder, cheap well-evidenced wins, texting pragmatics, set pieces (asking out, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means |
-| `KB_RESEARCH` | suggest, only when tools are attached | Scopes web research to logistics plus specific-claim safety verification (not open-ended profiling), and says to check `<research_notes>` before searching again |
+| `KB_RESEARCH` | suggest, only when tools are attached | Three lanes: what they've said about themselves, whether it holds up, and the logistics of the move. Search what would change the advice, as many times as that needs — but not for its own sake, and with the query built from the thread's current state, or it looks up a venue in the city they left four turns ago. Bounded by where it starts — outward from what the person disclosed, not a sweep for everything findable about them, which is the one scope limit any section carries. Check `<research_notes>` before searching again |
 
 **Who the advice is for**, because it decides what a good answer is. The user almost always already
 knows the other person is keener, or less keen, or unreadable — that is *why* they opened the app. An
@@ -373,16 +373,16 @@ the sections an engine needs, so a rebuild never pays for the 2.4k tokens of the
 
 | Section | Sent to | Tokens |
 |---|---|---|
-| Who you are | every call | ~340 |
-| Inference discipline | every call | ~250 |
+| Who you are | every call | ~510 |
+| Inference discipline | every call | ~345 |
 | Reading the other person | rebuild/amend them | ~980 |
 | Reading the user | rebuild/amend you | ~400 |
-| Choosing what to say or do | next move | ~2,410 |
-| Using web research | next move, tools attached | ~590 |
+| Choosing what to say or do | next move | ~1,920 |
+| Using web research | next move, tools attached | ~790 |
 | What you've learned | every call | starts empty |
 
-Whole document ~5.1k tokens; the heaviest engine (next move with research) sees ~3.8k, a rebuild
-~1.7k. A heading the user renames or deletes simply isn't found and that engine goes without it —
+Whole document ~4.9k tokens; the heaviest engine (next move with research) sees ~3.6k, a rebuild
+~1.8k. A heading the user renames or deletes simply isn't found and that engine goes without it —
 deliberately not backfilled from the seed, since the point of an editable coach is that deleting
 something deletes it. `missingHeadings` is what tells them, in the editor rather than silently.
 
