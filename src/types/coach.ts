@@ -27,7 +27,19 @@ export type AttachmentPattern =
   | 'mixed'
   | 'unclear'
 
-export type InterestLevel = 'strong' | 'warm' | 'ambiguous' | 'cooling' | 'not-interested'
+/**
+ * `too-early` is the honest answer for a thread with too little in it to read,
+ * and the schema has offered it to the model for as long as it has existed —
+ * this union just didn't say so, which made a legitimate response unrepresentable
+ * in the type that stores it. See `PERSON_SHAPE`.
+ */
+export type InterestLevel =
+  | 'strong'
+  | 'warm'
+  | 'too-early'
+  | 'ambiguous'
+  | 'cooling'
+  | 'not-interested'
 
 export interface Flag {
   kind: 'green' | 'amber' | 'red'
@@ -127,15 +139,24 @@ export interface SelfProfile extends ProfileBase {
 // markdown profiles can be migrated on read (`lib/db.ts`). Nothing generates
 // these any more. Delete once no stored record can still carry one — which is
 // not knowable from here, so they stay.
+//
+// Everything but `generatedAt` is optional, and that is not defensiveness: these
+// are what a model returned into a schema that has since changed shape more than
+// once, so any given field may simply not be in a stored record. The migration
+// in `coach/profile.ts` already guards every one of them; saying so here is what
+// makes the compiler agree.
 
-/** Output of "rebuild their context". */
+/**
+ * Output of "rebuild their context".
+ * @deprecated Migration input only — write `PersonProfile`.
+ */
 export interface PersonContext extends TurnBasis {
   generatedAt: number
-  headline: string
-  who_they_are: Claim[]
-  what_they_care_about: Claim[]
-  current_situation: Claim[]
-  communication_style: {
+  headline?: string
+  who_they_are?: Claim[]
+  what_they_care_about?: Claim[]
+  current_situation?: Claim[]
+  communication_style?: {
     summary: string
     attachment_hypothesis: {
       pattern: AttachmentPattern
@@ -144,23 +165,26 @@ export interface PersonContext extends TurnBasis {
     }
     bids: string[]
   }
-  interest_read: {
+  interest_read?: {
     level: InterestLevel
     confidence: Confidence
     signals_for: string[]
     signals_against: string[]
     honest_note: string
   }
-  flags: Flag[]
-  sensitivities: string[]
-  open_threads: string[]
-  open_questions: string[]
+  flags?: Flag[]
+  sensitivities?: string[]
+  open_threads?: string[]
+  open_questions?: string[]
 }
 
-/** Output of "rebuild my context". */
+/**
+ * Output of "rebuild my context".
+ * @deprecated Migration input only — write `SelfProfile`.
+ */
 export interface SelfContext extends TurnBasis {
   generatedAt: number
-  headline: string
+  headline?: string
   /**
    * Facts about the user, as they bear on *this* connection — the mirror of
    * `PersonContext.who_they_are`, and for a long time the thing this shape was
@@ -169,27 +193,30 @@ export interface SelfContext extends TurnBasis {
    * read it, kept nothing, and deleting the note lost it for good. With a slot
    * to absorb into, a rebuild makes the raw note redundant, which is the whole
    * bargain — write it roughly once, let the engine keep the part that matters.
+   *
+   * Added late, so a record from before it exists without it — the reason this
+   * whole block is optional.
    */
-  who_you_are: Claim[]
-  how_you_come_across: Claim[]
-  your_voice: {
+  who_you_are?: Claim[]
+  how_you_come_across?: Claim[]
+  your_voice?: {
     summary: string
     markers: string[]
   }
-  patterns: {
+  patterns?: {
     pattern: string
     evidence: string
     effect: string
   }[]
-  working: string[]
-  costing_you: string[]
-  you_have_revealed: string[]
-  goal_read: {
+  working?: string[]
+  costing_you?: string[]
+  you_have_revealed?: string[]
+  goal_read?: {
     stated: string
     revealed: string
     tension: string
   }
-  open_questions: string[]
+  open_questions?: string[]
 }
 
 export interface SuggestionOption {

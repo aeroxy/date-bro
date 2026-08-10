@@ -115,8 +115,13 @@ const HEADING = /^##\s+(.+?)\s*$/
  * of a heading it wrote last time. A section genuinely *renamed* gets a new
  * section, which is the honest outcome rather than a fuzzy match onto the
  * wrong target.
+ *
+ * Exported for `coach/mind.ts`, which addresses the same shape of document by
+ * heading and had its own near-copy of this. The two differed on punctuation,
+ * so `What you've learned` and `What you’ve learned` were one section to an
+ * amendment and two to the engine reading it.
  */
-const key = (heading: string) =>
+export const key = (heading: string) =>
   heading
     .trim()
     .toLowerCase()
@@ -321,10 +326,21 @@ export function personToMarkdown(ctx: PersonContext): string {
     .join('\n\n')
 }
 
+// Every field is defaulted, because every field can be missing: these records
+// were written by schemas that have since changed, and the judgment they migrate
+// into is what the UI reads straight out — `interest_read.level` renders into a
+// chip. A blank read is a fair description of a record this old; a thrown
+// TypeError inside `listDates` takes the whole app down with it.
 export function personJudgment(ctx: PersonContext): PersonJudgment {
   return {
-    headline: ctx.headline,
-    interest_read: ctx.interest_read,
+    headline: ctx.headline ?? '',
+    interest_read: ctx.interest_read ?? {
+      level: 'ambiguous',
+      confidence: 'low',
+      signals_for: [],
+      signals_against: [],
+      honest_note: '',
+    },
     flags: ctx.flags ?? [],
     open_questions: ctx.open_questions ?? [],
   }
@@ -357,8 +373,8 @@ export function selfToMarkdown(ctx: SelfContext): string {
 
 export function selfJudgment(ctx: SelfContext): SelfJudgment {
   return {
-    headline: ctx.headline,
-    goal_read: ctx.goal_read,
+    headline: ctx.headline ?? '',
+    goal_read: ctx.goal_read ?? { stated: '', revealed: '', tension: '' },
     open_questions: ctx.open_questions ?? [],
   }
 }
