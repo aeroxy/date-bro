@@ -158,7 +158,9 @@ in an uncached segment below it.
   on all three, and the same tag on all three, because it is the same thing. The surrounding prose
   is the point: a fact the user asserts about their own life is taken as true, but what they say
   cannot make the evidence say something it doesn't, and an unsupportable ask goes in the honest
-  note instead.
+  note instead. On Them and You the box feeds two different calls depending on whether a profile
+  exists yet — `buildChatMessages` to amend one, `buildPersonMessages`/`buildSelfMessages` to seed
+  the first rebuild — but the block, the position and the contract are identical either way.
 - **`<right_now>`** is the user's local time with the weekday, and it sits last of the standing
   blocks because it is the single most volatile value in the request — above any mark it would
   invalidate the whole prefix, transcript included, on every call. It carries its own caveat:
@@ -180,8 +182,9 @@ in an uncached segment below it.
 
 ### Where user-authored input goes
 
-There is no seed. Everything the user *knows* is in one pool; the only other channel is direction
-about an engine's output. The split is by what the input is **about**, not when it was written:
+There is no *stored* seed. Everything the user knows that is worth keeping is in one pool; the other
+two channels are one-shot and nothing persists them. The split is by what the input is **about**,
+not when it was written:
 
 | | Holds | Read by | Shape |
 |---|---|---|---|
@@ -190,6 +193,7 @@ about an engine's output. The split is by what the input is **about**, not when 
 | `turns` (`coach`) | what this app advised, and when | all three, in the same list | same — a `COACH:` line |
 | the coach's mind | what transfers to every person | all three — beliefs in the system block, "What you've learned" in the tail | markdown, amended by section |
 | `goal` | what the user wants out of this | all three, in the first user block | one short field |
+| the footer box | direction about this answer, or background offered once | the engine being run, in the tail | `<from_the_user>`, never stored |
 
 The rows are split by what the input is **about**, and that's why it isn't one list. "She works
 nights" is a fact about this connection and belongs in the pool, in position. "Stop suggesting bars"
@@ -217,6 +221,23 @@ to write in the user's voice and a CV is the opposite of how anyone texts. What 
 turning rough knowledge into a clean structured read — is precisely what engines 1 and 2 do. So the
 raw text became `context` turns and the field disappeared. `migrateSeed` in `lib/db.ts` moves the
 text of existing records into the pool on read, so nothing written under the old model is lost.
+
+**Why a one-shot seed came back anyway.** Routing a CV through the pool made the user do the app's
+filing: paste it as a `NOTE`, rebuild, then go back and delete the note so it stops riding along
+forever. Three steps to hand over a fact, and the third is one nobody remembers. The footer box on
+Them and You seeds the first rebuild directly instead — it was disabled in that state, which made
+the one place a new user looks to say who these people are a dead control.
+
+None of what killed `seedThem`/`seedMe` comes back with it, because the objection was never *"the
+user shouldn't paste a CV"* — engines 1 and 2 are explicitly told to absorb one. It was the
+**position and the persistence**: stored forever, re-sent from the top of every request, above the
+transcript, in the slot the layering reserves for the most authoritative material. This rides the
+volatile tail below every cache breakpoint, exists for exactly one call, and is outranked by the
+transcript like everything else down there. What survives is whatever the profile absorbed —
+which is the durable half, and the half that gets consolidated and pruned rather than accumulating.
+
+The one thing it cannot survive is **Start over**, which clears the profile and re-reads the
+conversation — and a one-shot seed was never in the conversation. Both confirm dialogs say so.
 
 ## `schemas.ts`
 
@@ -257,9 +278,12 @@ tagged with the record and tab it belongs to, then dismissed.
 
 ## `run.ts`
 
-`rebuildPersonContext` and `rebuildSelfContext` are identical in shape: resolve config + house
-rules, build messages, call `completeJSON` with the matching validator and schema, then apply the
-returned `ProfileUpdate` to the stored markdown. Deliberately never given tools of their own —
+`rebuildPersonContext(record, message, …)` and `rebuildSelfContext(record, message, …)` are
+identical in shape: resolve config + house rules, build messages, call `completeJSON` with the
+matching validator and schema, then apply the returned `ProfileUpdate` to the stored markdown.
+`message` is the footer box, one-shot and never stored — usually empty, since the header's own
+Rebuild button passes nothing and an empty one produces a request byte-identical to what it was
+before the parameter existed. Deliberately never given tools of their own —
 they're pure re-reads of material the user already provided (plus whatever's already landed in
 `<research_notes>`); only `suggestMove` ever initiates a new search.
 

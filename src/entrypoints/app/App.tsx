@@ -97,6 +97,12 @@ export default function App() {
     if (panelRef.current) panelRef.current.scrollTop = 0
   }, [tab, activeId])
 
+  /**
+   * `message` is one-shot on all three engines and never stored: what's going on
+   * right now for `next`, and for a first rebuild on Them/You, whatever the user
+   * pasted in to say who these people are. It reaches the model in the volatile
+   * tail and what survives is only what the profile absorbed from it.
+   */
   const run = useCallback(
     async (which: Tab, message = ''): Promise<boolean> => {
       if (!active || runningRef.current) return false
@@ -114,10 +120,10 @@ export default function App() {
 
       try {
         if (which === 'them') {
-          const ctx = await rebuildPersonContext(record, controller.signal, setThinking)
+          const ctx = await rebuildPersonContext(record, message, controller.signal, setThinking)
           await update(id, { themProfile: ctx })
         } else if (which === 'me') {
-          const ctx = await rebuildSelfContext(record, controller.signal, setThinking)
+          const ctx = await rebuildSelfContext(record, message, controller.signal, setThinking)
           await update(id, { meProfile: ctx })
         } else {
           const suggestion = await suggestMove(
@@ -357,6 +363,9 @@ export default function App() {
     ? (dates.find((d) => d.id === runningElsewhere.id)?.name ?? 'a deleted profile')
     : null
   const shownError = error && error.id === activeId ? error : null
+  // Them/You before their first rebuild. The footer box has no profile to amend
+  // in that state, so it seeds one instead of sitting there disabled.
+  const seeding = !!active && tab !== 'next' && !(tab === 'them' ? active.themProfile : active.meProfile)
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -552,7 +561,7 @@ export default function App() {
                         onClear={() => {
                           if (
                             confirm(
-                              `Start over on ${active.name}?\n\nThis throws away everything written down about them so far. The next rebuild starts from a blank page and reads the conversation again — which is the point when the notes have drifted, and a waste when they haven't.`,
+                              `Start over on ${active.name}?\n\nThis throws away everything written down about them so far. The next rebuild starts from a blank page and reads the conversation again — which is the point when the notes have drifted, and a waste when they haven't.\n\nAnything you typed straight into the box below was read once and never stored, so it isn't in the conversation to be read again.`,
                             )
                           ) {
                             persist(update(active.id, { themProfile: undefined }), 'them')
@@ -564,7 +573,7 @@ export default function App() {
                   ) : (
                     <BlankSlate
                       title={`No read on ${active.name} yet`}
-                      body={`Add some of the conversation — and anything you know that never got typed, with the NOTE button. Then rebuild: everything you get back cites the line it came from.`}
+                      body={`Tell it what you know in the box below — a bio, a dating profile, whatever you've got. Add some of the conversation too: everything you get back cites the line it came from.`}
                       cta="Rebuild them"
                       onRun={() => run('them')}
                     />
@@ -579,7 +588,7 @@ export default function App() {
                         onClear={() => {
                           if (
                             confirm(
-                              'Start over on you?\n\nThis throws away everything written down about you in this connection. The next rebuild starts from a blank page and reads the conversation again.',
+                              "Start over on you?\n\nThis throws away everything written down about you in this connection. The next rebuild starts from a blank page and reads the conversation again.\n\nAnything you typed straight into the box below — a CV, what you do — was read once and never stored, so it isn't in the conversation to be read again.",
                             )
                           ) {
                             persist(update(active.id, { meProfile: undefined }), 'me')
@@ -591,7 +600,7 @@ export default function App() {
                   ) : (
                     <BlankSlate
                       title="No read on you yet"
-                      body="This is the half you control — how you're landing, what's working, and what your messages say about what you actually want."
+                      body="This is the half you control — how you're landing, what's working, and what your messages say about what you actually want. Paste your CV in the box below if you want it to know the background."
                       cta="Rebuild you"
                       onRun={() => run('me')}
                     />
@@ -667,6 +676,26 @@ export default function App() {
                   busy={!!busy}
                   onSend={(message) => run('next', message)}
                 />
+              ) : seeding ? (
+                /* No profile yet, so there is nothing to amend and this used to
+                   be disabled. It seeds the first rebuild instead — the one
+                   place a new user can hand over a CV or a pasted bio without
+                   it becoming a turn they later have to go and delete. Read
+                   once, absorbed into the profile, never stored. */
+                <AskComposer
+                  key={`${active.id}:${tab}`}
+                  label={`Tell it about ${tab === 'them' ? active.name : 'you'}`}
+                  placeholder={
+                    tab === 'them'
+                      ? `Paste ${active.name}'s bio or dating profile, or just say what you already know`
+                      : 'Paste your CV, or just say what you do and what your life looks like'
+                  }
+                  cta="Rebuild"
+                  hint="Read once, not kept — what it learns goes in the profile."
+                  busy={!!busy}
+                  needsText
+                  onSend={(message) => run(tab, message)}
+                />
               ) : (
                 <AskComposer
                   key={`${active.id}:${tab}`}
@@ -679,12 +708,10 @@ export default function App() {
                       ? "e.g. drop the avoidant read — she works nights, that's why the 2am replies"
                       : "e.g. I'm not looking for anything serious — stop reading my replies as hesitation"
                   }
-                  blockedHint="Rebuild first — then you can correct what it found"
                   cta="Apply"
                   hint="Applied once. The notes above are what gets kept."
                   busy={!!busy}
                   needsText
-                  blocked={!(tab === 'them' ? active.themProfile : active.meProfile)}
                   edit={edit && edit.id === active.id && edit.tab === tab ? edit : null}
                   onDismiss={() => setEdit(null)}
                   onSend={(message) => sendChat(tab, message)}

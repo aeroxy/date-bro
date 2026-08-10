@@ -469,6 +469,7 @@ task above asks.`
 
 export function buildPersonMessages(
   record: DateRecord,
+  message: string,
   mind: string,
   customPrompt: string,
 ): ChatMessage[] {
@@ -478,11 +479,13 @@ transcript — what was said, and what the user has noted down about them. Where
 note and the messages disagree, the messages win: people describe their dates the
 way they wish they were.
 
-Absorb the notes into the profile so the raw note stops being needed. A note may
-be long and unedited — a bio, a paragraph typed from memory. Keep what bears on
-this connection and drop the rest. This is the one place a fact with no support
-in the messages is still legitimate, because the user asserted it: mark it low
-confidence and say it came from their note.
+Absorb what the user has written down into the profile so the raw text stops
+being needed. It reaches you two ways — as notes in the transcript, and in
+<from_the_user> when they typed something with this rebuild. Same material
+either way, and it may be long and unedited: a dating-app bio, a paragraph typed
+from memory. Keep what bears on this connection and drop the rest. This is the
+one place a fact with no support in the messages is still legitimate, because the
+user asserted it: mark it low confidence and say it came from them.
 </task>
 
 ${updateInstructions(PERSON_SECTIONS)}
@@ -502,6 +505,7 @@ ${PERSON_SHAPE}`
         text: volatileBlock(
           record,
           mind,
+          fromUserBlock(message),
           `Update what you know about ${record.name}. Return the JSON object only, with all of headline, interest_read, flags, open_questions and profile.`,
         ),
       },
@@ -513,6 +517,7 @@ ${PERSON_SHAPE}`
 
 export function buildSelfMessages(
   record: DateRecord,
+  message: string,
   mind: string,
   customPrompt: string,
 ): ChatMessage[] {
@@ -522,8 +527,10 @@ connection, based on what they wrote and how the other person responded to it.
 This is the half they control, so it's the half worth being precise about.
 
 Absorb what they have written down about themselves into the profile, so the raw
-note stops being needed. They may have pasted something long and unedited — a CV,
-a dating-app bio, a paragraph typed at 1am. Keep the part that bears on *this*
+text stops being needed. It reaches you two ways — as notes in the transcript,
+and in <from_the_user> when they typed it with this rebuild; same material either
+way. They may have pasted something long and unedited — a CV, a
+dating-app bio, a paragraph typed at 1am. Keep the part that bears on *this*
 connection and drop the rest: their hours, their situation, a constraint,
 something that explains how they behave here. A job title earns its place only
 if it changes something between these two people. This is the one place a fact
@@ -559,6 +566,7 @@ ${SELF_SHAPE}`
         text: volatileBlock(
           record,
           mind,
+          fromUserBlock(message),
           'Update the read of the user in this connection. Return the JSON object only, with all of headline, goal_read, open_questions and profile.',
         ),
       },
