@@ -174,15 +174,28 @@ export const SELF_SCHEMA: JsonSchemaSpec = {
 
 // --- What to say or do -------------------------------------------------------
 
+/**
+ * `mind` goes last, and it was third until a captured run argued otherwise.
+ *
+ * Third was for the reason the rebuild shapes put their small fields first: a
+ * field arriving after three drafts is a field that gets dropped. Dropped costs
+ * one finding, though, and `refs/raw` showed what corrupted costs. The model
+ * left JSON at this nested object mid-generation, emitting the tool-call syntax
+ * it uses natively — mind as a *string* reading "<parameter name=..." — then
+ * flattened sections and rewrite to the top level and stopped. options, avoid,
+ * timing, honest_note and research_notes were never written at all, and a run
+ * that had already produced a good read, a good priority and a genuinely useful
+ * amendment returned nothing. Down here, a derailment costs only itself.
+ *
+ * Nothing makes the nested object safe; this only decides what it takes with it
+ * when it fails. The drafts are what the user opened the app for, and this field
+ * is already optional in `validateSuggestion`. It also no longer needs an early
+ * slot to be noticed — the learned section moved out of the system block into
+ * the tail, a couple of blocks above where the answer starts.
+ */
 export const SUGGESTION_SHAPE = `{
   "read": string,                   // 2-4 sentences: where this actually stands right now
   "priority": string,               // the one thing that matters most in the next move
-  ${updateShape('mind')}            // what to change about YOURSELF — see "Amending yourself"
-                                    // above. changed: false on most runs. Nothing about the person
-                                    // in this request; that goes in their profile. Sits here,
-                                    // before the long part, for the same reason the rebuild shapes
-                                    // put their small fields first — a field that comes after three
-                                    // drafts is a field that gets dropped.
   "options": [{                     // 2-3 genuinely different options, not three versions of one
     "label": string,                // e.g. "Warm + specific", "Name it directly", "Make a plan"
     "kind": "message" | "action",
@@ -197,9 +210,13 @@ export const SUGGESTION_SHAPE = `{
   "honest_note": string,            // anything true the user probably doesn't want to hear. "" if none —
                                     // and "" is the common case. Do not manufacture a downside to
                                     // look balanced, and do not use this to relitigate their odds.
-  "research_notes": string[]        // durable facts worth remembering from web research this run
+  "research_notes": string[],       // durable facts worth remembering from web research this run
                                     // (e.g. "Cafe Lumen closes 9pm Sundays"). [] if you didn't
                                     // research, or found nothing worth keeping past this answer.
+  ${updateShape('mind').replace(/,$/, '')}                                 // what to change about
+                                    // YOURSELF — see "Amending yourself" above. changed: false on
+                                    // most runs. Nothing about the person in this request; that
+                                    // goes in their profile.
 }`
 
 export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
@@ -207,20 +224,22 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
   schema: {
     type: 'object',
     additionalProperties: false,
+    // `mind` last in both lists, and the order is load-bearing rather than
+    // cosmetic — see the note in SUGGESTION_SHAPE. A model that derails on this
+    // nested object should lose only this object, not the drafts above it.
     required: [
       'read',
       'priority',
-      'mind',
       'options',
       'avoid',
       'timing',
       'honest_note',
       'research_notes',
+      'mind',
     ],
     properties: {
       read: { type: 'string' },
       priority: { type: 'string' },
-      mind: profileUpdate,
       options: {
         type: 'array',
         items: {
@@ -241,6 +260,7 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       timing: { type: 'string' },
       honest_note: { type: 'string' },
       research_notes: stringArray,
+      mind: profileUpdate,
     },
   },
 }

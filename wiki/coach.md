@@ -427,8 +427,19 @@ the line about a real no.
 The field is **required in `SUGGESTION_SCHEMA` but optional in `validateSuggestion`**. Providers that
 enforce a schema always send it; a backend with none (Qwen) shouldn't burn a whole retry on the one
 field whose correct value is empty on most runs. Present-and-malformed still fails, because a
-half-formed update would otherwise be applied. It sits *before* `options` in both the shape and the
-`required` list — the lesson `open_questions` cost, applied ahead of time.
+half-formed update would otherwise be applied.
+
+It sits **last** in both the shape and the `required` list, and it sat *before* `options` until a
+captured run argued otherwise. The early slot was the lesson `open_questions` cost — a field after
+three drafts is one the model sometimes never comes back to. What `refs/raw` showed is the larger
+failure: the model left JSON at this nested object mid-generation, emitting the tool-call syntax it
+uses natively (`mind` as a *string* reading `<parameter name=…`), flattened `sections` and `rewrite`
+to the top level, and stopped. `options`, `avoid`, `timing`, `honest_note` and `research_notes` were
+never written, and a run holding a good read, a good priority and a genuinely useful amendment
+returned nothing at all. Dropping the amendment costs one finding; corrupting it early costs the
+drafts the user came for. Ordering cannot make the nested object safe — it only decides what the
+object takes down with it. The early slot is also less necessary now that "What you've learned"
+arrives in the tail, a couple of blocks above where the answer starts.
 
 ## `profile.ts`
 
