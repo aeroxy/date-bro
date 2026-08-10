@@ -92,13 +92,13 @@ export const MIND_PARTS: readonly Part[] = [
     heading: 'Who you are',
     seed: KB_IDENTITY,
     audience: 'all',
-    blurb: 'Voice, nerve, and the one line that never bends.',
+    blurb: 'Voice, nerve, and the one line that never bends. Sent on every call.',
   },
   {
     heading: 'Inference discipline',
     seed: KB_EVIDENCE,
     audience: 'all',
-    blurb: 'How to tell what was observed from what was guessed.',
+    blurb: 'Observed versus guessed. Sent on every call.',
   },
   {
     heading: 'Reading the other person',
@@ -128,7 +128,7 @@ export const MIND_PARTS: readonly Part[] = [
     heading: LEARNED_HEADING,
     seed: '',
     audience: 'tail',
-    blurb: 'Written by the coach as it goes. Starts empty.',
+    blurb: 'Written by the coach as it goes. Sent on every call; starts empty.',
   },
 ]
 
