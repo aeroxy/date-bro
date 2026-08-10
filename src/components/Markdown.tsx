@@ -89,6 +89,9 @@ const BULLET = /^\s*[-*]\s+(.*)$/
 // "2026. The year she moves" — stays a paragraph. The written number is kept
 // rather than recounted, so what renders always matches the markdown behind it.
 const ORDERED = /^\s*(\d{1,3})[.)]\s+(.*)$/
+// The hanging indent under a bullet. Checked only after the two list patterns
+// have had their turn, so an indented `- ` is still a bullet, not a wrap.
+const INDENTED = /^\s+\S/
 
 function chunk(markdown: string): Chunk[] {
   const chunks: Chunk[] = []
@@ -114,6 +117,18 @@ function chunk(markdown: string): Chunk[] {
     if (marker !== null) list.markers?.push(marker)
   }
 
+  // A wrapped bullet continues its item rather than ending the list. The indent
+  // is what says so — one long point written across two lines is one bullet, and
+  // treating the second line as a paragraph split the list in half around it.
+  // A closure like `item` above, because `list` is only ever assigned inside
+  // these and narrowing in the loop body doesn't see it.
+  const continues = (text: string): boolean => {
+    const items = list?.items
+    if (!items?.length) return false
+    items[items.length - 1] = `${items[items.length - 1]!} ${text}`
+    return true
+  }
+
   for (const line of markdown.split('\n')) {
     const heading = line.match(HEADING)
     if (heading) {
@@ -135,6 +150,7 @@ function chunk(markdown: string): Chunk[] {
       flush()
       continue
     }
+    if (INDENTED.test(line) && continues(line.trim())) continue
     if (list) flush()
     para ??= []
     para.push(line.trim())

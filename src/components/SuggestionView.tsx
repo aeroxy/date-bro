@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check, Copy, MessageSquare, Send, Zap } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
@@ -44,6 +44,11 @@ function CopyButton({ text }: { text: string }) {
  * different question.
  */
 function SentButton({ done, onSend }: { done: boolean; onSend: () => void }) {
+  // `done` comes back through the record — a write and a re-render away — so
+  // two quick clicks both see it false and the same message lands in the
+  // transcript twice. A ref, not state: it has to close the door in the same
+  // tick the first click opens it.
+  const fired = useRef(false)
   if (done) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-yes">
@@ -53,7 +58,11 @@ function SentButton({ done, onSend }: { done: boolean; onSend: () => void }) {
   }
   return (
     <button
-      onClick={onSend}
+      onClick={() => {
+        if (fired.current) return
+        fired.current = true
+        onSend()
+      }}
       title="Adds this to the conversation as a message from you"
       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-fg-3 transition hover:bg-surface-muted hover:text-fg"
     >

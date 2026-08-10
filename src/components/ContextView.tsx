@@ -67,9 +67,13 @@ function OpenQuestions({ items, answer }: { items: string[]; answer?: AnswerProp
           </div>
           {answer && open === item ? (
             <div className="mt-1.5 flex items-center gap-1.5 pl-3">
+              {/* Disabled with the toggle above it. A row already open when a
+                  run starts stays open, and without this the one path the
+                  disabled toggle exists to close is still wide open. */}
               <Input
                 autoFocus
                 value={draft}
+                disabled={answer.disabled}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') submit(item)
@@ -80,7 +84,7 @@ function OpenQuestions({ items, answer }: { items: string[]; answer?: AnswerProp
               />
               <button
                 onClick={() => submit(item)}
-                disabled={!draft.trim()}
+                disabled={answer.disabled || !draft.trim()}
                 className="rounded-md p-1.5 text-fg-3 transition hover:bg-surface-muted hover:text-action disabled:opacity-40"
                 title="Add as a note"
               >

@@ -293,8 +293,16 @@ export function renameLegacySections(markdown: string): string {
 // has to be rewritten ahead of time and a record that never gets opened again
 // costs nothing.
 
-const claims = (list: { claim: string; confidence: string }[] | undefined) =>
-  (list ?? []).map((c) => `- ${c.claim} (${c.confidence})`).join('\n')
+// The evidence rides along. It is the citation the new format asks for, it was
+// already in the record, and a migration is the one moment it can be lost for
+// good — the old shape is gone the next time the record is saved.
+const claims = (list: { claim: string; confidence: string; evidence?: string }[] | undefined) =>
+  (list ?? [])
+    .map((c) => {
+      const evidence = c.evidence?.trim()
+      return `- ${c.claim} (${c.confidence})${evidence ? ` — ${evidence}` : ''}`
+    })
+    .join('\n')
 
 const bullets = (list: string[] | undefined) => (list ?? []).map((s) => `- ${s}`).join('\n')
 

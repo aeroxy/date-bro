@@ -191,6 +191,10 @@ export default function App() {
       const id = active.id
       setBusy({ id, tab: engine })
       setError(null)
+      // Cleared like `run` does. `Thinking` renders whenever the busy tab is
+      // the visible one, so an amend on Them inherited the last next-move's
+      // "Searching: …" lines and claimed to be doing research it isn't.
+      setActivity([])
       setThinking(null)
       const controller = new AbortController()
       abortRef.current = controller
@@ -679,6 +683,7 @@ export default function App() {
                   cta="Apply"
                   hint="Applied once. The notes above are what gets kept."
                   busy={!!busy}
+                  needsText
                   blocked={!(tab === 'them' ? active.themProfile : active.meProfile)}
                   edit={edit && edit.id === active.id && edit.tab === tab ? edit : null}
                   onDismiss={() => setEdit(null)}

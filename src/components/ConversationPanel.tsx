@@ -41,7 +41,11 @@ export function ConversationPanel({
   // A note belongs where it happened, not wherever the composer happens to be.
   // The id is minted when the gap is clicked rather than during render, so the
   // modal doesn't remount itself out from under a half-typed note.
-  const [inserting, setInserting] = useState<{ at: number; turn: Turn } | null>(null)
+  // `before` is the id of the turn the new one goes above, not its index. Every
+  // other edit in this file addresses a turn by id; a position captured on click
+  // and spent after a modal round trip is the one thing here that couldn't
+  // survive the list changing underneath it.
+  const [inserting, setInserting] = useState<{ before: string; turn: Turn } | null>(null)
   const [importing, setImporting] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
@@ -213,7 +217,7 @@ export function ConversationPanel({
                       key={s}
                       onClick={() =>
                         setInserting({
-                          at: hiddenCount + i,
+                          before: turn.id,
                           turn: { id: crypto.randomUUID(), speaker: s, text: '' },
                         })
                       }
@@ -427,7 +431,11 @@ export function ConversationPanel({
           onSave={(created) => {
             if (created.text.trim()) {
               const next = [...record.turns]
-              next.splice(inserting.at, 0, created)
+              // Resolved now, not when the pill was clicked. An anchor that has
+              // since been deleted leaves nothing to sit above, so the entry
+              // appends rather than landing somewhere arbitrary.
+              const at = next.findIndex((t) => t.id === inserting.before)
+              next.splice(at < 0 ? next.length : at, 0, created)
               onChange(next)
             }
             setInserting(null)
@@ -497,12 +505,14 @@ function EditTurnModal({
             <Select
               value={draft.speaker}
               // Switching an entry to a note drops the fields that only describe
-              // speech, so saving can't leave a note carrying a channel.
+              // speech, so saving can't leave a note carrying a channel — and
+              // switching away drops `asked`, which is a note's alone. Left on,
+              // it renders "asked: …" against a line she actually said.
               onChange={(next) =>
                 setDraft(
                   next === 'context'
                     ? { ...draft, speaker: next, channel: undefined, note: undefined }
-                    : { ...draft, speaker: next as Speaker },
+                    : { ...draft, speaker: next as Speaker, asked: undefined },
                 )
               }
               options={[

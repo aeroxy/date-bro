@@ -72,6 +72,7 @@ export function AskComposer({
   busy,
   blocked,
   blockedHint,
+  needsText,
   edit,
   onDismiss,
   onSend,
@@ -90,6 +91,16 @@ export function AskComposer({
    */
   blocked?: boolean
   blockedHint?: string
+  /**
+   * Whether the box has to have something in it. `next` runs on an empty one —
+   * "what do I say?" is a complete request and the text is optional colour —
+   * and the amend tabs have nothing to do without an instruction.
+   *
+   * Its own prop rather than read off `blocked`, which is what it used to be:
+   * passing `blocked={false}` to say "nothing is wrong here" silently made the
+   * box demand text, because only *absence* meant optional.
+   */
+  needsText?: boolean
   edit?: ProfileEdit | null
   onDismiss?: () => void
   /**
@@ -102,10 +113,6 @@ export function AskComposer({
 }) {
   const [draft, setDraft] = useState('')
 
-  // `next` is the one that runs on an empty box: "what do I say?" is a complete
-  // request on its own, and the text is optional colour. The amend tabs have
-  // nothing to do without an instruction, which is what `blocked` marks them by.
-  const needsText = blocked !== undefined
   const ready = !busy && !blocked && (!needsText || !!draft.trim())
 
   const send = () => {

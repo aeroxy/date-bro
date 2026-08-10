@@ -215,8 +215,17 @@ export async function suggestMove(
   // takes half a minute and the user may have edited it by hand in the meantime.
   // `mindText` resolves the seed on a first write, so an amendment forks the
   // whole document rather than landing on an empty one.
+  //
+  // A failed write is not allowed to take the advice with it. The suggestion is
+  // finished and half a minute paid for by the time this runs; losing all of it
+  // because storage refused a write is the worse of the two outcomes by a wide
+  // margin, and the amendment is the one this run can afford to drop.
   if (amendment?.changed) {
-    await saveMind(applyProfileUpdate(mindText(await getMind()), amendment))
+    try {
+      await saveMind(applyProfileUpdate(mindText(await getMind()), amendment))
+    } catch {
+      /* the coach doesn't learn from this run; the user still gets their answer */
+    }
   }
 
   return {

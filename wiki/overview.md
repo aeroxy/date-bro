@@ -9,7 +9,9 @@ do next. All input is manual — there is no scraping, no site integration, no c
 1. **Stores people.** One record per person: name, stage, and what the user wants out of it.
 2. **Stores the conversation.** Turns typed one at a time or bulk-imported from a pasted log, plus
    `NOTE` entries for anything the user knows that nobody typed. One pool — there is no separate
-   "what you know about them" field, and nothing the user writes lives outside this list.
+   "what you know about them" field, and no fact about the connection lives outside this list. The
+   one thing that does is `goal`, which isn't a fact about them: it's what the user is asking the
+   coach to optimise for, so nothing the conversation does can make it stale.
 3. **Keeps a profile of them** — an evidence-cited portrait derived from that pool, amended section
    by section rather than regenerated from zero, so detail accumulates instead of being thrown away.
 4. **Keeps a profile of the user** — the same, turned inward.
