@@ -78,18 +78,27 @@ type Rebuild<J> = J & { profile: ProfileUpdate }
  * the stored markdown is the input as well as the output — a rebuild that finds
  * nothing new returns `changed: false` and the document survives byte-for-byte.
  *
+ * `message` is whatever the user typed into the box when they hit rebuild, and
+ * it is read once and never stored. That is the whole difference between it and
+ * the seed field this app deleted: the seed sat above the transcript and was
+ * re-sent on every rebuild forever, where this rides the volatile tail, below
+ * every breakpoint, and exists only for this call. What survives is whatever the
+ * profile absorbed from it — which is the point, since the profile is the thing
+ * carried forward and a pasted CV is not.
+ *
  * `onThinking` streams the model's reasoning summary: Qwen always, Anthropic
  * when the profile opts in, never OpenAI (that path doesn't stream).
  */
 export async function rebuildPersonContext(
   record: DateRecord,
+  message: string,
   signal?: AbortSignal,
   onThinking?: (thinking: ThinkingSummary) => void,
 ): Promise<PersonProfile> {
   const { config, customPrompt, mind } = await context()
   const { profile, ...judgment } = await completeJSON<Rebuild<PersonJudgment>>(
     config,
-    buildPersonMessages(record, mind, customPrompt),
+    buildPersonMessages(record, message, mind, customPrompt),
     validatePerson,
     { signal, jsonSchema: PERSON_SCHEMA, onThinking, sessionId: record.id },
   )
@@ -104,13 +113,14 @@ export async function rebuildPersonContext(
 /** The same, for the read of the user in this specific connection. */
 export async function rebuildSelfContext(
   record: DateRecord,
+  message: string,
   signal?: AbortSignal,
   onThinking?: (thinking: ThinkingSummary) => void,
 ): Promise<SelfProfile> {
   const { config, customPrompt, mind } = await context()
   const { profile, ...judgment } = await completeJSON<Rebuild<SelfJudgment>>(
     config,
-    buildSelfMessages(record, mind, customPrompt),
+    buildSelfMessages(record, message, mind, customPrompt),
     validateSelf,
     { signal, jsonSchema: SELF_SCHEMA, onThinking, sessionId: record.id },
   )

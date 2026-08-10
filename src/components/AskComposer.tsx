@@ -57,12 +57,18 @@ export function EditResult({ edit, onDismiss }: { edit: ProfileEdit; onDismiss: 
  * the user, not to one person), and with it gone the two boxes had nothing left
  * to tell apart.
  *
- * On Them and You, `Rebuild` stays a separate button rather than folding in
- * here: they do genuinely different things. An instruction amends the prose and
- * leaves the judgment — the interest read, the flags — exactly as it was,
- * because re-deciding where things stand off the back of one remark is how a
- * read starts drifting. A rebuild re-reads the whole transcript and regenerates
- * both.
+ * Once a profile exists, `Rebuild` stays a separate button on Them and You
+ * rather than folding in here: they do genuinely different things. An
+ * instruction amends the prose and leaves the judgment — the interest read, the
+ * flags — exactly as it was, because re-deciding where things stand off the back
+ * of one remark is how a read starts drifting. A rebuild re-reads the whole
+ * transcript and regenerates both.
+ *
+ * Before the first one there is no such distinction to draw, and this box used
+ * to be disabled saying so — a dead control in the one place a new user looks to
+ * say who these two people are. It runs the first rebuild instead, with what
+ * they typed. Same one-shot contract either way: the text is read once and never
+ * stored, and what survives is whatever the profile absorbed from it.
  */
 export function AskComposer({
   label,
@@ -70,8 +76,6 @@ export function AskComposer({
   cta,
   hint,
   busy,
-  blocked,
-  blockedHint,
   needsText,
   edit,
   onDismiss,
@@ -84,21 +88,11 @@ export function AskComposer({
   hint: string
   busy: boolean
   /**
-   * Them/You before the first rebuild: there is no profile to amend, and a reply
-   * would answer from the transcript and then throw its amendment away. A
-   * half-working box is worse than a disabled one that says why. `next` is never
-   * blocked — asking what to say works from the transcript alone.
-   */
-  blocked?: boolean
-  blockedHint?: string
-  /**
    * Whether the box has to have something in it. `next` runs on an empty one —
    * "what do I say?" is a complete request and the text is optional colour —
-   * and the amend tabs have nothing to do without an instruction.
-   *
-   * Its own prop rather than read off `blocked`, which is what it used to be:
-   * passing `blocked={false}` to say "nothing is wrong here" silently made the
-   * box demand text, because only *absence* meant optional.
+   * and Them/You have nothing to do without one, in both their states: no
+   * instruction to apply, and no reason to seed a rebuild the header button
+   * already runs on its own.
    */
   needsText?: boolean
   edit?: ProfileEdit | null
@@ -113,7 +107,7 @@ export function AskComposer({
 }) {
   const [draft, setDraft] = useState('')
 
-  const ready = !busy && !blocked && (!needsText || !!draft.trim())
+  const ready = !busy && (!needsText || !!draft.trim())
 
   const send = () => {
     if (!ready) return
@@ -127,23 +121,20 @@ export function AskComposer({
       <Eyebrow className="mb-1.5 block">{label}</Eyebrow>
       <Textarea
         // `Eyebrow` is a span, so it names this box to the eye and to nothing
-        // else. The label rather than the placeholder, which swaps for
-        // `blockedHint` and would rename the field as its state changed.
+        // else. The label rather than the placeholder, which is example text.
         aria-label={label}
         rows={2}
         value={draft}
-        disabled={busy || blocked}
+        disabled={busy}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
         }}
-        placeholder={blocked ? (blockedHint ?? placeholder) : placeholder}
+        placeholder={placeholder}
         className="text-[12.5px]"
       />
       <div className="mt-2 flex items-center gap-2">
-        <span className="text-[11px] text-fg-3">
-          {blocked ? 'Nothing to change yet.' : draft.trim() ? '⌘↵ to send' : hint}
-        </span>
+        <span className="text-[11px] text-fg-3">{draft.trim() ? '⌘↵ to send' : hint}</span>
         <span className="flex-1" />
         <Button variant="accent" size="sm" disabled={!ready} onClick={send}>
           {busy ? <Spinner /> : <CornerDownLeft size={12} />}
