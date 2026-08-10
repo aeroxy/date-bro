@@ -616,6 +616,32 @@ ${CHAT_SHAPE}`
 
 // --- Engine 3: what to say or do ---------------------------------------------
 
+/**
+ * What `research_notes` is for, for the calls that never hear it otherwise.
+ *
+ * "Using web research" is only sent when our tools are attached, and it is the
+ * only place the coach is told what that output field means. Qwen is the case
+ * that falls through: it gets no tool schemas because it researches natively,
+ * server-side — so it does the research and is never asked to keep any of it,
+ * and `research_notes` comes back `[]` on the backend most runs actually use.
+ *
+ * Here rather than in the mind, and deliberately. This is a fact about an output
+ * field, not something the coach believes, so the task block is its home; and a
+ * new `##` section would be absent from every document already forked from the
+ * seed, which is exactly the installations that need the fix.
+ *
+ * Kept off the tool-bearing path so that one keeps sending the section it
+ * already has, and each variant stays a single constant string.
+ */
+const KEEP_WHAT_YOU_LOOKED_UP = `- If you looked anything up while answering this — your own search, not ours —
+  keep what will still be true next month in "research_notes": the fact, not the
+  search. "Cafe Lumen closes 9pm Sundays", "the studio is real, four people".
+  It is the only part of your research this app can keep, it comes back to you
+  in <research_notes> on the next call, and anything you leave out is something
+  the next run pays to find again. Still [] when you looked nothing up, or when
+  what you found only mattered to this answer.
+`
+
 export function buildSuggestionMessages(
   record: DateRecord,
   message: string,
@@ -650,7 +676,7 @@ ${mindInstructions()}
 ${OUTPUT_RULES}
 - Every "draft" is verbatim sendable text (for a message) or a concrete, scheduled
   action (for an action). Never a description of what to say.
-
+${hasTools ? '' : KEEP_WHAT_YOU_LOOKED_UP}
 Shape:
 ${SUGGESTION_SHAPE}`
 
