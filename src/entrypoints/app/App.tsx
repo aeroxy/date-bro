@@ -366,6 +366,9 @@ export default function App() {
   // Them/You before their first rebuild. The footer box has no profile to amend
   // in that state, so it seeds one instead of sitting there disabled.
   const seeding = !!active && tab !== 'next' && !(tab === 'them' ? active.themProfile : active.meProfile)
+  // Whether this tab has ever produced anything, which is what decides between
+  // "build" and "rebuild" wherever the distinction is visible.
+  const ranThisTab = tab === 'next' ? !!suggestion : !seeding
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -420,13 +423,16 @@ export default function App() {
 
             <span className="flex-1" />
 
+            {/* "Rebuild" only once there is something to rebuild. The two halves
+                are built separately, so the pair also reads as which of them
+                exists yet — Build them / Rebuild you says it at a glance. */}
             <Button variant="secondary" size="sm" disabled={!!busy} onClick={() => run('them')}>
               {busyTab === 'them' ? <Spinner /> : <Heart size={13} />}
-              Rebuild them
+              {active.themProfile ? 'Rebuild them' : 'Build them'}
             </Button>
             <Button variant="secondary" size="sm" disabled={!!busy} onClick={() => run('me')}>
               {busyTab === 'me' ? <Spinner /> : <UserRound size={13} />}
-              Rebuild you
+              {active.meProfile ? 'Rebuild you' : 'Build you'}
             </Button>
             <Button variant="accent" size="sm" disabled={!!busy} onClick={() => run('next')}>
               {busyTab === 'next' ? <Spinner /> : <Sparkles size={13} />}
@@ -514,7 +520,7 @@ export default function App() {
                     onClick={() => run(tab)}
                     disabled={!!busy}
                     className="rounded-md p-1.5 text-fg-3 transition hover:bg-surface-muted hover:text-action disabled:opacity-40"
-                    title="Run again"
+                    title={ranThisTab ? 'Run again' : 'Run'}
                   >
                     <RotateCw size={13} />
                   </button>
@@ -574,7 +580,7 @@ export default function App() {
                     <BlankSlate
                       title={`No read on ${active.name} yet`}
                       body={`Tell it what you know in the box below — a bio, a dating profile, whatever you've got. Add some of the conversation too: everything you get back cites the line it came from.`}
-                      cta="Rebuild them"
+                      cta="Build them"
                       onRun={() => run('them')}
                     />
                   )
@@ -601,7 +607,7 @@ export default function App() {
                     <BlankSlate
                       title="No read on you yet"
                       body="This is the half you control — how you're landing, what's working, and what your messages say about what you actually want. Paste your CV in the box below if you want it to know the background."
-                      cta="Rebuild you"
+                      cta="Build you"
                       onRun={() => run('me')}
                     />
                   )
@@ -690,7 +696,7 @@ export default function App() {
                       ? `Paste ${active.name}'s bio or dating profile, or just say what you already know`
                       : 'Paste your CV, or just say what you do and what your life looks like'
                   }
-                  cta="Rebuild"
+                  cta="Build"
                   hint="Read once, not kept — what it learns goes in the profile."
                   busy={!!busy}
                   needsText
