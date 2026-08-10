@@ -9,7 +9,7 @@ import {
   seedSection,
   writeMindSection,
 } from '@/coach/mind'
-import { parseSections, profileWords } from '@/coach/profile'
+import { key, parseSections, profileWords } from '@/coach/profile'
 import { ago } from '@/lib/ago'
 import { getMind, saveMind } from '@/lib/storage'
 import { cn } from '@/lib/cn'
@@ -72,7 +72,12 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
   }, [open])
 
   const sections = draft === null ? [] : parseSections(draft)
-  const body = sections.find((s) => s.heading.trim().toLowerCase() === active.trim().toLowerCase())
+  // The same `key` every other reader of this document uses. Trimming and
+  // lowercasing on its own is weaker: it keeps punctuation, so a section the
+  // coach retyped with a typographic apostrophe still matched for
+  // `missingHeadings` and `writeMindSection` and missed here — the row read
+  // "deleted" and the box came up empty over text that was sitting right there.
+  const body = sections.find((s) => key(s.heading) === key(active))
   const missing = draft === null ? [] : missingHeadings(draft)
   const shipped = seedSection(active)
   // The heading isn't in the box — it's the section's address, shown in the list

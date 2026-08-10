@@ -59,4 +59,15 @@ describe('describeBirthday', () => {
       expect(describeBirthday(bad, on(2026, 8, 10))).toBeNull()
     }
   })
+
+  test('rejects a two-digit year rather than reporting two different ones', () => {
+    // `new Date(50, 0, 1)` is 1950, so the display and the age disagreed: the
+    // written date came from the constructed year and the age from the typed
+    // one. A date input will hand over 0050-01-01 if someone types it.
+    for (const bad of ['0050-01-01', '0000-01-01', '0099-12-31']) {
+      expect(describeBirthday(bad, on(2026, 8, 10))).toBeNull()
+    }
+    // Still a real four-digit year, and still a real date.
+    expect(describeBirthday('0100-01-01', on(2026, 8, 10))).toContain('1926 years old')
+  })
 })

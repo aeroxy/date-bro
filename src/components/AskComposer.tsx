@@ -126,6 +126,10 @@ export function AskComposer({
     <div className="flex-none border-t border-border bg-surface-sunken px-5 py-3">
       <Eyebrow className="mb-1.5 block">{label}</Eyebrow>
       <Textarea
+        // `Eyebrow` is a span, so it names this box to the eye and to nothing
+        // else. The label rather than the placeholder, which swaps for
+        // `blockedHint` and would rename the field as its state changed.
+        aria-label={label}
         rows={2}
         value={draft}
         disabled={busy || blocked}

@@ -24,8 +24,14 @@ export function describeBirthday(iso: string, now = new Date()): string | null {
   // Constructed in local time, not `new Date(iso)`, which reads as UTC and
   // lands on the day before for anyone west of Greenwich. The round-trip check
   // rejects a date that doesn't exist (2001-02-30 rolls forward to March).
+  // The year is checked for the same reason as the month and the day: the
+  // two-digit years map onto 1900+n, so 0050-01-01 builds a valid 1950 date and
+  // then reports "1 January 1950 — 1976 years old", because the age is computed
+  // from the year that was typed and the display from the year that was built.
   const born = new Date(year, month - 1, day)
-  if (born.getMonth() !== month - 1 || born.getDate() !== day) return null
+  if (born.getFullYear() !== year || born.getMonth() !== month - 1 || born.getDate() !== day) {
+    return null
+  }
 
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const written = born.toLocaleDateString('en-GB', {

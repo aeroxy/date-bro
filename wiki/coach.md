@@ -330,9 +330,13 @@ conversation has moved on. `staleness()` in `App.tsx` returns three states: `sta
 behind — rebuild), `judgment` (the prose is current, the interest read and flags aren't — the chip
 says "judgment predates these turns"), and `fresh`.
 
-`chatAboutProfile` returns rather than persists, deliberately: the caller writes the user's message
-and the reply together, only once the call has succeeded. A failed call must not strand a user turn
-at the end of the history — the prompt layout needs it alternating and ending on an assistant turn.
+`chatAboutProfile` returns rather than persists, deliberately, and what the caller then keeps is only
+the profile. `sendChat` in `App.tsx` writes `markdown`, the two amend stamps and — when the amendment
+made the old one wrong — the headline, once the call has succeeded. The instruction and the reply
+both stay in component state, shown once under the composer and then gone; a failed call persists
+neither. That is the same rule the redesign runs on: the instruction's whole effect is already in the
+markdown, so storing it as well would keep the information twice and re-send the copy on every later
+request.
 
 **The rebuild engines don't return a profile — they return a diff.** Both emit
 `{headline, profile: ProfileUpdate, …judgment}`, and `run.ts` applies the update to the stored
