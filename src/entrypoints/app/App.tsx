@@ -23,10 +23,20 @@ import type { ThinkingSummary } from '@/types/coach'
 import { STAGES, type ChatEngine, type DateRecord, type Engine, type Turn } from '@/types/date'
 
 type Tab = Engine
-/** Runs keep going when you switch profiles, so a run is tagged with its date. */
-type Busy = { id: string; tab: Tab } | null
 
 const TAB_LABEL: Record<Tab, string> = { them: 'Them', me: 'You', next: 'Next move' }
+
+/**
+ * A copy without one key, or the same object when there was nothing to remove —
+ * so clearing state a person never had doesn't re-render. Every run-scoped map
+ * below is keyed by record id and pruned through this.
+ */
+function omit<T>(map: Record<string, T>, id: string): Record<string, T> {
+  if (!(id in map)) return map
+  const next = { ...map }
+  delete next[id]
+  return next
+}
 
 /**
  * A read is stale the moment the transcript moves under it — and only then.
@@ -65,8 +75,21 @@ export default function App() {
   const { dates, active, activeId, setActiveId, loaded, loadError, create, update, remove } =
     useDates()
   const [tab, setTab] = useState<Tab>('them')
-  const [busy, setBusy] = useState<Busy>(null)
-  const [error, setError] = useState<{ id: string; tab: Tab; message: string } | null>(null)
+  /**
+   * Everything a run owns is keyed by person, because a run belongs to one.
+   * Two profiles share nothing but the backend, so a single global slot meant
+   * a rebuild on one disabled every control on all of them — waiting out Mira's
+   * rebuild to ask what to say to Sam, for no reason either of them could see.
+   *
+   * Still one run *per person*: `runs[id]` is which tab is going, and the maps
+   * below are that run's failure and its two progress streams. They'd have to
+   * be keyed anyway — a single `thinking` would be overwritten by whichever
+   * profile streamed last, and switching to the other would show its thoughts.
+   */
+  const [runs, setRuns] = useState<Record<string, Tab>>({})
+  const [errors, setErrors] = useState<Record<string, { tab: Tab; message: string }>>({})
+  const [activity, setActivity] = useState<Record<string, string[]>>({})
+  const [thinking, setThinking] = useState<Record<string, ThinkingSummary>>({})
   const [createError, setCreateError] = useState<string | null>(null)
   const [showProfile, setShowProfile] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -75,18 +98,42 @@ export default function App() {
   // recent one — so a new run doesn't have to reach back and clear this, and
   // switching people lands on their latest rather than on nothing.
   const [viewingAdvice, setViewingAdvice] = useState<string | null>(null)
-  const [activity, setActivity] = useState<string[]>([])
-  const [thinking, setThinking] = useState<ThinkingSummary | null>(null)
   // The last profile amendment, shown once under the composer. Not persisted —
-  // see `sendChat`. Tagged with the record and tab it belongs to, like `busy`
-  // and `error`, rather than cleared on every switch path: a result about one
-  // profile means nothing under another, and tagging can't miss a route.
-  const [edit, setEdit] = useState<({ id: string; tab: ChatEngine } & ProfileEdit) | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  // The real mutex. `busy` drives the UI, but it only lands on the next render,
-  // so two calls in one tick (a fast double-click, Enter held down) would both
-  // read it as null and start. A ref is set synchronously.
-  const runningRef = useRef(false)
+  // see `sendChat`. Keyed like the run maps above rather than cleared on every
+  // switch path: a result about one profile means nothing under another, and a
+  // key can't miss a route. One slot for all of them would also mean two people
+  // amended at once and only the one that finished last got a reply.
+  const [edits, setEdits] = useState<Record<string, { tab: ChatEngine } & ProfileEdit>>({})
+  /**
+   * The real mutex, and the abort handle each run is stopped by. `runs` drives
+   * the UI but only lands on the next render, so two calls in one tick (a fast
+   * double-click, Enter held down) would both read the slot as free and start.
+   * A ref is set synchronously.
+   */
+  const runsRef = useRef(new Map<string, AbortController>())
+
+  /**
+   * Take this person's one run slot, or refuse. A second run on the same record
+   * would race the first one's writes and have nowhere of its own to render.
+   */
+  const claim = useCallback((id: string, which: Tab): AbortController | null => {
+    if (runsRef.current.has(id)) return null
+    const controller = new AbortController()
+    runsRef.current.set(id, controller)
+    setRuns((prev) => ({ ...prev, [id]: which }))
+    // This run's own slate: the last failure, and the last run's steps and
+    // reasoning, all of which described something that is no longer happening.
+    setErrors((prev) => omit(prev, id))
+    setActivity((prev) => omit(prev, id))
+    setThinking((prev) => omit(prev, id))
+    return controller
+  }, [])
+
+  /** Give it back. The stream and any error stay — they're what's left to read. */
+  const release = useCallback((id: string) => {
+    runsRef.current.delete(id)
+    setRuns((prev) => omit(prev, id))
+  }, [])
 
   // The three tabs share one scroll container, so React keeps its offset across
   // a switch: leaving Them halfway down dropped you into the middle of option
@@ -105,33 +152,29 @@ export default function App() {
    */
   const run = useCallback(
     async (which: Tab, message = ''): Promise<boolean> => {
-      if (!active || runningRef.current) return false
-      runningRef.current = true
+      if (!active) return false
       const id = active.id
+      const controller = claim(id, which)
+      if (!controller) return false
       setTab(which)
-      setBusy({ id, tab: which })
-      setError(null)
-      setActivity([])
-      setThinking(null)
-      const controller = new AbortController()
-      abortRef.current = controller
 
       const record = active
+      const onThinking = (t: ThinkingSummary) => setThinking((prev) => ({ ...prev, [id]: t }))
 
       try {
         if (which === 'them') {
-          const ctx = await rebuildPersonContext(record, message, controller.signal, setThinking)
+          const ctx = await rebuildPersonContext(record, message, controller.signal, onThinking)
           await update(id, { themProfile: ctx })
         } else if (which === 'me') {
-          const ctx = await rebuildSelfContext(record, message, controller.signal, setThinking)
+          const ctx = await rebuildSelfContext(record, message, controller.signal, onThinking)
           await update(id, { meProfile: ctx })
         } else {
           const suggestion = await suggestMove(
             record,
             message,
             controller.signal,
-            (label) => setActivity((prev) => [...prev, label]),
-            setThinking,
+            (label) => setActivity((prev) => ({ ...prev, [id]: [...(prev[id] ?? []), label] })),
+            onThinking,
           )
           // Against `current`, not the snapshot this run started from: the user
           // can add turns or edit the research notes while the model is
@@ -153,22 +196,20 @@ export default function App() {
         return true
       } catch (e) {
         if ((e as Error).name !== 'AbortError') {
-          setError({ id, tab: which, message: (e as Error).message })
+          setErrors((prev) => ({ ...prev, [id]: { tab: which, message: (e as Error).message } }))
         }
         // An abort counts as sent: the user stopped it on purpose, and handing
         // their text back as if the app had failed is just noise.
         return (e as Error).name === 'AbortError'
       } finally {
-        runningRef.current = false
-        abortRef.current = null
-        setBusy(null)
+        release(id)
       }
     },
-    [active, update],
+    [active, claim, release, update],
   )
 
-  /** Tear down the in-flight run. `run`'s catch swallows the AbortError. */
-  const stop = useCallback(() => abortRef.current?.abort(), [])
+  /** Tear down one person's run. `run`'s catch swallows the AbortError. */
+  const stop = useCallback((id: string) => runsRef.current.get(id)?.abort(), [])
 
   /**
    * One instruction to amend a profile, applied and forgotten.
@@ -192,18 +233,14 @@ export default function App() {
    */
   const sendChat = useCallback(
     async (engine: ChatEngine, message: string): Promise<boolean> => {
-      if (!active || runningRef.current) return false
-      runningRef.current = true
+      if (!active) return false
       const id = active.id
-      setBusy({ id, tab: engine })
-      setError(null)
-      // Cleared like `run` does. `Thinking` renders whenever the busy tab is
-      // the visible one, so an amend on Them inherited the last next-move's
-      // "Searching: …" lines and claimed to be doing research it isn't.
-      setActivity([])
-      setThinking(null)
-      const controller = new AbortController()
-      abortRef.current = controller
+      // `claim` wipes this person's steps and reasoning as well. `Thinking`
+      // renders whenever their busy tab is the visible one, so an amend on Them
+      // inherited the last next-move's "Searching: …" lines and claimed to be
+      // doing research it isn't.
+      const controller = claim(id, engine)
+      if (!controller) return false
 
       try {
         const { reply, headline, markdown, changed } = await chatAboutProfile(
@@ -211,7 +248,7 @@ export default function App() {
           engine,
           message,
           controller.signal,
-          setThinking,
+          (t) => setThinking((prev) => ({ ...prev, [id]: t })),
         )
         const now = Date.now()
         const profileKey = engine === 'them' ? 'themProfile' : 'meProfile'
@@ -239,20 +276,18 @@ export default function App() {
             },
           }
         })
-        setEdit({ id, tab: engine, reply, changed })
+        setEdits((prev) => ({ ...prev, [id]: { tab: engine, reply, changed } }))
         return true
       } catch (e) {
         if ((e as Error).name !== 'AbortError') {
-          setError({ id, tab: engine, message: (e as Error).message })
+          setErrors((prev) => ({ ...prev, [id]: { tab: engine, message: (e as Error).message } }))
         }
         return (e as Error).name === 'AbortError'
       } finally {
-        runningRef.current = false
-        abortRef.current = null
-        setBusy(null)
+        release(id)
       }
     },
-    [active, update],
+    [active, claim, release, update],
   )
 
   /**
@@ -272,7 +307,10 @@ export default function App() {
         return
       }
       work.catch((e: unknown) => {
-        setError({ id, tab, message: `Couldn't save that: ${(e as Error).message}` })
+        setErrors((prev) => ({
+          ...prev,
+          [id]: { tab, message: `Couldn't save that: ${(e as Error).message}` },
+        }))
       })
     },
     [activeId],
@@ -327,6 +365,12 @@ export default function App() {
     )
   }
 
+  // This person's run, and only theirs — someone else's is their own panel's
+  // business now, and locks nothing here.
+  const busyTab = activeId ? (runs[activeId] ?? null) : null
+  const shownError = activeId ? (errors[activeId] ?? null) : null
+  const shownEdit = activeId ? (edits[activeId] ?? null) : null
+
   // The advice history *is* the conversation now — no parallel list, no cap, no
   // pills. Reading it back out of `turns` keeps one source: delete the bubble
   // and the suggestion is gone with it, because they were never two things.
@@ -350,19 +394,9 @@ export default function App() {
           active.turns.map((t) => t.asked).filter((q): q is string => Boolean(q)),
         ),
         onAnswer: answerQuestion,
-        disabled: !!busy,
+        disabled: !!busyTab,
       }
     : undefined
-  // A run belonging to another profile shouldn't render as this one thinking.
-  const busyTab = busy && busy.id === activeId ? busy.tab : null
-  // ...but it still has to be stoppable from wherever the user ended up. `busy`
-  // outliving its own profile is the sharp case: delete the record mid-run and
-  // no `activeId` can ever match it again.
-  const runningElsewhere = busy && busyTab !== tab ? busy : null
-  const runningName = runningElsewhere
-    ? (dates.find((d) => d.id === runningElsewhere.id)?.name ?? 'a deleted profile')
-    : null
-  const shownError = error && error.id === activeId ? error : null
   // Them/You before their first rebuild. The footer box has no profile to amend
   // in that state, so it seeds one instead of sitting there disabled.
   const seeding = !!active && tab !== 'next' && !(tab === 'them' ? active.themProfile : active.meProfile)
@@ -377,6 +411,7 @@ export default function App() {
       <DateRail
         dates={dates}
         activeId={activeId}
+        running={new Set(Object.keys(runs))}
         onSelect={(id) => {
           setActiveId(id)
           setViewingAdvice(null)
@@ -413,8 +448,8 @@ export default function App() {
                   is no reason to lock this one. */}
               <button
                 onClick={() => setShowProfile(true)}
-                disabled={busy?.id === active.id}
-                title={busy?.id === active.id ? 'Finishes rebuilding first' : undefined}
+                disabled={!!busyTab}
+                title={busyTab ? 'Finishes rebuilding first' : undefined}
                 className="text-[11.5px] text-fg-3 transition hover:text-action disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-fg-3"
               >
                 {active.goal.trim() ? 'Edit profile' : 'What do you want from this? →'}
@@ -426,15 +461,15 @@ export default function App() {
             {/* "Rebuild" only once there is something to rebuild. The two halves
                 are built separately, so the pair also reads as which of them
                 exists yet — Build them / Rebuild you says it at a glance. */}
-            <Button variant="secondary" size="sm" disabled={!!busy} onClick={() => run('them')}>
+            <Button variant="secondary" size="sm" disabled={!!busyTab} onClick={() => run('them')}>
               {busyTab === 'them' ? <Spinner /> : <Heart size={13} />}
               {active.themProfile ? 'Rebuild them' : 'Build them'}
             </Button>
-            <Button variant="secondary" size="sm" disabled={!!busy} onClick={() => run('me')}>
+            <Button variant="secondary" size="sm" disabled={!!busyTab} onClick={() => run('me')}>
               {busyTab === 'me' ? <Spinner /> : <UserRound size={13} />}
               {active.meProfile ? 'Rebuild you' : 'Build you'}
             </Button>
-            <Button variant="accent" size="sm" disabled={!!busy} onClick={() => run('next')}>
+            <Button variant="accent" size="sm" disabled={!!busyTab} onClick={() => run('next')}>
               {busyTab === 'next' ? <Spinner /> : <Sparkles size={13} />}
               What do I say?
             </Button>
@@ -493,32 +528,35 @@ export default function App() {
                 ))}
                 <span className="flex-1" />
                 {/* Becomes the only way out of a long run — a Qwen anti-bot
-                    back-off is three 30s waits, and every other control is
-                    disabled while one is in flight. Shown for *any* run in
-                    flight, not just this tab's: it used to be gated on
-                    `busyTab === tab`, so switching profile or tab hid the one
-                    control that could end the run the user was waiting on. The
-                    spinner still only spins for this tab's own run. */}
-                {busy ? (
+                    back-off is three 30s waits, and this person's every other
+                    control is disabled while their run is in flight. Shown for
+                    any tab of theirs, not just the open one, so switching tab
+                    can't hide the control that ends the run being waited on.
+                    Someone else's run is stopped from their own panel — it
+                    stops nothing here, so offering to end it here would be
+                    reaching across a boundary that now exists. The spinner
+                    still only spins for the tab actually running. */}
+                {busyTab ? (
                   <button
-                    onClick={stop}
+                    onClick={() => stop(active.id)}
                     className="group flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] font-semibold text-fg-3 transition hover:bg-no-soft hover:text-no-strong"
-                    title={runningName ? `Stop the run on ${runningName}` : 'Stop this run'}
+                    title={
+                      busyTab === tab ? 'Stop this run' : `Stop the ${TAB_LABEL[busyTab]} run`
+                    }
                   >
-                    {runningElsewhere ? (
-                      <Square size={11} className="fill-current" />
-                    ) : (
+                    {busyTab === tab ? (
                       <>
                         <Spinner className="group-hover:hidden" />
                         <Square size={11} className="hidden fill-current group-hover:block" />
                       </>
+                    ) : (
+                      <Square size={11} className="fill-current" />
                     )}
                     Stop
                   </button>
                 ) : (
                   <button
                     onClick={() => run(tab)}
-                    disabled={!!busy}
                     className="rounded-md p-1.5 text-fg-3 transition hover:bg-surface-muted hover:text-action disabled:opacity-40"
                     title={ranThisTab ? 'Run again' : 'Run'}
                   >
@@ -546,7 +584,7 @@ export default function App() {
                       </p>
                     </div>
                     <button
-                      onClick={() => setError(null)}
+                      onClick={() => setErrors((prev) => omit(prev, active.id))}
                       className="-mr-1 -mt-1 flex-none self-start rounded p-1 text-fg-3 transition hover:text-fg"
                       aria-label="Dismiss"
                     >
@@ -556,7 +594,12 @@ export default function App() {
                 ) : null}
 
                 {busyTab === tab ? (
-                  <Thinking tab={tab} name={active.name} activity={activity} thinking={thinking} />
+                  <Thinking
+                    tab={tab}
+                    name={active.name}
+                    activity={activity[active.id] ?? []}
+                    thinking={thinking[active.id] ?? null}
+                  />
                 ) : tab === 'them' ? (
                   active.themProfile ? (
                     <>
@@ -575,8 +618,8 @@ export default function App() {
                             // no longer exists. Nothing renders it while seeding,
                             // so it wouldn't resurface until the next build —
                             // under a fresh read, describing the deleted one.
-                            setEdit((prev) =>
-                              prev?.id === active.id && prev.tab === 'them' ? null : prev,
+                            setEdits((prev) =>
+                              prev[active.id]?.tab === 'them' ? omit(prev, active.id) : prev,
                             )
                           }
                         }}
@@ -605,8 +648,8 @@ export default function App() {
                             )
                           ) {
                             persist(update(active.id, { meProfile: undefined }), 'me')
-                            setEdit((prev) =>
-                              prev?.id === active.id && prev.tab === 'me' ? null : prev,
+                            setEdits((prev) =>
+                              prev[active.id]?.tab === 'me' ? omit(prev, active.id) : prev,
                             )
                           }
                         }}
@@ -692,7 +735,7 @@ export default function App() {
                   placeholder="e.g. she left me on read for 2 days — optional"
                   cta="What do I say?"
                   hint="Used for this answer only."
-                  busy={!!busy}
+                  busy={!!busyTab}
                   onSend={(message) => run('next', message)}
                 />
               ) : seeding ? (
@@ -711,7 +754,7 @@ export default function App() {
                   }
                   cta="Build"
                   hint="Read once, not kept — what it learns goes in the profile."
-                  busy={!!busy}
+                  busy={!!busyTab}
                   needsText
                   onSend={(message) => run(tab, message)}
                 />
@@ -729,10 +772,10 @@ export default function App() {
                   }
                   cta="Apply"
                   hint="Applied once. The notes above are what gets kept."
-                  busy={!!busy}
+                  busy={!!busyTab}
                   needsText
-                  edit={edit && edit.id === active.id && edit.tab === tab ? edit : null}
-                  onDismiss={() => setEdit(null)}
+                  edit={shownEdit && shownEdit.tab === tab ? shownEdit : null}
+                  onDismiss={() => setEdits((prev) => omit(prev, active.id))}
                   onSend={(message) => sendChat(tab, message)}
                 />
               )}
@@ -752,7 +795,13 @@ export default function App() {
           record={active}
           onClose={() => setShowProfile(false)}
           onSave={(patch) => persist(update(active.id, patch), tab)}
-          onDelete={() => persist(remove(active.id), tab)}
+          onDelete={() => {
+            // Their run outlives the record otherwise: nothing renders it, no
+            // panel can reach it, and it comes back at the end to write a
+            // profile onto a person who isn't there.
+            stop(active.id)
+            persist(remove(active.id), tab)
+          }}
         />
       ) : null}
 
@@ -761,7 +810,7 @@ export default function App() {
       <SettingsModal
         open={showSettings}
         onClose={() => setShowSettings(false)}
-        onSaved={() => setError(null)}
+        onSaved={() => setErrors({})}
       />
     </div>
   )

@@ -34,7 +34,7 @@ low-confidence guess can never look like a finding.
 
 | Component | Role |
 |---|---|
-| `DateRail` | Left rail — people list, inline add, stage/turn-count/last-updated summary |
+| `DateRail` | Left rail — people list, inline add, stage/turn-count/last-updated summary. A row with a run in flight shows a spinner and "thinking…" in place of that summary: runs are per-person and lock nobody else, so a rebuild started and switched away from has nothing else on screen saying it exists |
 | `ProfileModal` | Name, stage, meta, research notes (auto-filled by "What do I say?", with a `Clear` button riding in the field's hint slot), and what you want from this. **Birthday, not age** — a `type="date"` input storing ISO: this record is read on every call for months, so a number typed once is wrong by the time it matters, and `lib/birthday.ts` derives the age (and "it's in nine days") at request time instead. Setting one clears the legacy `age`, which is the only thing that ever does; until then the hint shows what's still stored. It used to hold the two seed blobs as well; those are gone — what the user knows is entered in the conversation as `NOTE` entries, so this modal is now identity and intent only. The draft is seeded on open only, so `save` omits `researchNotes` from the patch unless the user touched it — otherwise saving the profile would roll back notes a run merged in while the modal was open. "Touched" is a `notesDirty` ref set by `setNotes`, which every edit path routes through, **not** a comparison against the opening value: a user who edits and then deliberately reverts is not untouched, and inferring it from equality silently dropped the revert. |
 | `ConversationPanel` | Turn list (numbered, side-aligned, hover edit/delete), composer, `EditTurnModal`, and `ImportModal` with a live parse preview. After an add the composer clears the text, the per-turn note **and the `when` field** — that timestamp described the message just added, and leaving it filled meant the next turn silently inherited it. The speaker deliberately **stays put**: it used to flip on the theory that conversations alternate, but people send three messages in a row and then read four back, so the flip was wrong about as often as it was right — and a wrong speaker is worse than an unset one, because it's silent and it puts words in the other person's mouth in the one list this app treats as fact. The composer's third option, **NOTE**, adds a `context` turn — something known that nobody typed. It renders centred and dashed rather than as a bubble from either side, because a note that looked like a message would be read back as one, and it drops the channel and per-turn-note fields (they describe how something was *said*). A hover-revealed row of `+ BARA` / `+ ME` / `+ NOTE` pills sits in the gap above every line and inserts *before* it, so anything missed can land where it happened rather than only at the end — the composer covers the end. All three speakers rather than NOTE alone: inserting a missed message was always possible via NOTE-then-change-the-who, but that's a modal round trip to correct something the thread can just offer. They open the same `EditTurnModal` with `isNew`, and pointer-events are gated on hover for the same reason the edit/delete controls are: invisible isn't gone. **`coach` turns** are the fourth kind and can't be composed — they're written by a `suggestMove` run. Centred like a note for the same reason, but rendered as a *button*: the bubble is the two-line summary and clicking it opens the full suggestion in the insight panel (switching tab, because a click that visibly changes nothing reads as a dead control). Not editable — it records what was said to the user, and rewriting it would leave the panel showing drafts the summary no longer describes. Delete still works, and takes the suggestion with it, since they were never two things |
 | `ContextView` | `PersonContextView` and `SelfContextView` — three blocks each now, not nine: the headline, the structured judgment, and the profile as prose via `ProfileBody`. Nothing here knows what sections a profile contains, which was the point: a section the model decided this connection needed used to have nowhere to render, and therefore nowhere to be written down. Shared `Block` / `Bullets` / `HonestNote` internals, plus `OpenQuestions` — the judgment's `open_questions`, each answerable inline via an optional `answer` prop. The answer becomes a `context` turn carrying the question, so the model gets the pairing and the user gets a much lower bar than a blank box. Answered questions are filtered out by looking for a turn whose `asked` matches, so no separate 'done' state exists to drift. |
@@ -48,38 +48,45 @@ low-confidence guess can never look like a finding.
 
 Three columns: rail | conversation | insight. The three actions live in the header; each switches
 the insight tab and runs. The insight column's tab strip has its own re-run button — which becomes a
-**Stop** button whenever *any* run is in flight, this tab's or another profile's, since it's the only
-way to cancel — so a tab can be refreshed without leaving it.
+**Stop** button while this person has a run in flight, on any of their tabs, since it's the only way
+to cancel — so a tab can be refreshed without leaving it.
 
 State worth knowing about:
 
-- `busy` is a single run at a time — every button that *starts* work disables while any is running,
-  with the tab strip's Stop the one control left live, since it's the only way out — but it carries the
-  *date id* alongside the tab, and only `busyTab` (the id matching `activeId`) renders as thinking. A
-  run keeps going when you switch people, and writes to the id captured when it started; it just
-  doesn't make the profile you switched to look like it's loading.
-- `runningRef` is the actual mutex, not `busy`. State lands on the next render, so two calls in the
-  same tick — a fast double-click, or Enter held down on the situation field — both read `busy` as
-  null and both start. When that happened, the second aborted the first, and the *first*'s `finally`
-  cleared `busy` while the second was still running: spinner gone, buttons live, a third run one
-  click away. A ref is set synchronously, so it can't happen.
-- `error` is tagged the same way, so a failure shows only on the panel and person that caused it.
+- **A run belongs to one person, and so does everything it owns.** `runs`, `errors`, `activity` and
+  `thinking` are all `Record<dateId, …>`, and `busyTab` / `shownError` read only `activeId`'s entry.
+  One run *per person*, several people at once: two profiles share nothing but the backend, so a
+  single global slot meant a rebuild on Mira disabled every control on Sam. The maps would have to be
+  keyed regardless — one `thinking` would be overwritten by whichever profile streamed last, and
+  switching to the other one would show its thoughts.
+- `runsRef` (a `Map<dateId, AbortController>`) is the actual mutex, not `runs`, and holds the abort
+  handles. State lands on the next render, so two calls in the same tick — a fast double-click, or
+  Enter held down on the situation field — both read the slot as free and both start. When that
+  happened, the second aborted the first, and the *first*'s `finally` cleared the slot while the
+  second was still running: spinner gone, buttons live, a third run one click away. A ref is set
+  synchronously, so it can't. `claim(id, tab)` takes the slot or returns null; `release(id)` gives it
+  back in `finally`.
+- The tab strip's Stop reaches `runsRef.get(id)`. Without it the whole abort chain — the
+  `AbortSignal` threaded through `postJSON`/`postSSE`, `QWEN_CHAT_CANCEL` back to the controller the
+  background holds, `abortableDelay` collapsing the anti-bot back-off — is unreachable, and a Qwen
+  throttle (three 30s waits) has no exit but closing the tab. It stops **this** person only; someone
+  else's is stopped from their own panel, which is now live. Deleting a record calls it first, or the
+  run outlives the person and returns to write a profile onto nobody.
+- **`DateRail` shows who is running.** With other profiles no longer locked, a run you started and
+  switched away from has nothing else on screen saying it exists; the row is where it shows and the
+  way back to the panel that can stop it.
 - `panelRef` exists to reset the insight column's scroll to the top on every tab and person change.
   The three tabs share one scroll container, so React kept its offset across a switch: leaving Them
   halfway down dropped you into the middle of option three on Next move. `useLayoutEffect`, not
   `useEffect` — the wrong position would otherwise be visible for a frame.
-- `abortRef` holds the in-flight controller, and the tab strip's Stop button is what reaches it.
-  Without that button the whole abort chain — the `AbortSignal` threaded through `postJSON`/`postSSE`,
-  `QWEN_CHAT_CANCEL` back to the controller the background holds, `abortableDelay` collapsing the
-  anti-bot back-off — was unreachable, and a Qwen throttle (three 30s waits) had no exit but closing
-  the tab.
 - `activity` and `thinking` are the two live-progress feeds, and a run can have both. `activity`
   accumulates one line per tool call, so it only appears on the keyed backends that run tools;
   `thinking` is the model's reasoning summary — Qwen always, Anthropic when `anthropic_thinking` is
   on — replaced wholesale on each event. On Anthropic both arrive at once, so `Thinking` picks:
   `activity` wins the struck-through step list and `thinking.titles` is the fallback, while the
   newest `thinking.thoughts` paragraph renders below either way, clamped to four lines so a
-  streaming think can't shove the page around. Both reset at the top of `run`.
+  streaming think can't shove the page around. `claim` clears both for that person, along with their
+  last error — all three described something that is no longer happening.
 - `run(tab, message?)` and `sendChat` both **return whether they succeeded**, so `AskComposer` can
   keep what was typed when a run fails. An abort counts as success — the user stopped it on purpose,
   and handing their text back as if the app had broken is just noise.
