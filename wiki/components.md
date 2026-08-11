@@ -94,9 +94,12 @@ State worth knowing about:
 - `run(tab, message?)` and `sendChat` both **return whether they succeeded**, so `AskComposer` can
   keep what was typed when a run fails. An abort counts as success — the user stopped it on purpose,
   and handing their text back as if the app had broken is just noise.
-- `viewingAdvice` holds which `coach` turn the `next` panel is showing; null means the newest, so a
-  new run doesn't have to reach back and clear it and switching people lands on their latest. The
-  advice history *is* the conversation — no parallel list, no cap, no pills.
+- `viewingAdvice` holds which `coach` turn each `next` panel is showing, keyed by person like the
+  run maps; no entry means that person's newest, so a run doesn't have to reach back and clear it
+  and a first visit lands on their latest. Keyed rather than a single slot because a next-move run
+  finishing on one person wrote it: reading an older suggestion of someone else's, you were jumped
+  to their newest by a run you weren't watching. Switching people no longer resets it either — the
+  selection is theirs. The advice history *is* the conversation — no parallel list, no cap, no pills.
 - `sentDrafts` is derived per render from the turns, like `answered`. See `SuggestionView`.
 - **Writes derived from a pre-call snapshot go through `update`'s function form.** A model call takes
   half a minute, and the user can edit the profile or delete a suggestion while it runs — a patch

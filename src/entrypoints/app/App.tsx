@@ -94,10 +94,15 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showMind, setShowMind] = useState(false)
-  // Which coach turn's advice the `next` panel is showing. Null means the most
-  // recent one — so a new run doesn't have to reach back and clear this, and
-  // switching people lands on their latest rather than on nothing.
-  const [viewingAdvice, setViewingAdvice] = useState<string | null>(null)
+  // Which coach turn's advice each `next` panel is showing. No entry means that
+  // person's most recent one, so a new run doesn't have to reach back and clear
+  // anything and a first visit lands on their latest rather than on nothing.
+  //
+  // Keyed for the same reason the maps above are: a next-move run finishing on
+  // one person wrote this, and while you were reading an older suggestion of
+  // someone else's, it jumped you to their newest. Their selection is theirs and
+  // survives switching away now.
+  const [viewingAdvice, setViewingAdvice] = useState<Record<string, string>>({})
   // The last profile amendment, shown once under the composer. Not persisted —
   // see `sendChat`. Keyed like the run maps above rather than cleared on every
   // switch path: a result about one profile means nothing under another, and a
@@ -191,7 +196,7 @@ export default function App() {
             }),
             { evidence: false },
           )
-          setViewingAdvice(suggestion.id)
+          setViewingAdvice((prev) => ({ ...prev, [id]: suggestion.id }))
         }
         return true
       } catch (e) {
@@ -375,8 +380,9 @@ export default function App() {
   // pills. Reading it back out of `turns` keeps one source: delete the bubble
   // and the suggestion is gone with it, because they were never two things.
   const adviceTurns = active?.turns.filter((t) => t.speaker === 'coach' && t.advice) ?? []
+  const viewing = activeId ? viewingAdvice[activeId] : undefined
   const shownAdvice =
-    adviceTurns.find((t) => t.id === viewingAdvice) ?? adviceTurns[adviceTurns.length - 1]
+    adviceTurns.find((t) => t.id === viewing) ?? adviceTurns[adviceTurns.length - 1]
   const suggestion = shownAdvice?.advice
   // Which drafts have been sent, derived rather than flagged — the same trick
   // as `answered` below. A draft is sent when a turn of the user's holds that
@@ -412,10 +418,9 @@ export default function App() {
         dates={dates}
         activeId={activeId}
         running={new Set(Object.keys(runs))}
-        onSelect={(id) => {
-          setActiveId(id)
-          setViewingAdvice(null)
-        }}
+        // No reset: the selection is theirs, and switching to someone with none
+        // already lands on their newest.
+        onSelect={setActiveId}
         createError={createError}
         onCreate={(name) => {
           // Surfaces on the current panel when there is one, and in the rail's
@@ -498,7 +503,7 @@ export default function App() {
             // shows the read of her is just wrong.
             viewingAdvice={tab === 'next' ? (shownAdvice?.id ?? null) : null}
             onOpenAdvice={(id) => {
-              setViewingAdvice(id)
+              setViewingAdvice((prev) => ({ ...prev, [active.id]: id }))
               setTab('next')
             }}
           />
@@ -689,7 +694,7 @@ export default function App() {
                             ),
                             'next',
                           )
-                          setViewingAdvice(null)
+                          setViewingAdvice((prev) => omit(prev, active.id))
                         }
                       }}
                     />
