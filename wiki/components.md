@@ -84,9 +84,13 @@ State worth knowing about:
   `thinking` is the model's reasoning summary — Qwen always, Anthropic when `anthropic_thinking` is
   on — replaced wholesale on each event. On Anthropic both arrive at once, so `Thinking` picks:
   `activity` wins the struck-through step list and `thinking.titles` is the fallback, while the
-  newest `thinking.thoughts` paragraph renders below either way, clamped to four lines so a
-  streaming think can't shove the page around. `claim` clears both for that person, along with their
-  last error — all three described something that is no longer happening.
+  newest `thinking.thoughts` paragraph renders below either way, in `ThinkingStream`. Nothing caps
+  the reasoning anywhere else — `joinThinking` accumulates every delta and `thinking` is sent as
+  `{type: 'adaptive'}` with no token budget — so that paragraph *is* the whole Anthropic summary.
+  It used to be clamped to four lines, which held the layout still by hiding every think worth
+  reading; it now has its own max-height scroll box that follows the stream while the reader is at
+  the bottom and stops following the moment they scroll back. `claim` clears both feeds for that
+  person, along with their last error — all three described something no longer happening.
 - `run(tab, message?)` and `sendChat` both **return whether they succeeded**, so `AskComposer` can
   keep what was typed when a run fails. An abort counts as success — the user stopped it on purpose,
   and handing their text back as if the app had broken is just noise.

@@ -910,12 +910,42 @@ function Thinking({
           This one's a long think — it re-reads the whole transcript against the seed context.
         </p>
       )}
-      {thought ? (
-        // Clamped so a long summary can't push the page around while it streams.
-        <p className="line-clamp-4 max-w-[380px] whitespace-pre-line text-left text-[11px] italic leading-relaxed text-fg-3/80">
-          {thought}
-        </p>
-      ) : null}
+      {thought ? <ThinkingStream text={thought} /> : null}
+    </div>
+  )
+}
+
+/**
+ * The reasoning summary, all of it.
+ *
+ * This was clamped to four lines, which kept a streaming think from pushing the
+ * page around at the cost of hiding almost every long one — and a long one is
+ * the only kind worth reading. Its own scroll box keeps the layout still
+ * without throwing the rest away.
+ */
+function ThinkingStream({ text }: { text: string }) {
+  const box = useRef<HTMLDivElement>(null)
+  // Follow the stream only while the reader is already at the bottom. Otherwise
+  // scrolling back a paragraph gets yanked forward on the next delta, which
+  // would make this exactly as unreadable as the clamp was.
+  const pinned = useRef(true)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el && pinned.current) el.scrollTop = el.scrollHeight
+  }, [text])
+
+  return (
+    <div
+      ref={box}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+      }}
+      className="scroll-slim max-h-[40vh] w-full max-w-[380px] overflow-y-auto rounded-md border border-border/60 bg-surface-sunken px-3 py-2"
+    >
+      <p className="whitespace-pre-line text-left text-[11px] italic leading-relaxed text-fg-3/80">
+        {text}
+      </p>
     </div>
   )
 }
