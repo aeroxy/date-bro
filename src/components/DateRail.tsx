@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn'
 import { Button } from './ui/Button'
 import { Input } from './ui/Field'
 import { Eyebrow } from './ui/Card'
+import { Spinner } from './ui/Spinner'
 import { STAGES, type DateRecord } from '@/types/date'
 
 const stageLabel = (record: DateRecord) =>
@@ -17,6 +18,7 @@ export function DateRail({
   onSelect,
   onCreate,
   createError,
+  running,
 }: {
   dates: DateRecord[]
   activeId: string | null
@@ -24,6 +26,13 @@ export function DateRail({
   onCreate: (name: string) => void
   /** Only ever set on a first-ever create, when there's no panel to show it on. */
   createError?: string | null
+  /**
+   * Who has a run in flight. Runs are per-person and don't lock anyone else, so
+   * a rebuild you started and switched away from has nothing else on screen
+   * saying it exists — this row is the only place it shows, and the way back to
+   * the panel that can stop it.
+   */
+  running?: Set<string>
 }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
@@ -83,6 +92,7 @@ export function DateRail({
 
         {dates.map((d) => {
           const active = d.id === activeId
+          const busy = running?.has(d.id) ?? false
           return (
             <button
               key={d.id}
@@ -110,9 +120,10 @@ export function DateRail({
                   {d.name}
                 </span>
                 <span className="block truncate text-[11px] text-fg-3">
-                  {stageLabel(d)} · {d.turns.length} turns · {ago(d.updatedAt)}
+                  {busy ? 'thinking…' : `${stageLabel(d)} · ${d.turns.length} turns · ${ago(d.updatedAt)}`}
                 </span>
               </span>
+              {busy ? <Spinner className="mt-1.5 flex-none text-action" /> : null}
             </button>
           )
         })}
