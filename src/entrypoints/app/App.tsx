@@ -567,10 +567,17 @@ export default function App() {
                         onClear={() => {
                           if (
                             confirm(
-                              `Start over on ${active.name}?\n\nThis throws away everything written down about them so far. The next rebuild starts from a blank page and reads the conversation again — which is the point when the notes have drifted, and a waste when they haven't.\n\nAnything you typed straight into the box below was read once and never stored, so it isn't in the conversation to be read again.`,
+                              `Start over on ${active.name}?\n\nThis throws away everything written down about them so far. The next rebuild starts from a blank page and reads the conversation again — which is the point when the notes have drifted, and a waste when they haven't.\n\nAnything you sent straight into the box below was read once and never stored, so it isn't in the conversation to be read again.`,
                             )
                           ) {
                             persist(update(active.id, { themProfile: undefined }), 'them')
+                            // The reply describes an amendment to a profile that
+                            // no longer exists. Nothing renders it while seeding,
+                            // so it wouldn't resurface until the next build —
+                            // under a fresh read, describing the deleted one.
+                            setEdit((prev) =>
+                              prev?.id === active.id && prev.tab === 'them' ? null : prev,
+                            )
                           }
                         }}
                       />
@@ -594,10 +601,13 @@ export default function App() {
                         onClear={() => {
                           if (
                             confirm(
-                              "Start over on you?\n\nThis throws away everything written down about you in this connection. The next rebuild starts from a blank page and reads the conversation again.\n\nAnything you typed straight into the box below — a CV, what you do — was read once and never stored, so it isn't in the conversation to be read again.",
+                              "Start over on you?\n\nThis throws away everything written down about you in this connection. The next rebuild starts from a blank page and reads the conversation again.\n\nAnything you sent straight into the box below — a CV, what you do — was read once and never stored, so it isn't in the conversation to be read again.",
                             )
                           ) {
                             persist(update(active.id, { meProfile: undefined }), 'me')
+                            setEdit((prev) =>
+                              prev?.id === active.id && prev.tab === 'me' ? null : prev,
+                            )
                           }
                         }}
                       />
@@ -670,8 +680,11 @@ export default function App() {
               </div>
 
               {/* One box per tab, in the same place, all one-shot. Keyed on the
-                  person *and* the tab so a half-typed instruction about her
-                  can't reappear under him, or under the drafts. */}
+                  person, the tab *and* the mode so a half-typed instruction
+                  about her can't reappear under him, under the drafts, or —
+                  same slot, same component, so React keeps the draft — in the
+                  seed box after Start over, where "drop the avoidant read"
+                  would be handed over as background on who she is. */}
               {tab === 'next' ? (
                 <AskComposer
                   key={`${active.id}:next`}
@@ -689,7 +702,7 @@ export default function App() {
                    it becoming a turn they later have to go and delete. Read
                    once, absorbed into the profile, never stored. */
                 <AskComposer
-                  key={`${active.id}:${tab}`}
+                  key={`${active.id}:${tab}:seed`}
                   label={`Tell it about ${tab === 'them' ? active.name : 'you'}`}
                   placeholder={
                     tab === 'them'
@@ -704,7 +717,7 @@ export default function App() {
                 />
               ) : (
                 <AskComposer
-                  key={`${active.id}:${tab}`}
+                  key={`${active.id}:${tab}:amend`}
                   label={`Change what it knows about ${tab === 'them' ? active.name : 'you'}`}
                   // Tab-specific: the example under "change what it knows about
                   // you" used to be a correction about *her*, which reads as the

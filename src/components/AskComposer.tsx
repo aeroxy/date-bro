@@ -134,6 +134,9 @@ export function AskComposer({
         className="text-[12.5px]"
       />
       <div className="mt-2 flex items-center gap-2">
+        {/* ⌘ only, though the handler takes Ctrl too. macOS is what this is
+            designed for; naming both would widen a hint to cover a platform
+            nobody here is on. */}
         <span className="text-[11px] text-fg-3">{draft.trim() ? '⌘↵ to send' : hint}</span>
         <span className="flex-1" />
         <Button variant="accent" size="sm" disabled={!ready} onClick={send}>
