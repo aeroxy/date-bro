@@ -223,8 +223,9 @@ export async function suggestMove(
   //
   // Applied to a fresh read, not to the copy this run was built from — a run
   // takes half a minute and the user may have edited it by hand in the meantime.
-  // `mindText` resolves the seed on a first write, so an amendment forks the
-  // whole document rather than landing on an empty one.
+  // `mindText` resolves the seed, so an amendment lands on the full document
+  // rather than on an empty one — and `saveMind` then forks only the section it
+  // actually rewrote, leaving the rest still tracking releases.
   //
   // A failed write is not allowed to take the advice with it. The suggestion is
   // finished and half a minute paid for by the time this runs; losing all of it

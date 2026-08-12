@@ -5,8 +5,11 @@ import {
   LEARNED_HEADING,
   MIND_HEADINGS,
   SEED_MIND,
+  forkedHeadings,
   learnedText,
+  legacyForked,
   mindFor,
+  mindText,
   missingHeadings,
   seedSection,
   writeMindSection,
@@ -134,5 +137,161 @@ describe('the learned section rides the tail, not the system block', () => {
     expect(learnedText(DOC.replace("What you've learned", 'What you’ve learned'))).toBe(
       '- He writes short.',
     )
+  })
+})
+
+// The fork used to be the whole document: one edit anywhere froze all six
+// sections against every future release, and the only way to pick up an improved
+// paragraph was to discard everything you and the coach had written.
+describe('forking is per section', () => {
+  const EDITED_HEADING = 'Reading the user'
+  const edited = writeMindSection(SEED_MIND, EDITED_HEADING, 'Watch how they hedge.')
+
+  test('an untouched document forks nothing', () => {
+    expect(forkedHeadings(SEED_MIND)).toEqual([])
+  })
+
+  test('editing one section forks only that one', () => {
+    expect(forkedHeadings(edited)).toEqual([EDITED_HEADING])
+  })
+
+  // Deleting is an edit — the point of an editable coach is that deleting
+  // something deletes it, so the seed must not walk back in on the next read.
+  test('a deleted section is forked, not untouched', () => {
+    expect(forkedHeadings(writeMindSection(SEED_MIND, EDITED_HEADING, ''))).toEqual([
+      EDITED_HEADING,
+    ])
+  })
+
+  test('a section the user added themselves is not a fork of anything', () => {
+    expect(forkedHeadings(writeMindSection(SEED_MIND, 'House rules', 'No emoji.'))).toEqual([])
+  })
+})
+
+describe('mindText composes stored sections over the current seed', () => {
+  test('nothing stored is the shipped document', () => {
+    expect(mindText({ markdown: '', updatedAt: 0, forked: [] })).toBe(SEED_MIND)
+  })
+
+  // The release, simulated: a stored body that no longer matches the seed, on a
+  // heading the user never forked. That is a section the seed moved under, and
+  // the current text is what should come out.
+  test('a section still tracking the seed is refreshed from it', () => {
+    const stale = writeMindSection(SEED_MIND, 'Inference discipline', 'Old shipped wording.')
+    const live = mindText({ markdown: stale, updatedAt: 1, forked: [] })
+    expect(live).not.toContain('Old shipped wording.')
+    expect(live).toContain(seedSection('Inference discipline')!)
+  })
+
+  test('a forked section is left exactly as stored', () => {
+    const mine = writeMindSection(SEED_MIND, 'Reading the user', 'Watch how they hedge.')
+    const live = mindText({ markdown: mine, updatedAt: 1, forked: ['Reading the user'] })
+    expect(live).toContain('Watch how they hedge.')
+    expect(live).not.toContain(seedSection('Reading the user')!)
+  })
+
+  // Both at once, which is the whole feature: your edit survives a release that
+  // rewrote a section you never touched.
+  test('one edited section survives while the rest take the release', () => {
+    const stored = writeMindSection(
+      writeMindSection(SEED_MIND, 'Reading the user', 'Watch how they hedge.'),
+      'Who you are',
+      'Old shipped wording.',
+    )
+    const live = mindText({ markdown: stored, updatedAt: 1, forked: ['Reading the user'] })
+    expect(live).toContain('Watch how they hedge.')
+    expect(live).not.toContain('Old shipped wording.')
+  })
+
+  // A part added by a later release is absent from the stored document and
+  // absent from `forked`; it has to arrive in its running order, not at the end.
+  test('a newly shipped section arrives in its place', () => {
+    const without = writeMindSection(SEED_MIND, 'Using web research', '')
+    const live = mindText({ markdown: without, updatedAt: 1, forked: [] })
+    expect(missingHeadings(live)).toEqual([])
+    expect(parseSections(live).map((s) => s.heading)).toEqual([...MIND_HEADINGS])
+  })
+
+  test("a section of the user's own is not touched either way", () => {
+    const stored = writeMindSection(SEED_MIND, 'House rules', 'No emoji.')
+    expect(mindText({ markdown: stored, updatedAt: 1, forked: [] })).toContain('No emoji.')
+  })
+})
+
+// Documents saved before `forked` existed, under "any write forks everything".
+// The first version of this migrated them to the full canonical heading list,
+// which forks sections the document has never contained — and `mindText` skips a
+// forked section, so anything shipped after the upgrade would never arrive for
+// the longest-standing users, presenting as a section they appeared to delete.
+describe('the legacy migration', () => {
+  const LATER = 'Using web research'
+  // Written out rather than derived from SEED_MIND, because the contract is about
+  // documents that are *historically* old and derivation can only approximate
+  // one: this is the heading set of an earlier release, carrying that release's
+  // seed prose (stale against today's, as a real stored document would be) plus
+  // one section the user had edited by hand. `Using web research` and the learned
+  // section came later, so they are simply absent — the shape the migration has
+  // to read correctly. `Mirror their energy` is the rule the playbook has since
+  // dropped, which is what makes it a fair sample of stale text.
+  const LEGACY = `## Who you are
+
+You are the analyst behind Date Bro. Warm, straight, never cruel.
+
+## Inference discipline
+
+Separate observation from inference. Every claim gets evidence.
+
+## Reading the other person
+
+Anxiety and avoidance, two dimensions. Hypotheses, never labels.
+
+## Reading the user
+
+Watch how they hedge.
+
+## Choosing what to say or do
+
+Mirror their energy and match their length.`
+
+  const migrated = { markdown: LEGACY, updatedAt: 1, forked: legacyForked(LEGACY) }
+
+  test('forks every canonical section the document has, and only those', () => {
+    expect(migrated.forked).toEqual([
+      'Who you are',
+      'Inference discipline',
+      'Reading the other person',
+      'Reading the user',
+      'Choosing what to say or do',
+    ])
+  })
+
+  test('does not fork a section shipped after it was saved', () => {
+    expect(migrated.forked).not.toContain(LATER)
+    expect(migrated.forked).not.toContain(LEARNED_HEADING)
+  })
+
+  test('so the later section arrives, in its place', () => {
+    const live = mindText(migrated)
+    expect(live).toContain(seedSection(LATER)!)
+    expect(missingHeadings(live)).toEqual([])
+    expect(parseSections(live).map((s) => s.heading)).toEqual([...MIND_HEADINGS])
+  })
+
+  // The other half: what the old whole-document rule protected has to survive
+  // the same read — the hand edit *and* the stale seed prose beside it, since
+  // under that rule the user owned both.
+  test('and everything it did have is left alone, edited or merely old', () => {
+    const live = mindText(migrated)
+    expect(live).toContain('Watch how they hedge.')
+    expect(live).toContain('Mirror their energy and match their length.')
+    expect(live).not.toContain(seedSection('Choosing what to say or do')!)
+  })
+
+  test('the learned section arrives empty rather than as a placeholder to send', () => {
+    expect(learnedText(mindText(migrated))).toBe('')
+  })
+
+  test('nothing stored forks nothing', () => {
+    expect(legacyForked('')).toEqual([])
   })
 })

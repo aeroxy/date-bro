@@ -20,6 +20,14 @@
  * in the repo, "revert to shipped" restores any section from it, and a run
  * amends by heading rather than regenerating, so a bad edit is one section wide.
  *
+ * The section is the unit of divergence too, not just of damage. Forking used to
+ * be per document — the first write anywhere froze all six sections against
+ * every future release, so picking up one improved paragraph meant discarding
+ * everything the user and the coach had written. `Mind.forked` narrows that to
+ * the headings actually rewritten; `mindText` refreshes the rest from the seed
+ * on every read. Editing "Reading the user" says nothing about the research
+ * section, and now it no longer freezes it.
+ *
  * ## How it reaches a prompt
  *
  * Each `##` section is a slot. `buildSystem` selects the sections a given engine
@@ -171,20 +179,105 @@ export const MIND_HEADINGS = MIND_PARTS.map((p) => p.heading)
 /**
  * `markdown` is empty until something writes to it, and empty means "still
  * tracking the shipped seed" — so an installation nobody has edited keeps
- * getting knowledge-base improvements from releases. The first write, by the
- * user or by a run, forks the whole document, and from then on this is the only
- * copy that matters.
+ * getting knowledge-base improvements from releases.
+ *
+ * `forked` is which sections have stopped tracking it. This used to be the whole
+ * document: the first write, anywhere, froze every section against every future
+ * release, and picking up one improved paragraph meant discarding everything the
+ * user and the coach had written. That is backwards — editing "Reading the user"
+ * is not a statement about the research section — and it made the seed
+ * effectively write-once for anyone with an install older than the change.
+ *
+ * So the unit is the section. What is stored is still the whole document, but on
+ * the way out (`mindText`) every canonical section *not* in this list is
+ * refreshed from the current seed. Edit one section and the other five keep
+ * updating.
  */
 export interface Mind {
   markdown: string
   updatedAt: number
+  forked: string[]
 }
 
-export const EMPTY_MIND: Mind = { markdown: '', updatedAt: 0 }
+export const EMPTY_MIND: Mind = { markdown: '', updatedAt: 0, forked: [] }
 
-/** The live document: what was stored, or the seed until something is. */
-export const mindText = (mind: Mind): string =>
-  mind.markdown.trim() || SEED_MIND
+/**
+ * Which canonical sections a document has stopped tracking the seed on.
+ *
+ * The contract, stated exactly: **forked means this body differs from the seed
+ * as the seed stands right now, at the moment of the write.** Derived rather
+ * than journalled per keystroke, because both writers — the editor's Save and a
+ * run's amendment — hand over a whole document and neither knows which sections
+ * it changed.
+ *
+ * What storing the answer buys is that *reads* don't re-derive it. Between
+ * saves a release can move a seed, and a section still holding the old seed text
+ * no longer equals the new one; deciding on read would call that an edit and
+ * freeze it, which is the failure this whole mechanism exists to prevent. Stored,
+ * the answer stays the one taken while it was true.
+ *
+ * What it does not do is accumulate. Each save recomputes the whole set, so
+ * there is one case where a fork lapses: a later seed that becomes byte-identical
+ * to what the user wrote un-forks their section on the next save. That is the
+ * same rule as `Revert to shipped` — matching the seed *is* how you rejoin it —
+ * and carrying a prior set forward would mean threading the previous `Mind`
+ * through `saveMind` to preserve a distinction with no visible effect at the
+ * moment it is drawn. Not worth the API.
+ *
+ * A deleted section counts as forked. Deleting is an edit, and the point of an
+ * editable coach is that deleting something deletes it.
+ */
+export function forkedHeadings(markdown: string): string[] {
+  const bodies = new Map(parseSections(markdown).map((s) => [key(s.heading), s.body.trim()]))
+  return MIND_PARTS.filter((p) => (bodies.get(key(p.heading)) ?? '') !== seedBody(p)).map(
+    (p) => p.heading,
+  )
+}
+
+/**
+ * What a document stored before `forked` existed is migrated to: the canonical
+ * headings it actually contains.
+ *
+ * Not `MIND_HEADINGS` entire, which was the first version of this and was a bug
+ * with a long fuse. Those documents were written under "any write forks
+ * everything", so every section they *have* is forked — but marking a heading
+ * they have never seen forks a section that isn't in them, and `mindText` then
+ * skips inserting the very thing it was supposed to deliver. A section shipped
+ * after the upgrade would never arrive for exactly the users who had been here
+ * longest, and it wouldn't look broken: the editor would report it deleted, as
+ * though they had done it.
+ *
+ * The cost of reading absence as "not forked" is the other reading of absence: a
+ * section deleted by hand before this field existed comes back once, from the
+ * current seed. Legacy storage cannot tell the two apart — it records no
+ * heading set to compare against — so this picks the recoverable mistake.
+ * Deleting it again now sticks, because a deletion made from here on is recorded.
+ */
+export function legacyForked(markdown: string): string[] {
+  const present = new Set(parseSections(markdown).map((s) => key(s.heading)))
+  return MIND_HEADINGS.filter((h) => present.has(key(h)))
+}
+
+/**
+ * The live document: what was stored with every still-tracking section brought
+ * up to the current seed, or the seed entire until something is stored.
+ *
+ * `writeMindSection` rather than a splice, so a section added by a *later*
+ * release — absent from the stored document and absent from `forked` — arrives
+ * in its running order rather than at the end.
+ */
+export const mindText = (mind: Mind): string => {
+  const stored = mind.markdown.trim()
+  if (!stored) return SEED_MIND
+  const forked = new Set(mind.forked.map(key))
+  return MIND_PARTS.reduce(
+    (markdown, part) =>
+      forked.has(key(part.heading))
+        ? markdown
+        : writeMindSection(markdown, part.heading, seedBody(part)),
+    stored,
+  )
+}
 
 /**
  * The sections one engine is sent in its system block, in document order, as one
@@ -269,6 +362,10 @@ export function writeMindSection(markdown: string, heading: string, body: string
  * The body rather than the whole section, because the heading is the address —
  * the editor supplies it and the store owns it. Comparing reserialised sections
  * instead compared whitespace, and reported every untouched section as edited.
+ *
+ * Writing this back over a section is also how one un-forks: the body then
+ * matches the seed, so the next save leaves it out of `forked` and it resumes
+ * taking releases. Reverting is rejoining, not a one-off copy.
  */
 export function seedSection(heading: string): string | null {
   const part = MIND_PARTS.find((p) => key(p.heading) === key(heading))
@@ -311,6 +408,15 @@ answer on most runs, and it is a real answer.
   usually what you actually learned.
 - **Nothing about the person in this request.** That belongs in their profile.
   Written here it leaks one connection into every other one.
+- **No turn numbers.** You are told to cite the turn for everything else, and
+  here it is worse than no evidence at all. \`[4]\` is a position in *one*
+  person's transcript, and this section is read on every call about everyone — so
+  a number that was evidence when you wrote it points at a stranger's message on
+  the next run. Positions also move: an earlier turn edited or deleted re-aims
+  every reference after it, quietly. Put the evidence in words instead — what was
+  said, what you tried, what came back. A finding that can't stand up without a
+  turn number is a finding about that one conversation, and it goes in the
+  profile, where the number still means something.
 - **Merge before you add.** Every section here is sent on every call, and nothing
   prunes it but you. When what you were about to write is a version of something
   already there, replace that line with the one they were both reaching for
