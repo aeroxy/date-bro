@@ -35,7 +35,7 @@
 
 import { layeredUser, type ChatMessage, type ContentSegment } from '@/lib/llm-client'
 import { describeBirthday } from '@/lib/birthday'
-import { formatTurn } from '@/lib/transcript'
+import { formatTurn, numberTurns } from '@/lib/transcript'
 import type { ChatEngine, DateRecord } from '@/types/date'
 import { LEARNED_HEADING, learnedText, mindFor, mindInstructions, type Audience } from './mind'
 import { PERSON_SECTIONS, PROFILE_WORD_CEILING, SELF_SECTIONS } from './profile'
@@ -234,8 +234,14 @@ ${record.goal.trim() || '(not stated)'}
  * where the reader knows what they entered.
  */
 function transcriptSegments(record: DateRecord): ContentSegment[] {
-  const turns: ContentSegment[] = record.turns.length
-    ? record.turns.map((turn, i) => ({ text: formatTurn(record, turn, i) }))
+  // Through `numberTurns` rather than straight off the record, so `formatTurn`
+  // gets turns that are numbered by type rather than by hope. Every path that
+  // reaches here — a read, a save, an in-memory update — has already numbered
+  // them, so this is the identity fast path in practice; what it buys is that the
+  // one place a citation is rendered cannot be handed a turn without one.
+  const numbered = numberTurns(record).turns
+  const turns: ContentSegment[] = numbered.length
+    ? numbered.map((turn) => ({ text: formatTurn(record, turn) }))
     : [{ text: '(no conversation recorded yet)' }]
   turns[turns.length - 1]!.cache = true
 

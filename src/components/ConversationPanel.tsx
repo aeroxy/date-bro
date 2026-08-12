@@ -185,7 +185,7 @@ export function ConversationPanel({
         ) : null}
 
         <ol className="space-y-2.5">
-          {visibleTurns.map((turn, i) => {
+          {visibleTurns.map((turn) => {
             const mine = turn.speaker === 'me'
             // Neither side said it, so it sits in the middle and doesn't wear a
             // bubble — a note that looked like a message would be read back as
@@ -229,8 +229,21 @@ export function ConversationPanel({
                     </button>
                   ))}
                 </span>
+                {/* The same number the model cites this turn by — `formatTurn`
+                    renders `turn.number` into the prompt, so a `[14]` in a
+                    profile is findable here. It was `hiddenCount + i + 1`, which
+                    matched only because the prompt was equally positional: both
+                    re-aimed together the moment a turn was inserted above. So the
+                    column is in allocation order, not transcript order, and has
+                    gaps — 60, 62, 61 down the page is correct.
+
+                    No positional fallback, deliberately. Every path into
+                    `record.turns` numbers them (`normalize` on read, `update`
+                    before it commits to memory), and a guessed number here would
+                    sit beside citations the coach wrote and disagree with them.
+                    An empty cell is the honest failure. */}
                 <span className="tabular mt-2 w-5 flex-none text-right font-mono text-[10px] text-neutral-300">
-                  {hiddenCount + i + 1}
+                  {turn.number}
                 </span>
                 <div
                   className={cn(

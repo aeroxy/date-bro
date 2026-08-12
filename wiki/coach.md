@@ -117,7 +117,14 @@ tag lands in the middle of the next request, matching nothing. The tag and the `
 in an uncached segment below it.
 
 - **Turns are numbered** so the model can cite `[4]` rather than paraphrase vaguely. The UI shows
-  the same numbers, so a citation is checkable.
+  the same numbers, so a citation is checkable. The number is `Turn.number` — handed out once from
+  `DateRecord.nextTurnNumber` and never reused, *not* the array index it used to be. Positional
+  numbering made a citation drift: insert a turn near the top and every reference below it silently
+  re-aimed, in prose nobody re-reads. The invariant is **allocation order, not transcript order** —
+  insert between 60 and 61 and the array reads 60, 62, 61. "Ascending with gaps" is the natural
+  summary and it is wrong; reading it that way and tidying the sequence back into order is exactly how
+  a later change would renumber every stored citation. See `numberTurns` in
+  [lib.md](lib.md#transcriptts).
 - **`NOTE:` lines are the transcript acting as the context pool.** A turn whose speaker is `context`
   (see `Speaker` in `types/date.ts`) is something the user knows that nobody typed — said on a call,
   heard from a friend, simply remembered — sitting at the point it was learned. `contextEntryNote`
@@ -472,10 +479,10 @@ about the person in the current request (that leaks one connection into all of t
 the line about a real no.
 
 **And no turn numbers in this document**, which is the one place the standing "cite the turn like
-`[4]`" rule inverts. `formatTurn` numbers by position *within one record*, and the learned section is
-read on every call about everyone — so a citation that was evidence when it was written points at a
-stranger's message on the next run, and positions move anyway when an earlier turn is edited or
-deleted. The evidence goes in words. A finding that can't stand up without a turn number is a finding
+`[4]`" rule inverts. A turn number is scoped to *one record*, and the learned section is read on every
+call about everyone — so a citation that was evidence when it was written points at a stranger's
+message on the next run. (Turn numbers are stable within a record now, which fixes the other half of
+this; it does nothing for a document read across all of them.) The evidence goes in words. A finding that can't stand up without a turn number is a finding
 about that one conversation, and belongs in the profile, where the number still resolves.
 
 The field is **required in `SUGGESTION_SCHEMA` but optional in `validateSuggestion`**. Providers that
