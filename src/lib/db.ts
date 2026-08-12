@@ -7,7 +7,7 @@ import {
   selfJudgment,
   selfToMarkdown,
 } from '@/coach/profile'
-import { adviceTurn } from '@/lib/transcript'
+import { adviceTurn, numberTurns } from '@/lib/transcript'
 import type { PersonContext, SelfContext } from '@/types/coach'
 import type { DateRecord } from '@/types/date'
 
@@ -174,14 +174,21 @@ function migrateSuggestions(record: DateRecord): DateRecord {
 // from the untouched record restores exactly what a migration was there to
 // move, leaving the same content in two places forever.
 //
-// The order of the four is not arbitrary in one place: `migrateSectionNames`
+// The order of the five is not arbitrary in two places. `migrateSectionNames`
 // rewrites headings inside `themProfile` / `meProfile`, and for a legacy record
-// `migrateContexts` is what creates those. Run the rename first and it finds
-// nothing to rename in exactly the documents it exists for. The other two touch
-// `turns` and are independent of both.
+// `migrateContexts` is what creates those — run the rename first and it finds
+// nothing to rename in exactly the documents it exists for. And `numberTurns`
+// runs last, after both of the ones that add turns; see below.
 function normalize(record: DateRecord): DateRecord {
-  const migrated = migrateSuggestions(
-    migrateSectionNames(migrateContexts(migrateSeed(record))),
+  // `numberTurns` last of the turn-touching migrations, and that order is
+  // load-bearing. `migrateSeed` *prepends* the old seed blobs as notes, and the
+  // positional numbering this replaces was computed after that — `normalize` has
+  // always run before anything rendered a turn — so a `[4]` in a profile written
+  // back then meant the fourth element of the *migrated* array. Numbering here
+  // reproduces exactly that. Numbering first and letting the notes arrive
+  // afterwards would number the same prose two turns off.
+  const migrated = numberTurns(
+    migrateSuggestions(migrateSectionNames(migrateContexts(migrateSeed(record)))),
   )
   return {
     ...migrated,
@@ -202,8 +209,14 @@ export async function listDates(): Promise<DateRecord[]> {
 // set it, and the second stamp landed a millisecond or two later than the value
 // the in-memory list was ordered on — so the order the rail showed and the order
 // `listDates()` would return were computed from different numbers.
+// Numbered on the way in as well as on the way out, so "anything persisted has
+// its numbers" holds without every caller having to remember. `numberTurns` is
+// idempotent and returns the record by identity when there is nothing to do, so
+// the paths that already numbered pay nothing for the guarantee. This is not a
+// re-stamp of the kind the note above rules out — a number is an identity the
+// record is missing, not a value the caller already decided.
 export async function saveDate(record: DateRecord): Promise<void> {
-  await (await db()).put('dates', record)
+  await (await db()).put('dates', numberTurns(record))
 }
 
 export async function deleteDate(id: string): Promise<void> {

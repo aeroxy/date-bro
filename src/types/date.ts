@@ -22,6 +22,39 @@ export type Channel = 'text' | 'call' | 'irl'
 
 export interface Turn {
   id: string
+  /**
+   * The number the model cites this turn by, and the number in the gutter beside
+   * it. Handed out once from `DateRecord.nextTurnNumber` and never reused, so a
+   * `[14]` written into a profile means the same turn for as long as that turn
+   * exists.
+   *
+   * It used to be the array index, computed at render time in two places. That
+   * made a citation positional: insert a turn near the top and every reference
+   * below it silently re-aimed at the wrong message, in prose the user had no
+   * reason to re-read.
+   *
+   * The invariant is **allocation order, not transcript order**: numbers are
+   * handed out monotonically and never reused, and they need not increase down
+   * the array. Insert between 60 and 61 and the array reads 60, 62, 61. Saying
+   * "ascending with gaps" would be the natural summary and it is wrong — reading
+   * it that way and tidying the sequence back into order is precisely how a
+   * future change would break every stored citation. Chronology is the array's
+   * job; identity is this field's, and the two are allowed to disagree.
+   *
+   * Assumed unique within a record, and `numberTurns` will not hand out a number
+   * that any turn already holds. It does not *repair* a record that somehow
+   * contains the same number twice: which of the two an existing `[12]` meant is
+   * unanswerable, and renumbering one would silently re-aim it — the failure this
+   * field exists to remove. Duplicates are a bug upstream, not a state to
+   * normalise.
+   *
+   * Optional only at construction: a composer has no counter and shouldn't need
+   * one. `numberTurns` fills it in on the way into memory and into storage, so a
+   * turn that has been persisted always has one, and no call site can hand out a
+   * number twice by forgetting to bump the counter. Anything that renders a
+   * citation takes a `NumberedTurn` and so cannot be handed one without.
+   */
+  number?: number
   speaker: Speaker
   text: string
   /** Free-form, user-entered. "Tue 9pm", "next morning", "2026-07-14". */
@@ -56,6 +89,27 @@ export interface Turn {
   advice?: Suggestion
 }
 
+/**
+ * A turn that has been through `numberTurns`, which is the only thing allowed to
+ * be rendered as a citation.
+ *
+ * This exists so `formatTurn` can stop guessing. It used to fall back to the
+ * array index for a turn with no number, which quietly reinstated the positional
+ * scheme this replaced — and worse than merely being unstable, the guess can
+ * *collide*: drop an unnumbered turn at index 60 of a record already holding 60
+ * and 61, and it renders `[61]` alongside the real `[61]`. Two turns, one
+ * citation, in the material the coach reasons from. A type that can't be
+ * satisfied without a number is cheaper than a test for every way of reaching
+ * that state.
+ */
+export type NumberedTurn = Turn & { number: number }
+
+/** A record whose turns are all numbered — what `numberTurns` returns. */
+export interface NumberedRecord extends DateRecord {
+  turns: NumberedTurn[]
+  nextTurnNumber: number
+}
+
 /** The three coach engines — also the three tabs in the UI. */
 export type Engine = 'them' | 'me' | 'next'
 
@@ -85,6 +139,19 @@ export interface DateRecord {
    * a feedback note). Compared against a context's `turnsAt` — see `isStale`.
    */
   turnsUpdatedAt: number
+  /**
+   * The next citation number to hand out — see `Turn.number`.
+   *
+   * Persisted rather than derived as `max(number) + 1`, and that is the whole
+   * point of the field. Delete the last turn and the maximum drops, so a derived
+   * counter hands the same number to the next turn added, and a citation already
+   * sitting in a profile now points at different content. Rarer than the
+   * positional drift this replaced and much harder to notice, which makes it
+   * worse. This only ever goes up.
+   *
+   * Absent on records written before it existed; `numberTurns` seeds it.
+   */
+  nextTurnNumber?: number
   stage: Stage
   meta: {
     /**
@@ -175,6 +242,7 @@ export function newDate(name: string): DateRecord {
     meta: {},
     goal: '',
     turns: [],
+    nextTurnNumber: 1,
     researchNotes: '',
   }
 }

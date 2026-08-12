@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { deleteDate, listDates, saveDate } from '@/lib/db'
+import { numberTurns } from '@/lib/transcript'
 import { newDate, type DateRecord } from '@/types/date'
 
 const LAST_KEY = 'dateBroLastOpened'
@@ -112,13 +113,19 @@ export function useDates() {
       if (!current) return null
       const resolved = typeof patch === 'function' ? patch(current) : patch
       const now = Date.now()
-      const next: DateRecord = {
+      // Numbered here rather than left to `saveDate`, because `commit` puts this
+      // object in memory and the UI reads the numbers straight out of it. Let
+      // storage do it alone and a turn just inserted would render with a
+      // positional fallback in the gutter until the next reload — the old
+      // behaviour, back for one session, in the one place the user would compare
+      // it against a citation.
+      const next: DateRecord = numberTurns({
         ...current,
         ...resolved,
         updatedAt: now,
         // Only a write that touches the transcript moves the staleness clock.
         ...(resolved.turns && opts?.evidence !== false ? { turnsUpdatedAt: now } : {}),
-      }
+      })
       // Front, not a re-sort: `next.updatedAt` is `now`, so it is by definition
       // the newest. Sorting would paper over a broken invariant instead of
       // keeping it.

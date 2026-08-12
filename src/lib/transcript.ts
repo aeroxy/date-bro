@@ -1,5 +1,5 @@
 import type { Suggestion } from '@/types/coach'
-import type { DateRecord, Speaker, Turn } from '@/types/date'
+import type { DateRecord, NumberedRecord, NumberedTurn, Speaker, Turn } from '@/types/date'
 
 /** How a turn is labelled everywhere — prompts, UI, pasted logs. */
 export function speakerLabel(record: Pick<DateRecord, 'name'>, speaker: Speaker): string {
@@ -38,18 +38,63 @@ export function adviceTurn(suggestion: Suggestion): Turn {
 }
 
 /**
+ * Give every turn a citation number and remember the next one to hand out.
+ *
+ * Pure, total and idempotent, like the migrations in `db.ts`: a record read a
+ * hundred times before it is next saved comes out the same each time, and a
+ * record that already has its numbers comes back by identity rather than as a
+ * fresh object that would churn React below it.
+ *
+ * Two sources for "the next number", and the counter is allowed to win. The
+ * turns can only say what survives; the counter says what has ever been handed
+ * out. That is exactly the case deletion breaks — see `nextTurnNumber`.
+ *
+ * A record with no numbers at all is one written before this existed, and it gets
+ * 1…n in array order. That is not an arbitrary starting point: it is what the old
+ * positional rendering already showed, so every `[4]` sitting in a stored profile
+ * keeps pointing at the turn it was written about. Any other assignment would
+ * silently re-aim prose nobody is going to re-read.
+ *
+ * Uniqueness of numbers already present is assumed, not enforced — see
+ * `Turn.number` for why repairing a duplicate is worse than carrying it. What is
+ * enforced is that nothing *new* collides: the counter is raised past every
+ * number any turn holds, duplicate or not, so a third copy can't be issued.
+ */
+export function numberTurns(record: DateRecord): NumberedRecord {
+  let next = Math.max(record.nextTurnNumber ?? 1, ...record.turns.map((t) => (t.number ?? 0) + 1), 1)
+  const before = next
+  // The cast is the check on the line above it: a turn keeping its own number
+  // has one, which is all `NumberedTurn` claims.
+  const turns = record.turns.map((turn): NumberedTurn =>
+    turn.number === undefined ? { ...turn, number: next++ } : (turn as NumberedTurn),
+  )
+  // Same reasoning one level up. `next === before` means nothing was assigned, so
+  // every turn already carried a number, and the counter is defined because it
+  // equals `next`. Returning `record` itself keeps the identity fast path.
+  return next === before && record.nextTurnNumber === next
+    ? (record as NumberedRecord)
+    : { ...record, turns, nextTurnNumber: next }
+}
+
+/**
  * One turn as the model sees it. Numbered so the model can cite a specific one
  * as evidence instead of paraphrasing vaguely — `context` entries included,
  * since a fact the user recorded is as citable as a message. What a `NOTE:`
  * line means is spelled out in `transcriptSegments`.
  *
- * A pure function of `(turn, index, name)`, which is what makes the prefix
- * cache work: the prompt sends one block per turn, so appending turn n+1 leaves
- * the first n blocks byte-identical and the previously cached prefix still
- * matches. Anything that made an earlier turn's text depend on a later one
- * would quietly undo that.
+ * A pure function of `(turn, name)` now that the number rides on the turn, which
+ * is what makes the prefix cache work: the prompt sends one block per turn, so
+ * appending turn n+1 leaves the first n blocks byte-identical and the previously
+ * cached prefix still matches. Anything that made an earlier turn's text depend
+ * on a later one would quietly undo that. Dropping the positional dependency
+ * strengthens this rather than threatening it: inserting a turn mid-transcript
+ * used to renumber and so rewrite every block below it, invalidating the cache
+ * from that point down for a change that was one line long.
+ *
+ * It takes a `NumberedTurn` rather than a `Turn` and an index. There is no
+ * fallback for an unnumbered turn on purpose — see `NumberedTurn`.
  */
-export function formatTurn(record: Pick<DateRecord, 'name'>, turn: Turn, index: number): string {
+export function formatTurn(record: Pick<DateRecord, 'name'>, turn: NumberedTurn): string {
   // The question rides in the label rather than above the answer, so a one-line
   // entry stays one line and the pairing can't be misread as two.
   const meta = [
@@ -59,7 +104,7 @@ export function formatTurn(record: Pick<DateRecord, 'name'>, turn: Turn, index: 
   ]
     .filter(Boolean)
     .join(', ')
-  const head = `[${index + 1}] ${speakerLabel(record, turn.speaker)}${meta ? ` (${meta})` : ''}:`
+  const head = `[${turn.number}] ${speakerLabel(record, turn.speaker)}${meta ? ` (${meta})` : ''}:`
   const note = turn.note?.trim() ? `\n    (user's note: ${turn.note.trim()})` : ''
   return `${head} ${turn.text.trim()}${note}`
 }

@@ -129,6 +129,8 @@ records once and writes each mutation straight through.
 
 - **`context`** — something the user knows that nobody typed. It lives in the same array so there is
   one chronology and one numbering to cite, and so a fact learned today lands where it was learned.
+  Chronology is the array's job; identity is `Turn.number`'s, handed out once from
+  `DateRecord.nextTurnNumber` and never reused — so the two can't drift when a turn is inserted.
 - **`coach`** — what this app advised, at the point it advised it, carrying the whole `Suggestion` in
   `Turn.advice`. It replaced `DateRecord.suggestions`, a parallel history with its own pills, its own
   20-cap and its own delete button, all describing a timeline the conversation was already keeping.
