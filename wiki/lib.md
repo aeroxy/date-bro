@@ -265,7 +265,12 @@ first run and repairs a dangling active id; `getActiveConfig()` is what `coach/r
 than on a `DateRecord` because every record shares it: filing it under one would mean choosing which
 record owns the coach, and losing it when that record is deleted. Empty `markdown` means "still
 tracking the shipped seed", so an installation nobody has edited keeps getting knowledge-base
-improvements from releases; `saveMind` is the fork.
+improvements from releases. `saveMind` is the fork, **per section**: it records in `Mind.forked` the
+headings whose bodies differ from the seed *as it stands at that write*, and `mindText` refreshes the
+rest from the current seed on read, so one edited section doesn't freeze the other five. A document
+stored before the field existed migrates to the canonical headings it actually contains
+(`legacyForked`) — the full list would fork sections the document never had and strand every section
+shipped after the upgrade.
 
 ## `db.ts`
 

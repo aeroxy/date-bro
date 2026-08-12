@@ -1,4 +1,4 @@
-import { EMPTY_MIND, type Mind } from '@/coach/mind'
+import { EMPTY_MIND, forkedHeadings, legacyForked, type Mind } from '@/coach/mind'
 import { DEFAULT_CONFIG, newLLMProfile, type CoachSettings, type LLMConfig, type LLMProfile } from '@/types/settings'
 
 const KEYS = {
@@ -79,7 +79,9 @@ export async function getSettings(): Promise<CoachSettings> {
  *
  * Empty `markdown` means "still tracking the shipped seed", so an installation
  * nobody has edited keeps getting knowledge-base improvements from releases.
- * `saveMind` is the fork: after it, this is the only copy that matters.
+ * `saveMind` is the fork — per section, not per document: it records which
+ * headings the document being saved has diverged on, and `mindText` refreshes
+ * the rest from the seed on every read.
  */
 export async function getMind(): Promise<Mind> {
   const result = await chrome.storage.local.get(KEYS.mind)
@@ -90,11 +92,18 @@ export async function getMind(): Promise<Mind> {
   return {
     markdown: stored?.markdown ?? EMPTY_MIND.markdown,
     updatedAt: stored?.updatedAt ?? EMPTY_MIND.updatedAt,
+    // A document stored before `forked` existed was saved under the rule that
+    // any write forks everything, so every section it *has* is migrated as
+    // forked — reading it as "nothing forked" would refresh all of them from the
+    // seed and silently discard edits made under the old rule. Only the sections
+    // it has, though: see `legacyForked` for why marking the full canonical list
+    // strands every section shipped after the upgrade.
+    forked: stored?.forked ?? legacyForked(stored?.markdown ?? ''),
   }
 }
 
 export async function saveMind(markdown: string): Promise<Mind> {
-  const mind: Mind = { markdown, updatedAt: Date.now() }
+  const mind: Mind = { markdown, updatedAt: Date.now(), forked: forkedHeadings(markdown) }
   await chrome.storage.local.set({ [KEYS.mind]: mind })
   return mind
 }

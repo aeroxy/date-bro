@@ -320,8 +320,9 @@ conversation as a `coach` turn (`adviceTurn` in `lib/transcript.ts`) — see
 And it is the only engine that amends **the coach itself**: the returned `mind` update is applied
 and saved right here rather than handed back, because the coach isn't a field of any record and
 there is no record-merge for a caller to get right. It re-reads storage first — a run takes half a
-minute and the user may have edited it by hand in the meantime — and `mindText` resolves the seed on
-a first write, so an amendment forks the whole document rather than landing on an empty one.
+minute and the user may have edited it by hand in the meantime — and `mindText` resolves the seed, so
+an amendment lands on the full document rather than on an empty one, forking only the section it
+actually rewrote.
 
 ## Output contracts
 
@@ -395,8 +396,30 @@ seed it starts from. It lives in `chrome.storage.local` (`dateBroCoachMind`) rat
 every record shares, and losing it when that record is deleted.
 
 Empty storage means "still tracking the shipped seed", so an installation nobody has edited keeps
-getting knowledge-base improvements from releases. The first write — by the user or by a run — forks
-the whole document.
+getting knowledge-base improvements from releases. A write forks **the sections it rewrote**, not the
+document: `saveMind` derives `Mind.forked` by comparing each canonical body against the seed at save
+time, and `mindText` refreshes every heading *not* in that list from the current seed on each read.
+So editing "Reading the user" leaves the other five taking releases, and `Revert to shipped` on a
+section un-forks it — the body matches the seed again, so the next save drops it from the list.
+
+The contract, precisely: **forked means this body differs from the seed as the seed stands at the
+moment of the write.** Storing that answer is what keeps *reads* from re-deriving it — between saves a
+release can move a seed, and a section still holding the old text no longer equals the new one, so
+deciding on read would call that an edit and freeze it. It does not accumulate, though: each save
+recomputes the whole set, so a later seed that becomes byte-identical to what the user wrote un-forks
+their section on the next save. That is the same rule as `Revert to shipped` — matching the seed *is*
+how you rejoin it — and carrying a prior set forward would mean threading the previous `Mind` through
+`saveMind` to preserve a distinction with no visible effect where it is drawn.
+
+**A document stored before `forked` existed migrates to the canonical headings it actually contains**
+(`legacyForked`), not to the full current list. Those documents were written under "any write forks
+everything", so every section they have is forked — but marking a heading they have never seen forks
+a section that isn't in them, and `mindText` then skips inserting the very thing it should deliver: a
+section shipped after the upgrade would never arrive, for exactly the users who have been here
+longest, and would present as one they appeared to delete. The cost is the other reading of absence —
+a section deleted by hand before the field existed comes back once from the seed, since legacy
+storage records no heading set to tell the two cases apart. That is the recoverable mistake of the
+two; deleting it again now sticks.
 
 **This started as a layer *over* a shipped playbook**, on the argument that a model rewriting its own
 evidence base can degrade every future answer with one bad run. The objection is real and the design
@@ -447,6 +470,13 @@ amended only when the *rule* was wrong, not when it didn't fit one conversation 
 claim is usually what was actually learned, not deleting it. Two things it may not do: write anything
 about the person in the current request (that leaks one connection into all of them), and amend away
 the line about a real no.
+
+**And no turn numbers in this document**, which is the one place the standing "cite the turn like
+`[4]`" rule inverts. `formatTurn` numbers by position *within one record*, and the learned section is
+read on every call about everyone — so a citation that was evidence when it was written points at a
+stranger's message on the next run, and positions move anyway when an earlier turn is edited or
+deleted. The evidence goes in words. A finding that can't stand up without a turn number is a finding
+about that one conversation, and belongs in the profile, where the number still resolves.
 
 The field is **required in `SUGGESTION_SCHEMA` but optional in `validateSuggestion`**. Providers that
 enforce a schema always send it; a backend with none (Qwen) shouldn't burn a whole retry on the one
