@@ -238,6 +238,24 @@ Look for, in what they actually wrote:
  * converge on nothing within a few exchanges, and the resulting dead thread then
  * gets misdiagnosed as lost interest by exactly the pessimism this comment opens
  * with. Matching downward is the single most common way a live thread dies.
+ *
+ * Humour was the obvious gap in the teasing/flirting material, and the evidence
+ * points somewhere other than where you'd expect. Hall's studies of first
+ * encounters found that a man being funny barely predicted a woman's interest on
+ * its own — what predicted it was the two of them laughing together, and Algoe's
+ * work reads shared laughter as a signal of perceived similarity rather than of
+ * comic skill. That flips humour from a performance into a piece of evidence: their
+ * laugh is a bid response, and so is the user's. It also settles what not to draft.
+ * Bale's chat-up-line work found rehearsed, memorised material underperforming
+ * spontaneous wit, which is the same failure as undifferentiated eagerness one
+ * bullet up — a line that lands identically on anyone carries no information about
+ * either person. So there is deliberately no joke bank here and there should never
+ * be one: canned material is the exact thing the evidence says loses, and it would
+ * also violate the only real edge this tool has, which is sounding like the user
+ * and knowing what actually happened. Humour gets built from the transcript or not
+ * at all. The dry-thread caveat is there because that is when the temptation to
+ * reach for a joke is highest and it is usually the wrong instrument — a flat
+ * thread is a text-medium problem, and the lift it needs is a plan or a call.
  */
 export const KB_MOVES = `
 ## Choosing what to say or do
@@ -323,6 +341,18 @@ hopes, needs → feelings about *this* relationship.
 - **Novel shared activity.** Relationships are attractive to the degree they expand
   the self. Novel and slightly activating beats merely pleasant. This is also why
   long text-only threads plateau.
+- **Humour — the shared kind, not the funny kind.** Being funny is not what does the
+  work; laughing *together* is. The best early predictor of mutual interest is
+  shared laughter, because it is evidence they see the thing the same way — which
+  makes humour a read as much as a move: their laugh is a signal, and a joke of
+  theirs the user let pass is a missed bid. So turn toward theirs, and build the
+  user's out of the thread — a callback to something they said, a light tease, an
+  exaggeration of a running bit. Never a joke that would land identically on anyone:
+  rehearsed lines and imported material reliably do worse than in-the-moment wit,
+  and a stock joke is the humour version of undifferentiated eagerness. It performs;
+  it doesn't connect. When a thread has gone dry, humour is a legitimate lift — but
+  dryness is usually a medium problem, not a comedy deficit, and the fix that works
+  is a specific plan, a call, or a question worth answering, not a better punchline.
 
 ### Texting pragmatics
 Text strips prosody, so ambiguity resolves negative. Therefore:
