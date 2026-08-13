@@ -8,6 +8,7 @@ import {
   forkedHeadings,
   learnedText,
   legacyForked,
+  mergeMind,
   mindFor,
   mindText,
   missingHeadings,
@@ -293,5 +294,43 @@ Mirror their energy and match their length.`
 
   test('nothing stored forks nothing', () => {
     expect(legacyForked('')).toEqual([])
+  })
+})
+
+// The editor loads the whole document, holds it while the user types, and saves
+// the whole thing back — so a `suggestMove` amendment landing in between used to
+// be overwritten, silently, out of the one section with no seed to restore it.
+describe('mergeMind', () => {
+  const base = SEED_MIND
+  const amended = writeMindSection(base, LEARNED_HEADING, '- He writes short.')
+
+  test('an amendment to a section the draft never touched survives the save', () => {
+    const draft = writeMindSection(base, 'Reading the user', 'Watch how they hedge.')
+    const merged = mergeMind(base, draft, amended)
+    expect(learnedText(merged)).toBe('- He writes short.')
+    expect(merged).toContain('Watch how they hedge.')
+  })
+
+  test('the draft wins the section it did change', () => {
+    const draft = writeMindSection(base, LEARNED_HEADING, '- He writes long.')
+    expect(learnedText(mergeMind(base, draft, amended))).toBe('- He writes long.')
+  })
+
+  test('a section the draft deleted stays deleted', () => {
+    const draft = writeMindSection(base, 'Using web research', '')
+    const merged = mergeMind(base, draft, amended)
+    expect(missingHeadings(merged)).toEqual(['Using web research'])
+    expect(learnedText(merged)).toBe('- He writes short.')
+  })
+
+  test('a section the draft added arrives in its running order', () => {
+    const draft = writeMindSection(base, 'Reading the user', 'Watch how they hedge.')
+    const merged = mergeMind(base, draft, amended)
+    expect(parseSections(merged).map((s) => s.heading)).toEqual([...MIND_HEADINGS])
+  })
+
+  test('nothing landed while the draft was open, so the draft is the answer', () => {
+    const draft = writeMindSection(base, LEARNED_HEADING, '- He writes long.')
+    expect(mergeMind(base, draft, base)).toBe(draft)
   })
 })

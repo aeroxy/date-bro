@@ -233,7 +233,12 @@ export async function suggestMove(
   // margin, and the amendment is the one this run can afford to drop.
   if (amendment?.changed) {
     try {
-      await saveMind(applyProfileUpdate(mindText(await getMind()), amendment))
+      // Base and draft from the same read, so the merge carries only the section
+      // this amendment touched. The user may be sitting in the editor with the
+      // document open; without the base, saving here would replace whatever they
+      // are part-way through typing.
+      const current = mindText(await getMind())
+      await saveMind(applyProfileUpdate(current, amendment), current)
     } catch {
       /* the coach doesn't learn from this run; the user still gets their answer */
     }

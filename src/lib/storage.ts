@@ -1,4 +1,4 @@
-import { EMPTY_MIND, forkedHeadings, legacyForked, type Mind } from '@/coach/mind'
+import { EMPTY_MIND, forkedHeadings, legacyForked, mergeMind, mindText, type Mind } from '@/coach/mind'
 import { DEFAULT_CONFIG, newLLMProfile, type CoachSettings, type LLMConfig, type LLMProfile } from '@/types/settings'
 
 const KEYS = {
@@ -102,10 +102,36 @@ export async function getMind(): Promise<Mind> {
   }
 }
 
-export async function saveMind(markdown: string): Promise<Mind> {
-  const mind: Mind = { markdown, updatedAt: Date.now(), forked: forkedHeadings(markdown) }
-  await chrome.storage.local.set({ [KEYS.mind]: mind })
-  return mind
+/**
+ * Writes are queued rather than issued as they arrive.
+ *
+ * `chrome.storage.local` has no compare-and-set, so this is a read-modify-write
+ * across two await points, and two of them interleaved lose one. One writer is a
+ * user hitting Save and the other is a 30-second model run finishing — the
+ * overlap is narrow but it is exactly when both have something to say. A promise
+ * chain is enough because both writers live in the app page; there is no second
+ * context writing this key.
+ *
+ * `.catch` on the tail, not on the returned promise: a failed save must still
+ * reject for its own caller, while leaving the queue usable for the next one.
+ */
+let mindWrites: Promise<unknown> = Promise.resolve()
+
+/**
+ * `base` is the document as the caller loaded it. Pass it and a concurrent
+ * amendment survives — see `mergeMind`. Omitting it keeps the old behaviour of
+ * replacing the document outright, which is right only when the caller knows
+ * nothing can have changed under it.
+ */
+export async function saveMind(markdown: string, base?: string): Promise<Mind> {
+  const write = mindWrites.then(async () => {
+    const merged = base === undefined ? markdown : mergeMind(base, markdown, mindText(await getMind()))
+    const mind: Mind = { markdown: merged, updatedAt: Date.now(), forked: forkedHeadings(merged) }
+    await chrome.storage.local.set({ [KEYS.mind]: mind })
+    return mind
+  })
+  mindWrites = write.catch(() => {})
+  return write
 }
 
 /**

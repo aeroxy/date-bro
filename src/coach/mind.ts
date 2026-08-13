@@ -356,6 +356,48 @@ export function writeMindSection(markdown: string, heading: string, body: string
 }
 
 /**
+ * Three-way merge of one document, by section.
+ *
+ * The editor loads the whole document, holds it while the user types, and saves
+ * the whole thing back. A `suggestMove` run amends the same document in the
+ * meantime — the modal's own comment says it loads on open *because* a run
+ * rewrites it underneath, which handles the read and left the write alone. So
+ * the coach would file a finding, the user would hit Save on a draft loaded
+ * before it, and the finding was gone. Silently, and from the one section with
+ * no seed to restore it from.
+ *
+ * `base` is the document as the writer loaded it, `latest` is what is in storage
+ * now. A section the draft did not touch takes whatever landed while it was
+ * open; a section the draft changed wins. Applied onto `latest` with
+ * `writeMindSection` rather than reassembled, so a section either of them added
+ * keeps its running order and an emptied one still deletes.
+ *
+ * Section-level, not line-level, on purpose: amendments and edits both address a
+ * heading, so that is the granularity at which two writers actually conflict.
+ * Two writers editing the *same* section is a real conflict and the draft wins —
+ * the user is present and the run is not.
+ */
+export function mergeMind(base: string, draft: string, latest: string): string {
+  // Nothing landed while the draft was open, so there is nothing to merge onto.
+  if (base.trim() === latest.trim()) return draft
+  const bodies = (markdown: string) =>
+    new Map(parseSections(markdown).map((s) => [key(s.heading), s.body.trim()]))
+  const baseBodies = bodies(base)
+  const draftBodies = bodies(draft)
+  // Every heading either document knows about — from `base` too, so a section
+  // the draft *deleted* is still visited and its deletion carried over.
+  const headings = new Map(
+    [...parseSections(draft), ...parseSections(base)].map((s) => [key(s.heading), s.heading]),
+  )
+  let merged = latest
+  for (const [id, heading] of headings) {
+    const body = draftBodies.get(id) ?? ''
+    if (body !== (baseBodies.get(id) ?? '')) merged = writeMindSection(merged, heading, body)
+  }
+  return merged
+}
+
+/**
  * The shipped *body* of one section, for "revert this to shipped" and for
  * telling edited from untouched.
  *
@@ -409,14 +451,14 @@ answer on most runs, and it is a real answer.
 - **Nothing about the person in this request.** That belongs in their profile.
   Written here it leaks one connection into every other one.
 - **No turn numbers.** You are told to cite the turn for everything else, and
-  here it is worse than no evidence at all. \`[4]\` is a position in *one*
-  person's transcript, and this section is read on every call about everyone — so
-  a number that was evidence when you wrote it points at a stranger's message on
-  the next run. Positions also move: an earlier turn edited or deleted re-aims
-  every reference after it, quietly. Put the evidence in words instead — what was
-  said, what you tried, what came back. A finding that can't stand up without a
-  turn number is a finding about that one conversation, and it goes in the
-  profile, where the number still means something.
+  here it is worse than no evidence at all. A turn number is durable, but only
+  inside the one record it was handed out in — every conversation numbers its own
+  turns from one. This document is read on every call about everyone, so a \`[4]\`
+  that was real evidence when you wrote it resolves against a stranger's
+  transcript on the next run, and lands on a turn that exists. Put the evidence in
+  words instead — what was said, what you tried, what came back. A finding that
+  can't stand up without a turn number is a finding about that one conversation,
+  and it goes in the profile, where the number still means something.
 - **Merge before you add.** Every section here is sent on every call, and nothing
   prunes it but you. When what you were about to write is a version of something
   already there, replace that line with the one they were both reaching for
