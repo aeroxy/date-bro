@@ -2,12 +2,10 @@ import { useEffect, useState } from 'react'
 import { Brain, RotateCcw } from 'lucide-react'
 
 import {
-  LEARNED_HEADING,
   MIND_PARTS,
-  SEED_MIND,
-  learnedText,
   missingHeadings,
   mindText,
+  resetBeliefs,
   seedSection,
   writeMindSection,
 } from '@/coach/mind'
@@ -121,17 +119,15 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
             onClick={() => {
               if (
                 !confirm(
-                  'Reset everything the coach believes to what shipped?\n\nYour edits to those sections, and its own, are discarded. What it has learned about you is kept.',
+                  'Reset everything the coach believes to what shipped?\n\nYour edits to those sections, and its own, are discarded. What it has learned about you is kept, and so is any section you added yourself.',
                 )
               )
                 return
-              // Not `SEED_MIND` flat. The learned section has no shipped version
-              // — its seed is the empty placeholder — so resetting it isn't a
-              // restore, it is deletion wearing a restore's label, and it is the
-              // one section with nothing to recover it from. A button aimed at
-              // the beliefs shouldn't take it as collateral.
-              const learned = draft === null ? '' : learnedText(draft)
-              replace(learned ? writeMindSection(SEED_MIND, LEARNED_HEADING, learned) : SEED_MIND)
+              // Not `SEED_MIND` flat — see `resetBeliefs` for what survives and
+              // why. Both kinds it keeps have no shipped version to be restored
+              // to, so resetting them would be deletion wearing a restore's
+              // label.
+              replace(resetBeliefs(draft ?? ''))
             }}
           >
             Reset beliefs

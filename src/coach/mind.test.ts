@@ -11,6 +11,7 @@ import {
   mergeMind,
   mindFor,
   mindText,
+  resetBeliefs,
   missingHeadings,
   seedSection,
   writeMindSection,
@@ -323,14 +324,57 @@ describe('mergeMind', () => {
     expect(learnedText(merged)).toBe('- He writes short.')
   })
 
-  test('a section the draft added arrives in its running order', () => {
-    const draft = writeMindSection(base, 'Reading the user', 'Watch how they hedge.')
+  // A section the draft genuinely *added*, which is the case the reduce onto
+  // `latest` exists for — it has no slot in the shipped order, so it has to land
+  // last rather than wherever the merge happened to reach it.
+  test('a section the draft added lands after the ones that ship', () => {
+    const draft = writeMindSection(base, 'House rules', 'No emoji.')
     const merged = mergeMind(base, draft, amended)
-    expect(parseSections(merged).map((s) => s.heading)).toEqual([...MIND_HEADINGS])
+    expect(parseSections(merged).map((s) => s.heading)).toEqual([...MIND_HEADINGS, 'House rules'])
+    expect(learnedText(merged)).toBe('- He writes short.')
   })
 
   test('nothing landed while the draft was open, so the draft is the answer', () => {
     const draft = writeMindSection(base, LEARNED_HEADING, '- He writes long.')
     expect(mergeMind(base, draft, base)).toBe(draft)
+  })
+})
+
+// "Reset beliefs" restores what shipped. Both things it keeps are things with no
+// shipped version to be restored to, so resetting them would be deletion wearing
+// a restore's label — and the button is aimed at the beliefs.
+describe('resetBeliefs', () => {
+  const lived = writeMindSection(
+    writeMindSection(
+      writeMindSection(SEED_MIND, 'Reading the user', 'Watch how they hedge.'),
+      LEARNED_HEADING,
+      '- He writes short.',
+    ),
+    'House rules',
+    'No emoji.',
+  )
+  const reset = resetBeliefs(lived)
+
+  test('puts every shipped section back', () => {
+    expect(reset).toContain(seedSection('Reading the user')!)
+    expect(reset).not.toContain('Watch how they hedge.')
+    expect(forkedHeadings(reset)).toEqual([LEARNED_HEADING])
+  })
+
+  test('keeps what the coach learned', () => {
+    expect(learnedText(reset)).toBe('- He writes short.')
+  })
+
+  test('keeps a section the user added, which nothing else could restore', () => {
+    expect(reset).toContain('No emoji.')
+    expect(parseSections(reset).at(-1)?.heading).toBe('House rules')
+  })
+
+  test('an untouched document resets to exactly what shipped', () => {
+    expect(resetBeliefs(SEED_MIND)).toBe(SEED_MIND)
+  })
+
+  test('nothing loaded yet is still the shipped document', () => {
+    expect(resetBeliefs('')).toBe(SEED_MIND)
   })
 })

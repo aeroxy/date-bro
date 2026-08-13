@@ -356,6 +356,26 @@ export function writeMindSection(markdown: string, heading: string, body: string
 }
 
 /**
+ * What "Reset beliefs" restores: the shipped document, carrying over every
+ * section that has no shipped version to be restored to.
+ *
+ * Two kinds qualify. "What you've learned" is the coach's findings about this
+ * user and its seed is the empty placeholder. And any section the user wrote
+ * themselves — `writeMindSection` gives those a place in the running order and
+ * `forkedHeadings` counts them as nobody's fork, so they are a first-class part
+ * of the document rather than debris. For both, "reset to shipped" would be
+ * deletion wearing a restore's label, and neither has anything else to recover it
+ * from. A button aimed at the beliefs takes the beliefs and nothing else.
+ */
+export function resetBeliefs(markdown: string): string {
+  const shipped = new Set(MIND_HEADINGS.map(key))
+  const keep = parseSections(markdown).filter(
+    (s) => !shipped.has(key(s.heading)) || key(s.heading) === key(LEARNED_HEADING),
+  )
+  return keep.reduce((doc, s) => writeMindSection(doc, s.heading, s.body), SEED_MIND)
+}
+
+/**
  * Three-way merge of one document, by section.
  *
  * The editor loads the whole document, holds it while the user types, and saves
