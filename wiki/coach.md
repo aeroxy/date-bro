@@ -319,9 +319,16 @@ and out of the system block, and that section is the only place the coach is tol
 field is *for* — so Qwen, which researches natively and gets no tool schemas from us, did the
 research and was never asked to keep any of it. The field came back `[]` on the backend most runs
 actually use. `KEEP_WHAT_YOU_LOOKED_UP` in `prompts.ts` carries the persist rule on that path only,
-in the task rather than in the mind: it's a fact about an output field rather than something the
-coach believes, and a new `##` section would be missing from every document already forked from the
-seed — which is exactly the installations that need it. The tool-bearing path is left alone, so each
+in the task rather than in the mind, for two reasons that survive. It's a contract about an output
+field rather than something the coach believes — and the mind is editable, so a section carrying it
+is one the user can delete, which would empty `research_notes` on the backend most runs use with
+nothing to say why. And it is needed on *one* path: `mindFor` selects sections by audience, so a mind
+section rides every call for an engine or none, while the task string is already two variants and can
+carry it on the no-tools one alone. (The reason that no longer applies: a new `##` section used to be
+missing from every document already forked from the seed. Under per-section forking `mindText` inserts
+a newly shipped heading into any document that hasn't forked it, and `legacyForked` marks only the
+headings a legacy document actually contains — so a new section would now arrive.) The tool-bearing
+path is left alone, so each
 variant stays one constant string and caches on its own.
 
 `suggestMove` also does two things the rebuild engines don't. It appends its answer to the

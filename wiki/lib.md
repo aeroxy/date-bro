@@ -272,6 +272,17 @@ stored before the field existed migrates to the canonical headings it actually c
 (`legacyForked`) — the full list would fork sections the document never had and strand every section
 shipped after the upgrade.
 
+`saveMind(markdown, base?)` also takes **the document as the caller loaded it**. Given one, it
+three-way merges the draft onto whatever is in storage now (`mergeMind`): a section the draft never
+touched keeps whatever landed while the draft was open, a section it changed wins. Without a base it
+replaces the document outright, which is right only when the caller knows nothing can have moved under
+it. Both writers pass one — the editor its `loaded` snapshot, `suggestMove` the text it built the
+amendment on — so a run finishing while the editor is open no longer loses its amendment to the Save
+that follows. Writes are also **queued** through a promise chain: `chrome.storage.local` has no
+compare-and-set, so this is a read-modify-write across two await points and two interleaved would lose
+one. A chain suffices because both writers live in the app page; record updates write IndexedDB
+`dates` and never touch this key, so there is nothing else to serialize against.
+
 ## `db.ts`
 
 IndexedDB via `idb`. Database `date-bro` v1, one store `dates` keyed by `id` with a `by-updated`
