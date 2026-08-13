@@ -10,8 +10,11 @@ the mechanics.
 
 **The seed, not the live text.** Everything here is assembled by [`mind.ts`](#mindts) into one
 markdown document — the coach — which is what actually reaches a prompt and which both the user and
-the coach can rewrite. Once either has, this file stops being read for that installation. Editing it
-still matters: it is what every new installation starts from, and what "revert to shipped" restores.
+the coach can rewrite. A rewrite stops that installation reading this file **for the sections it
+rewrote**; every section neither of them has touched still refreshes from here on each read, so a
+release improving one module reaches everyone who hasn't edited that module. Editing it therefore
+matters three ways: it is what a new installation starts from, what "revert to shipped" restores, and
+what an existing installation picks up for anything it has left alone.
 
 Each export is exactly one `##` section of that document, which is why the headings are what they
 are — they're the addresses an amendment aims at. Split so each engine only pays for what it uses:

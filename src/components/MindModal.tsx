@@ -145,7 +145,10 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
             disabled={draft === null}
             onClick={() => {
               if (draft === null) return
-              saveMind(draft)
+              // `loaded` is the document as it stood when this modal opened, so
+              // a run that amended a section while it was open keeps its
+              // amendment instead of being overwritten by this draft.
+              saveMind(draft, loaded)
                 .then(onClose)
                 .catch((e: unknown) => setError((e as Error).message))
             }}
