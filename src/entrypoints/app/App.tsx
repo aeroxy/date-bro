@@ -6,6 +6,7 @@ import { ConversationPanel } from '@/components/ConversationPanel'
 import { PersonContextView, SelfContextView } from '@/components/ContextView'
 import { DateRail } from '@/components/DateRail'
 import { AskComposer, type ProfileEdit } from '@/components/AskComposer'
+import { ExportButton, ExportModal } from '@/components/ExportModal'
 import { MindButton, MindModal } from '@/components/MindModal'
 import { ProfileModal } from '@/components/ProfileModal'
 import { SettingsModal } from '@/components/SettingsModal'
@@ -92,6 +93,7 @@ export default function App() {
   const [thinking, setThinking] = useState<Record<string, ThinkingSummary>>({})
   const [createError, setCreateError] = useState<string | null>(null)
   const [showProfile, setShowProfile] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showMind, setShowMind] = useState(false)
   // Which coach turn's advice each `next` panel is showing. No entry means that
@@ -478,6 +480,7 @@ export default function App() {
               {busyTab === 'next' ? <Spinner /> : <Sparkles size={13} />}
               What do I say?
             </Button>
+            <ExportButton onClick={() => setShowExport(true)} />
             <MindButton onClick={() => setShowMind(true)} />
             <button
               onClick={() => setShowSettings(true)}
@@ -808,6 +811,13 @@ export default function App() {
             persist(remove(active.id), tab)
           }}
         />
+      ) : null}
+
+      {/* Unkeyed, unlike ProfileModal: it holds no draft, so a rail switch
+          underneath it just re-derives the document for whoever is selected —
+          which is what it should show. */}
+      {active ? (
+        <ExportModal open={showExport} record={active} onClose={() => setShowExport(false)} />
       ) : null}
 
       <MindModal open={showMind} onClose={() => setShowMind(false)} />

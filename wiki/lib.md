@@ -306,3 +306,25 @@ can't produce a false staleness chip. It also runs the four migrations; see
 | `adviceTurn(suggestion)` | A suggestion as the `coach` turn that goes in the pool: the priority plus the option labels, two lines out of a four-hundred-word generation. Derived here rather than asked of the model — no output field to get wrong, no tokens spent, and the same suggestion always renders the same way. The whole `Suggestion` rides along in `Turn.advice` for the panel; only `text` reaches the prompt. The turn takes the suggestion's own id, so the two can't drift apart |
 | `parsePastedLog(raw, theirName)` | `Name: text` lines with the common label variants plus the person's own name, plus an optional bracketed timestamp right after the label — `Name [Tue 9pm]: text`. The bracket is free-form, same string the manual composer's "when" field takes; omit it and the line parses exactly as before. Unlabelled lines join the previous turn, so multi-line messages survive. Anything before the first recognised label is dropped. |
 | `transcriptStats(record)` | Turn, word, and question counts per side — the UI header, and nothing else. The prompt used to carry them as `<counts>`; it doesn't, and the reasoning is in `transcriptSegments`. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |
+
+## `export-markdown.ts`
+
+`recordToMarkdown(record, now?)` → one record as a document: the standing facts, both profiles with
+the judgment behind them, the whole numbered conversation, and the research notes. `exportFilename`
+names it `mira-2026-08-13.md`, built from the local calendar rather than `toISOString()`, which is UTC
+and so names the file after yesterday west of Greenwich.
+
+Two decisions carry it. **Absolute dates, never `ago()`** — this is the one thing here that leaves the
+app, and a file saying "rebuilt 2d ago" is wrong the day after it is written with nothing left to
+correct it. `now` is threaded into `describeBirthday` for the same reason: the age in the document and
+the date at the top of it are read off one clock. And it renders **its own turn blocks** rather than
+calling `formatTurn`, which is shaped by the prompt — byte-stable for the prefix cache, labelled for a
+model that has to cite it. Here a message is a blockquote (the one rendering that keeps a multi-line
+message from collapsing into the label above it) and a note is prose. The two share `speakerLabel`,
+which is the part that must not drift.
+
+The profile prose owns `##` for its own sections and here sits *under* one, so every heading in it
+drops a level (`nest`) and the document keeps a single outline. A `coach` turn contributes its
+two-line summary plus **the drafts** — the actual words that were offered, which nothing else records
+— and not the read, the reasoning or the timing, which are panel furniture that would bury the
+conversation they sit inside.
