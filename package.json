@@ -1,7 +1,7 @@
 {
   "name": "date-bro",
   "description": "AI dating coach Chrome extension — build a picture of your date, and know what to say next",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.13",
