@@ -354,6 +354,27 @@ describe('resetBeliefs and the text above the first heading', () => {
     expect(resetBeliefs(SEED_MIND)).toBe(SEED_MIND)
     expect(resetBeliefs('')).toBe(SEED_MIND)
   })
+
+  // Same rule in the merge: `writeMindSection` keeps the preamble of whatever
+  // document it is handed, which there is always `latest`'s.
+  test('mergeMind takes the draft preamble when the draft changed it', () => {
+    const base = `Old rules.\n\n${SEED_MIND}`
+    const draft = `New rules.\n\n${SEED_MIND}`
+    const latest = writeMindSection(base, LEARNED_HEADING, '- He writes short.')
+    const merged = mergeMind(base, draft, latest)
+    expect(merged.startsWith('New rules.')).toBe(true)
+    expect(merged).toContain('- He writes short.')
+  })
+
+  test('mergeMind leaves the preamble alone when the draft did not touch it', () => {
+    const base = `Old rules.\n\n${SEED_MIND}`
+    const draft = writeMindSection(base, 'Reading the user', 'Watch hedging.')
+    const latest = writeMindSection(base, LEARNED_HEADING, '- He writes short.')
+    const merged = mergeMind(base, draft, latest)
+    expect(merged.startsWith('Old rules.')).toBe(true)
+    expect(merged).toContain('Watch hedging.')
+    expect(merged).toContain('- He writes short.')
+  })
 })
 
 // The editor loads the whole document, holds it while the user types, and saves

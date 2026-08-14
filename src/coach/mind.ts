@@ -379,6 +379,24 @@ export function writeMindSection(markdown: string, heading: string, body: string
  * deletion wearing a restore's label, and neither has anything else to recover it
  * from. A button aimed at the beliefs takes the beliefs and nothing else.
  */
+/**
+ * Text above the first `##`, which `parseSections` cannot return.
+ *
+ * One copy for the three functions that rebuild a document rather than edit one
+ * in place. `writeMindSection` owns the rule — a preamble is the user's and not
+ * this code's to drop — and both writers below have to apply it themselves,
+ * because each starts from a document that is not the one the preamble came from.
+ */
+const preambleOf = (markdown: string): string => {
+  const first = markdown.search(/^##\s+/m)
+  return (first === -1 ? markdown : markdown.slice(0, first)).trim()
+}
+
+const sectionsOf = (markdown: string): string => {
+  const first = markdown.search(/^##\s+/m)
+  return first === -1 ? '' : markdown.slice(first)
+}
+
 export function resetBeliefs(markdown: string): string {
   const shipped = new Set(MIND_HEADINGS.map(key))
   const keep = parseSections(markdown).filter(
@@ -389,8 +407,7 @@ export function resetBeliefs(markdown: string): string {
   // bare seed dropped it. `writeMindSection` carries a preamble it is *given*
   // and treats it as the user's; it just has none to carry when the document it
   // starts from is the seed.
-  const first = markdown.search(/^##\s+/m)
-  const preamble = (first === -1 ? markdown : markdown.slice(0, first)).trim()
+  const preamble = preambleOf(markdown)
   const base = preamble ? `${preamble}\n\n${SEED_MIND}` : SEED_MIND
   return keep.reduce((doc, s) => writeMindSection(doc, s.heading, s.body), base)
 }
@@ -433,6 +450,15 @@ export function mergeMind(base: string, draft: string, latest: string): string {
   for (const [id, heading] of headings) {
     const body = draftBodies.get(id) ?? ''
     if (body !== (baseBodies.get(id) ?? '')) merged = writeMindSection(merged, heading, body)
+  }
+  // The preamble merges by the same rule as a section: the draft wins where it
+  // changed it, `latest` keeps it where the draft didn't. `writeMindSection`
+  // preserves whichever preamble the document it was handed already had, which
+  // here is always `latest`'s — so a draft that edited the text above the first
+  // heading needed this to survive, the way one that edited a section does.
+  const drafted = preambleOf(draft)
+  if (drafted !== preambleOf(base)) {
+    merged = [drafted, sectionsOf(merged)].filter(Boolean).join('\n\n')
   }
   return merged
 }
