@@ -107,7 +107,13 @@ export function Chip({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
+        // `shrink-0 whitespace-nowrap` because a pill that wraps stops reading as
+        // one — it becomes a tall lozenge with a word on each line. As a flex
+        // item a chip is shrinkable by default, so any long sibling in the same
+        // row squeezes it, and the label beside it is model-written and
+        // arbitrarily long. Chips are short by construction; none of them wants
+        // to break.
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
         chipTones[tone],
         className,
       )}
