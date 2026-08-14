@@ -57,6 +57,18 @@ export function ExportModal({
     link.click()
     // Not revoked inline: the click is synchronous, the read the browser does of
     // the blob behind it is not, and revoking first cancels the download.
+    //
+    // `0` rather than a longer "safety" delay, which is a recurring review
+    // suggestion and would buy nothing. Revocation drops the URL→Blob mapping for
+    // *future* resolutions; a fetch that has already started holds its own
+    // reference to the Blob, so it cannot be severed once running, and no amount
+    // of main-thread load changes that. What `0` actually leans on is that the
+    // click's task and the timer's task run in queue order, which is ordering
+    // *between* task sources and therefore not something the spec promises — so a
+    // bigger number would only widen an unspecified window, not close it. The fix
+    // that would close it is `chrome.downloads.download()`, whose callback fires
+    // once the download is accepted; it needs the `downloads` permission, which is
+    // more than a text file this size is worth.
     setTimeout(() => URL.revokeObjectURL(url), 0)
   }
 
