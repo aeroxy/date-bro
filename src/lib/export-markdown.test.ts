@@ -11,7 +11,10 @@ const NOW = new Date(2026, 7, 13, 9, 30)
 const record = (over: Partial<DateRecord> = {}): DateRecord => ({
   id: 'r1',
   name: 'Mira',
-  createdAt: Date.UTC(2026, 5, 1),
+  // Local, not `Date.UTC`: the renderer formats this with `toLocaleDateString`,
+  // so a UTC midnight is the previous day west of Greenwich and the assertion
+  // below fails there and only there.
+  createdAt: new Date(2026, 5, 1).getTime(),
   updatedAt: Date.UTC(2026, 7, 1),
   turnsUpdatedAt: Date.UTC(2026, 7, 1),
   nextTurnNumber: 1,

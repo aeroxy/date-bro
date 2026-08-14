@@ -22,10 +22,11 @@ are — they're the addresses an amendment aims at. Split so each engine only pa
 | Module | Used by | Contents |
 |---|---|---|
 | `KB_IDENTITY` | every engine | Who the coach is: voice, nerve, who the advice is for, and the one line that never bends |
-| `KB_EVIDENCE` | both rebuilders | Inference discipline: separate observation from inference, confidence is part of the claim, one message is never a pattern, prefer the boring explanation, unknowns are output |
-| `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), Big Five over MBTI/love-languages, bids for connection, honest interest signals ranked by diagnostic value, red/amber/green flags |
-| `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, voice, stated vs revealed goals |
-| `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder, cheap well-evidenced wins, texting pragmatics, set pieces (asking out, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means |
+| `KB_EVIDENCE` | both rebuilders | Inference discipline: separate observation from inference, confidence is part of the claim, one message is never a pattern, prefer the boring explanation, unknowns are output, and politeness is not uptake — an ironic thank-you or a wall of laughing is a receipt, so read the two messages after it, which bites hardest when the coach is grading its own advice |
+| `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), Big Five over MBTI/love-languages, bids for connection — including the ones that reach into something of the user's, since stepping over one is how a live subject dies — who is supplying the conversation (who opens, which subjects they feed versus close politely, what they raised that nobody picked up, what is spent, whether the thread has narrowed to one loop), honest interest signals ranked by diagnostic value, red/amber/green flags |
+| `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, voice, stated vs revealed goals, who brings the subjects (answering well is the comfortable half and invisible as a gap), and what the user is actually into this month — the one conversational supply that works before a thread has any history, and the only material here that cannot be researched |
+| `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder, cheap well-evidenced wins, texting pragmatics (now carrying density, one-subject-per-burst, their-line-first, and don't-explain-a-tease), set pieces (asking out, opening cold, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means |
+| `KB_WORTH_REPLYING` | suggest | The half `KB_MOVES` lacked: not whether a reply is right, but what the other person gains by reading it. Announce-do-report and its boundary (it yields the next *beat* of a thread, never a new one); the reply owes them something new; guess-don't-survey as two moves — an unmissable description plus a reframe that admires where sympathy was expected, aimed at a self-concept rather than a habit, and never at an insecurity; open-don't-only-answer with a test for "new" and the running loop ruled off its own supply list; a read inflating as fast as a compliment does; take the bid; status as a ticket that needs a seat in it; land it and leave; drafting for voice once the channel changes, which the playbook pushed toward for a year without saying what to do on arrival; don't become the channel for their bad week. Derived from a real 930-turn record rather than from research — see the module comment, which also says what was deliberately left out and why the examples in the prose are load-bearing |
 | `KB_RESEARCH` | suggest, only when tools are attached | Three lanes: what they've said about themselves, whether it holds up, and the logistics of the move. Search what would change the advice, as many times as that needs — but not for its own sake, and with the query built from the thread's current state, or it looks up a venue in the city they left four turns ago. Bounded by where it starts — outward from what the person disclosed, not a sweep for everything findable about them, which is the one scope limit any section carries. Check `<research_notes>` before searching again |
 
 **Who the advice is for**, because it decides what a good answer is. The user almost always already
@@ -104,7 +105,7 @@ belief sections ride in `system`; "What you've learned" rides in the tail (`<wha
 `audience: 'tail'` in `MIND_PARTS`). The one-document position — everything in `system`, amendments
 accepted as a rare cache write — didn't survive measurement: the learned section is where amendments
 land *by design*, `system` sits above the profile and the whole transcript, and one ~250-char
-amendment between two next-move runs re-wrote ~47k of ~49k cached tokens (`refs/raw1` → `raw2`).
+amendment between two next-move runs re-wrote ~47k of ~49k cached tokens.
 Amending a *belief* section still invalidates the system entry, and that remains accepted: it means
 a rule actually changed, and `changed: false` is stated as the expected answer.
 
@@ -455,16 +456,21 @@ the sections an engine needs, so a rebuild never pays for the 2.4k tokens of the
 
 | Section | Sent to | Tokens |
 |---|---|---|
-| Who you are | every call | ~510 |
-| Inference discipline | every call | ~345 |
-| Reading the other person | rebuild/amend them | ~980 |
-| Reading the user | rebuild/amend you | ~400 |
-| Choosing what to say or do | next move | ~1,920 |
+| Who you are | every call | ~545 |
+| Inference discipline | every call | ~440 |
+| Reading the other person | rebuild/amend them | ~1,290 |
+| Reading the user | rebuild/amend you | ~590 |
+| Choosing what to say or do | next move | ~2,830 |
+| Being worth replying to | next move | ~1,995 |
 | Using web research | next move, tools attached | ~790 |
 | What you've learned | every call, in the volatile tail | starts empty |
 
-Whole document ~4.9k tokens; the heaviest engine (next move with research) sees ~3.6k, a rebuild
-~1.8k. A heading the user renames or deletes simply isn't found and that engine goes without it —
+Whole document ~8.5k tokens; the heaviest engine (next move with research) sees ~6.6k, a rebuild
+~2.2k. `Being worth replying to` shares the next-move audience with the playbook, so splitting it out
+buys no tokens back — it is a separate slot because a heading is what an amendment can address, and
+"does this reply give them anything" is a different claim from "is this reply right".
+
+A heading the user renames or deletes simply isn't found and that engine goes without it —
 deliberately not backfilled from the seed, since the point of an editable coach is that deleting
 something deletes it. `missingHeadings` is what tells them, in the editor rather than silently.
 
@@ -502,7 +508,7 @@ half-formed update would otherwise be applied.
 
 It sits **last** in both the shape and the `required` list, and it sat *before* `options` until a
 captured run argued otherwise. The early slot was the lesson `open_questions` cost — a field after
-three drafts is one the model sometimes never comes back to. What `refs/raw` showed is the larger
+three drafts is one the model sometimes never comes back to. What a captured run showed is the larger
 failure: the model left JSON at this nested object mid-generation, emitting the tool-call syntax it
 uses natively (`mind` as a *string* reading `<parameter name=…`), flattened `sections` and `rewrite`
 to the top level, and stopped. `options`, `avoid`, `timing`, `honest_note` and `research_notes` were
@@ -556,6 +562,12 @@ validation twice. The section holds subjects *they* raised and the conversation 
 field holds gaps in what the user knows. `updateInstructions` now names the near miss explicitly, and
 the rebuild shapes put every small required field *before* the long `profile` object so the cheap
 judgment is emitted before two thousand tokens of prose begin.
+
+**`"What you're into"` is additive, not a rename**, so profiles written before it simply lack it until
+their next rebuild — the same shape as a part added to the mind. It earns a slot because the
+next-move engine is told to open a new subject once an exchange has resolved, and on a young record
+the other person's open threads are empty: without this the instruction has nothing to draw on but
+the loop already running. It is also the only material in either profile that cannot be researched.
 
 **Drift and bloat are the unsolved risk.** Amend-in-place documents grow and contradict themselves.
 The mitigations are all editorial: a ~1,500-word ceiling stated in the prompt with an instruction to

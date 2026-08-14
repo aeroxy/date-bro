@@ -39,7 +39,7 @@
  * the transcript instead (`audience: 'tail'`) — a reversal this comment used to
  * argue against, on the grounds that splitting the document across two positions
  * put the coach's mind in two places to make a rare event cheaper. Measurement
- * won the argument (refs/raw1 → raw2): the learned section is where amendments
+ * won the argument: the learned section is where amendments
  * land *by design*, the system block sits above the profile and the whole
  * transcript, and one ~250-char amendment between two next-move runs re-wrote
  * ~47k of ~49k cached tokens. The belief sections stay above because amending
@@ -54,6 +54,7 @@ import {
   KB_READ_ME,
   KB_READ_THEM,
   KB_RESEARCH,
+  KB_WORTH_REPLYING,
 } from './knowledge'
 import { key, parseSections } from './profile'
 
@@ -130,6 +131,17 @@ export const MIND_PARTS: readonly Part[] = [
     seed: KB_MOVES,
     audience: 'next',
     blurb: 'The playbook. Sent only when suggesting a next move.',
+  },
+  {
+    // Same audience as the playbook above, so this buys no tokens back — it is a
+    // separate part because a heading is what an amendment can address, and
+    // "what does a reply give them" is a different claim from "is this reply
+    // right". Folded into the playbook, a run correcting one would rewrite both,
+    // and a single revert would take the other with it.
+    heading: 'Being worth replying to',
+    seed: KB_WORTH_REPLYING,
+    audience: 'next',
+    blurb: 'Bringing something new, and not running a thread into the ground. Sent with the playbook.',
   },
   {
     heading: 'Using web research',
@@ -372,7 +384,15 @@ export function resetBeliefs(markdown: string): string {
   const keep = parseSections(markdown).filter(
     (s) => !shipped.has(key(s.heading)) || key(s.heading) === key(LEARNED_HEADING),
   )
-  return keep.reduce((doc, s) => writeMindSection(doc, s.heading, s.body), SEED_MIND)
+  // Text above the first heading is the third kind with no shipped version to be
+  // restored to, and `parseSections` doesn't return it — so rebuilding onto the
+  // bare seed dropped it. `writeMindSection` carries a preamble it is *given*
+  // and treats it as the user's; it just has none to carry when the document it
+  // starts from is the seed.
+  const first = markdown.search(/^##\s+/m)
+  const preamble = (first === -1 ? markdown : markdown.slice(0, first)).trim()
+  const base = preamble ? `${preamble}\n\n${SEED_MIND}` : SEED_MIND
+  return keep.reduce((doc, s) => writeMindSection(doc, s.heading, s.body), base)
 }
 
 /**
@@ -468,6 +488,17 @@ answer on most runs, and it is a real answer.
   narrowing a claim over deleting it: "lead with a specific plan" becoming "lead
   with a specific plan, except when they have just said they're slammed" is
   usually what you actually learned.
+- **Write a rule as a boundary and a test, not as an encouragement.** "Bring
+  something new" reads as agreeable and changes nothing, because the strongest
+  pull in any transcript is the subject already running and a rule that doesn't
+  name it loses to it. What survives contact is the exclusion plus something
+  checkable — *the loop currently running is not on the supply list; if it could
+  have been the next instalment of the conversation you're already in, it isn't
+  new.* Same for the example: when a rule was derived from a specific thing that
+  worked or failed, keep that example attached to it. The instruction on its own
+  is the part that can be satisfied while producing exactly the output it was
+  written to prevent, and stripping the example to tidy the prose is how a
+  corrected rule quietly reverts.
 - **Nothing about the person in this request.** That belongs in their profile.
   Written here it leaks one connection into every other one.
 - **No turn numbers.** You are told to cite the turn for everything else, and
