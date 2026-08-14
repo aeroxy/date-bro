@@ -93,11 +93,19 @@ Plus one background → app page broadcast, `QWEN_CHAT_THINKING` (`{ requestId, 
 | `chrome.storage.local` | `dateBroLastOpened` | last-selected date id, so the app reopens where you left it |
 | `chrome.storage.local` | `qwen_device_id` | cached device id for the Qwen fingerprint |
 
-Four migrations in `lib/db.ts` run on every read, under the same rule: **derive everything, mint
-nothing.** `normalize` runs on reads, not once at startup, so a record can be read a hundred times
-before its next save — anything non-deterministic would churn on each pass. Every default in
-`normalize` reads from the migrated value, never from the original record: reading the original would
-quietly undo whatever a migration just did.
+`normalize` in `lib/db.ts` runs four migrations and then `numberTurns`, on every read, under the same
+rule: **derive everything, mint nothing** — with one deliberate exception, the last step, where the
+thing allocated is derived from the array's own order and so comes out the same on every pass.
+`normalize` runs on reads, not once at startup, so a record can be read a hundred times before its
+next save — anything non-deterministic would churn on each pass. Every default in `normalize` reads
+from the migrated value, never from the original record: reading the original would quietly undo
+whatever a migration just did.
+
+The order is load-bearing in two places, and the bullets below are grouped by subject rather than by
+that order. `migrateSectionNames` rewrites headings inside `themProfile` / `meProfile`, which for a
+legacy record is what `migrateContexts` creates — rename first and it finds nothing to rename in
+exactly the documents it exists for. And `numberTurns` runs last, after both of the steps that add
+turns.
 
 - `migrateSeed` — records written when `seedThem`/`seedMe` existed come back carrying them, and
   their text moves into `turns` as `context` entries ahead of turn one. Nothing written under the
@@ -116,6 +124,16 @@ quietly undo whatever a migration just did.
 - `migrateContexts` — records carrying the retired `themContext`/`meContext` schemas get them
   rendered into the markdown profiles by `personToMarkdown` / `selfToMarkdown`, with the structured
   half (`interest_read`, flags, `goal_read`, open questions) lifted into the profile's `judgment`.
+- `numberTurns` (`lib/transcript.ts`) — last, and the one step that allocates rather than derives. A
+  turn written before `Turn.number` existed hasn't got one, so it gets one here, counted from 1 in
+  the order the **migrated** array ends up in. That is exactly what the positional numbering this
+  replaced computed — `normalize` has always run before anything rendered a turn — so a `[4]` written
+  into a profile back then still resolves to the turn it meant. Hence the ordering: numbering before
+  `migrateSeed` prepends its seed notes or `migrateSuggestions` appends its `coach` turn would number
+  the same prose two turns off. Idempotent, so the guarantee is free on every subsequent read — a
+  turn that already carries a number keeps it, and a record needing nothing comes back by identity.
+  Also applied on the way *in* (`saveDate`), so "anything persisted has its numbers" holds without
+  every caller remembering.
   Pure and total: every old field has a home in the new layout, since the canonical headings were
   derived from those very fields.
 
