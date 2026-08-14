@@ -9,9 +9,9 @@
 // that didn't fit a field was dropped for good.
 //
 // So the profile is prose the model owns the structure of, and a rebuild emits
-// only what changed. See `refs/redo-arch.md` for the reasoning, including what
-// was rejected — in particular a virtual filesystem with read/grep tools, which
-// buys nothing here because the whole profile is injected anyway.
+// only what changed. Rejected on the way here: a virtual filesystem with
+// read/grep tools, which buys nothing because the whole profile is injected
+// anyway.
 
 import type {
   PersonContext,
@@ -86,10 +86,20 @@ export const PERSON_SECTIONS = [
   'Threads to pick back up',
 ] as const
 
+// "What you're into" is additive rather than a rename, so records written before
+// it simply don't have it until their next rebuild — the same shape as any part
+// added to the mind. It exists because it is the one conversational supply that
+// works before a thread has any history: the next-move engine is told to open a
+// new subject when an exchange has resolved, and on a young record the profile's
+// open threads are empty, so without this the instruction has nothing to draw on
+// but the loop already running. It is also the only material here that cannot be
+// researched — what the user is mid-obsession with this month is not on a page
+// anywhere.
 export const SELF_SECTIONS = [
   'Who you are',
   'How you come across',
   'How you write',
+  "What you're into",
   'Patterns',
   'Working',
   'Costing you',

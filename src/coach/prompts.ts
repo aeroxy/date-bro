@@ -26,9 +26,9 @@
 //
 // Hoisting the task into `system` goes one further: the entry is now identical
 // for a given engine across *every* record and conversation, so a first call
-// about a new person reads it rather than writing it. That is the layout the
-// Claude Code capture in `refs/api.anthropic.com_request_body` uses too —
-// everything instructional above, everything that grows below.
+// about a new person reads it rather than writing it. That is the layout a
+// captured Claude Code request uses too — everything instructional above,
+// everything that grows below.
 //
 // The transcript is one block per turn so an append leaves the earlier blocks
 // byte-identical. As a single segment it was rewritten by every added turn.
@@ -83,9 +83,8 @@ function stageLine(record: DateRecord): string {
  * The last of the standing blocks, and it has to stay there. This is the one
  * value that changes on every single request, so anywhere above a cache
  * breakpoint it would invalidate the whole prefix each time — the transcript
- * included. (The Claude Code capture in
- * `refs/api.anthropic.com_request_body` keeps its system prompt byte-stable for
- * exactly this reason and delivers time per-message instead.)
+ * included. (A captured Claude Code request keeps its system prompt byte-stable
+ * for exactly this reason and delivers time per-message instead.)
  *
  * The caveat is doing real work. `Turn.at` is free text the user may not have
  * filled in, and nothing else stamps a turn, so elapsed time is often genuinely
@@ -127,7 +126,7 @@ last message?" is a good open question; an invented interval is not.`
  *
  * Position is the whole point. The system block sits above the profile and the
  * entire transcript, so an amendment up there re-writes the whole prefix —
- * measured on a real record (refs/raw1 → raw2), one ~250-char learned-section
+ * measured on a real record, one ~250-char learned-section
  * amendment between two next-move runs turned a would-be ~49k-token cache read
  * into 2k read and 47k re-written. Down here it costs only itself, on every
  * call, which for a section capped by "merge before you add" is the far
@@ -708,8 +707,20 @@ Standards for the drafts:
   worse than no draft.
 - Use only facts that exist in the material. Never invent a shared memory, a plan, or
   a feeling they haven't shown.
+- The draft has to be sayable *by them*. A true fact is not automatically theirs to
+  assert: anything that claims expertise, taste, or a habit of theirs you have no
+  evidence for will be cut or, worse, sent — and then they cannot answer the first
+  follow-up question about it. If a line rests on something you looked up rather
+  than something they know, either put the looking-up in the line ("just searched
+  this") or give them the fact and let them decide what to do with it.
 - Options must be genuinely different bets — different risk, different intent — not
   three rewordings of the same message.
+- Options differ in direction, not only in risk. When the last exchange is resolved,
+  or the thread has run on one subject for a while, at least one option opens
+  something new instead of replying to the last message — drawn from the profile's
+  open threads or from what the user is actually into, never invented. If it could
+  have been the next instalment of the conversation they are already in, it is not
+  the new one. A subject the profile records as spent stays spent.
 - Say what to avoid, and why, in terms of this specific conversation.
 - Backing off or letting go is an option only when the evidence in front of you
   actually supports it — a sustained pattern over a meaningful window, not a slow

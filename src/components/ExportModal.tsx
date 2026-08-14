@@ -41,8 +41,13 @@ export function ExportModal({
   record: DateRecord
   onClose: () => void
 }) {
-  const [copied, setCopied] = useState(false)
+  // What was copied, not that something was. Same hazard the comment above is
+  // about: a run landing mid-tick replaces `record`, `markdown` rebuilds under
+  // it, and a boolean would leave the tick asserting that *this* text is on the
+  // clipboard when the copied version is already gone.
+  const [copied, setCopied] = useState<string | null>(null)
   const markdown = open ? recordToMarkdown(record) : ''
+  const isCopied = copied !== null && copied === markdown
 
   const download = () => {
     const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }))
@@ -59,8 +64,8 @@ export function ExportModal({
     navigator.clipboard
       .writeText(markdown)
       .then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1600)
+        setCopied(markdown)
+        setTimeout(() => setCopied(null), 1600)
       })
       // Rejects when the document isn't focused. Nothing to say about it — the
       // tick doesn't appear, and the text is still on screen to select by hand.
@@ -80,8 +85,8 @@ export function ExportModal({
             {profileWords(markdown)} words · {exportFilename(record)}
           </span>
           <Button variant="secondary" size="sm" onClick={copy}>
-            {copied ? <Check size={13} className="text-yes" /> : <Copy size={13} />}
-            {copied ? 'Copied' : 'Copy'}
+            {isCopied ? <Check size={13} className="text-yes" /> : <Copy size={13} />}
+            {isCopied ? 'Copied' : 'Copy'}
           </Button>
           <Button variant="accent" size="sm" onClick={download}>
             <Download size={13} /> Download

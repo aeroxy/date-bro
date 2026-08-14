@@ -179,7 +179,7 @@ export const SELF_SCHEMA: JsonSchemaSpec = {
  *
  * Third was for the reason the rebuild shapes put their small fields first: a
  * field arriving after three drafts is a field that gets dropped. Dropped costs
- * one finding, though, and `refs/raw` showed what corrupted costs. The model
+ * one finding, though, and a captured run showed what corrupted costs. The model
  * left JSON at this nested object mid-generation, emitting the tool-call syntax
  * it uses natively — mind as a *string* reading "<parameter name=..." — then
  * flattened sections and rewrite to the top level and stopped. options, avoid,

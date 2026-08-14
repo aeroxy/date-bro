@@ -107,8 +107,8 @@ describe('the heading the instructions address', () => {
 
 describe('the learned section rides the tail, not the system block', () => {
   // The coach rewrites this section on next-move runs, and the system block sits
-  // above the profile and the whole transcript — refs/raw1 → raw2 measured one
-  // amendment re-writing ~47k cached tokens. `mindFor` feeds system; the tail
+  // above the profile and the whole transcript — one amendment was measured
+  // re-writing ~47k cached tokens. `mindFor` feeds system; the tail
   // reads it through `learnedText`.
   test('mindFor never returns it', () => {
     const all = mindFor(DOC, ['all'])
@@ -225,6 +225,45 @@ describe('mindText composes stored sections over the current seed', () => {
 // which forks sections the document has never contained — and `mindText` skips a
 // forked section, so anything shipped after the upgrade would never arrive for
 // the longest-standing users, presenting as a section they appeared to delete.
+// A part shipped after installations already exist is the case the whole
+// fork-per-section mechanism is for, and "Being worth replying to" is the first
+// one added since it was built — so it is worth pinning that it actually lands,
+// in its place, on a document that predates it, and that it goes to the engine
+// that asked for it.
+describe('a newly shipped part', () => {
+  const ADDED = 'Being worth replying to'
+
+  test('is in the seed, between the playbook and the research section', () => {
+    const order = parseSections(SEED_MIND).map((s) => s.heading)
+    expect(order.indexOf(ADDED)).toBe(order.indexOf('Choosing what to say or do') + 1)
+    expect(order.indexOf(ADDED)).toBeLessThan(order.indexOf('Using web research'))
+  })
+
+  test('arrives in a stored document that has never seen it', () => {
+    // Forked on the playbook, which is the case that matters: editing the
+    // playbook must not withhold a section shipped beside it.
+    const stored = writeMindSection(SEED_MIND, 'Choosing what to say or do', 'Lead with a plan.')
+    const live = mindText({
+      markdown: stored.replace(/\n*## Being worth replying to\n[\s\S]*?(?=\n## )/, ''),
+      updatedAt: 1,
+      forked: ['Choosing what to say or do'],
+    })
+    expect(live).toContain(seedSection(ADDED)!)
+    expect(live).toContain('Lead with a plan.')
+    expect(missingHeadings(live)).toEqual([])
+  })
+
+  test('is not counted as forked once it has been written back', () => {
+    expect(forkedHeadings(mindText({ markdown: SEED_MIND, updatedAt: 1, forked: [] }))).toEqual([])
+  })
+
+  test('goes to the engine that suggests a move, and to no other', () => {
+    expect(mindFor(SEED_MIND, ['all', 'next'])).toContain(`## ${ADDED}`)
+    expect(mindFor(SEED_MIND, ['all', 'them'])).not.toContain(`## ${ADDED}`)
+    expect(mindFor(SEED_MIND, ['all', 'me'])).not.toContain(`## ${ADDED}`)
+  })
+})
+
 describe('the legacy migration', () => {
   const LATER = 'Using web research'
   // Written out rather than derived from SEED_MIND, because the contract is about
@@ -295,6 +334,25 @@ Mirror their energy and match their length.`
 
   test('nothing stored forks nothing', () => {
     expect(legacyForked('')).toEqual([])
+  })
+})
+
+// The preamble is the third thing with no shipped version to restore to, and it
+// is the one `parseSections` cannot hand back — so the reduce onto a bare seed
+// silently ate it.
+describe('resetBeliefs and the text above the first heading', () => {
+  test('keeps it, and still restores every belief under it', () => {
+    const mine = 'House rules: never mention my ex.'
+    const edited = writeMindSection(`${mine}\n\n${SEED_MIND}`, 'Reading the user', 'Watch hedging.')
+    const reset = resetBeliefs(edited)
+    expect(reset.startsWith(mine)).toBe(true)
+    expect(reset).toContain(seedSection('Reading the user')!)
+    expect(reset).not.toContain('Watch hedging.')
+  })
+
+  test('adds nothing when there is no preamble', () => {
+    expect(resetBeliefs(SEED_MIND)).toBe(SEED_MIND)
+    expect(resetBeliefs('')).toBe(SEED_MIND)
   })
 })
 

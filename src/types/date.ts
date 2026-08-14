@@ -208,7 +208,7 @@ export interface DateRecord {
    * Retired. Suggestions live on their own `coach` turn now (`Turn.advice`), in
    * the position they were given. Kept on the type only so records written
    * before that can still be read; nothing writes it and nothing reads it into
-   * a prompt. Safe to purge — see `refs/purge-legacy.js`.
+   * a prompt. Safe to purge.
    */
   suggestions?: Suggestion[]
   /**
