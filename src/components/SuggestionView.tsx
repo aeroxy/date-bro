@@ -93,17 +93,28 @@ function Option({
   const isMessage = option.kind === 'message'
   return (
     <li className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
-      <div className="flex items-center gap-2 border-b border-border px-3.5 py-2">
-        <Eyebrow className="text-[10px]!">{String(index + 1).padStart(2, '0')}</Eyebrow>
-        <span className="flex items-center gap-1.5 text-[13px] font-bold tracking-[-0.01em] text-fg">
+      {/*
+        `items-start`, not center: the label is model-written and wraps to two
+        lines often enough, and centring then floats the number, the icon and the
+        chip into the gap between them. Everything on this row aligns to the
+        first line instead. `min-w-0` on the label is what lets it wrap at all —
+        a flex item's min-width is its content by default, so without it a long
+        label refuses to shrink and squeezes its siblings instead. It also
+        replaces the old `flex-1` spacer, since a label that grows pushes the
+        chip to the right on its own.
+      */}
+      <div className="flex items-start gap-2 border-b border-border px-3.5 py-2">
+        <Eyebrow className="mt-[3px] shrink-0 text-[10px]!">
+          {String(index + 1).padStart(2, '0')}
+        </Eyebrow>
+        <span className="flex min-w-0 flex-1 items-start gap-1.5 text-pretty text-[13px] font-bold tracking-[-0.01em] text-fg">
           {isMessage ? (
-            <MessageSquare size={12} className="text-fg-3" />
+            <MessageSquare size={12} className="mt-[3px] shrink-0 text-fg-3" />
           ) : (
-            <Zap size={12} className="text-fg-3" />
+            <Zap size={12} className="mt-[3px] shrink-0 text-fg-3" />
           )}
           {option.label}
         </span>
-        <span className="flex-1" />
         <Chip tone={RISK_TONE[option.risk] ?? 'neutral'}>{option.risk} risk</Chip>
       </div>
 
