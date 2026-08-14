@@ -182,8 +182,12 @@ function conversation(record: NumberedRecord): string {
   const them = record.name.trim() || 'them'
   return [
     '## Conversation',
+    // `turnsUpdatedAt` is 0 on records migrated from before it existed, and a
+    // stamp is worse than no stamp when it reads "1 January 1970".
     stats.total
-      ? `_${stats.total} turns — ${stats.themTurns} from ${them}, ${stats.myTurns} from you · last edited ${day(record.turnsUpdatedAt)}_`
+      ? `_${stats.total} turns — ${stats.themTurns} from ${them}, ${stats.myTurns} from you${
+          record.turnsUpdatedAt > 0 ? ` · last edited ${day(record.turnsUpdatedAt)}` : ''
+        }_`
       : null,
     record.turns.length
       ? record.turns.map((turn) => turnBlock(record, turn)).join('\n\n')

@@ -100,6 +100,16 @@ describe('recordToMarkdown', () => {
     expect(md).not.toContain('**Age:**')
   })
 
+  // `lib/db.ts` migrates records from before the field with `?? 0`, and a stamp
+  // reading "1 January 1970" is worse than no stamp.
+  test('omits the last-edited stamp on a record migrated from before it existed', () => {
+    const turns: Turn[] = [{ id: 't1', speaker: 'me', text: 'Hello' }]
+    const md = recordToMarkdown(record({ turns, turnsUpdatedAt: 0 }), NOW)
+    expect(md).toContain('1 turns — 0 from Mira, 1 from you_')
+    expect(md).not.toContain('1970')
+    expect(md).not.toContain('last edited')
+  })
+
   test('keeps a retired free-text age, stamped with when it was written down', () => {
     const md = recordToMarkdown(record({ meta: { age: '28' } }), NOW)
     expect(md).toContain('- **Age:** 28, as recorded on 1 June 2026')

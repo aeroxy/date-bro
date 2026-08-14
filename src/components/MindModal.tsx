@@ -116,7 +116,14 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
             variant="ghost"
             size="sm"
             className="text-fg-3"
+            // Same guard as Save, and for a sharper reason: `resetBeliefs('')`
+            // is the seed with nothing carried over, so a click in the load
+            // window doesn't reset the beliefs — it deletes the two things this
+            // button exists to keep, and neither has anywhere to be recovered
+            // from.
+            disabled={draft === null}
             onClick={() => {
+              if (draft === null) return
               if (
                 !confirm(
                   'Reset everything the coach believes to what shipped?\n\nYour edits to those sections, and its own, are discarded. What it has learned about you is kept, and so is any section you added yourself.',
