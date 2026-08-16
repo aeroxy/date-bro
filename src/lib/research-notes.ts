@@ -62,12 +62,21 @@ export function mergeResearchNotes(existing: string, additions: string[]): strin
 }
 
 /**
- * Swaps in the consolidated list a run was asked for, keeping whatever the user
- * typed into the notes box while the model was thinking.
+ * Swaps in the consolidated list a run was asked for, reconciled against what the
+ * user did to the notes box while the model was thinking.
  *
  * `snapshot` is the block the prompt was built from; `current` is a fresh read.
- * A line in `current` that isn't in `snapshot` is the user's, written during the
- * run, and the model never saw it — so it survives the swap.
+ * Both directions of the difference between them are the user's, and the model
+ * saw neither: a line in `current` and not in `snapshot` was added during the run
+ * and survives the swap, and one in `snapshot` and not in `current` was deleted
+ * during the run and does not come back with the consolidation. The `Clear`
+ * button in `ProfileModal` makes the second case a whole-block version of the
+ * first, and without it a run in flight would undo the clear wholesale.
+ *
+ * Matching is exact, so this catches a deleted line the consolidation passed
+ * through unchanged — the common case, since most lines have no duplicate to
+ * merge with — and not one it reworded. Partial, never wrong: the worst outcome
+ * is a deleted line returning, which is where this started.
  */
 export function replaceResearchNotes(
   snapshot: string,
@@ -78,11 +87,18 @@ export function replaceResearchNotes(
   // An empty list means "nothing to say", never "delete everything". A run can
   // derail before it writes this field at all — see the note on field order in
   // `coach/schemas.ts` — and that must cost the consolidation, not the notes.
+  // Checked before the deletion filter below, which can legitimately empty the
+  // list when the user has just cleared the box.
   if (!fresh.length) return current
 
   const before = new Set(noteLines(snapshot).map((line) => line.toLowerCase()))
+  const now = new Set(noteLines(current).map((line) => line.toLowerCase()))
   const theirs = noteLines(current).filter((line) => !before.has(line.toLowerCase()))
-  return mergeResearchNotes(fresh.map((f) => `- ${f}`).join('\n'), theirs)
+  const kept = fresh.filter((line) => {
+    const key = line.toLowerCase()
+    return !before.has(key) || now.has(key)
+  })
+  return mergeResearchNotes(kept.map((f) => `- ${f}`).join('\n'), theirs)
 }
 
 /**

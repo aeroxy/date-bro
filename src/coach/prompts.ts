@@ -157,9 +157,11 @@ function researchNotesBlock(record: DateRecord, consolidate: boolean): string | 
     ? `
 
 This list has grown long enough to be worth tidying, and this run is the one that does it: return
-the whole of it, rewritten, in "research_notes". On this run that field replaces the block instead
-of adding to it. Merge the lines that say the same thing, fold each correction into the line it
-corrects and drop the version it corrected, and drop what has stopped mattering. Keep the facts,
+the whole of it, rewritten, in "research_notes". This overrides the delta rule in the task above —
+on this run only, that field replaces the block rather than adding to it, so every fact above that
+is still true has to appear in what you return, including the ones you are not changing. Anything
+you leave out is gone. Merge the lines that say the same thing, fold each correction into the line
+it corrects and drop the version it corrected, and drop what has stopped mattering. Keep the facts,
 not the history of learning them — one line per thing that is true, written the way you'd want to
 read it next time.`
     : ''
@@ -740,7 +742,9 @@ const NOTES_ARE_A_DELTA = `- "research_notes" is a delta, not the list. Whatever
   stays there whether or not you return it, so never write out a line that is
   already in that block. Return what is new — and when something you found
   supersedes a line that's there, the correction, as a line that stands on its
-  own and says what it replaces.
+  own and says what it replaces. One exception, and <research_notes> says so
+  itself when it applies: if that block asks you to consolidate, it wants the
+  whole list back and this rule is off for that run.
 `
 
 export function buildSuggestionMessages(

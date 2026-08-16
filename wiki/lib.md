@@ -203,7 +203,7 @@ prompt asked for:
 | Mode | When | What it does |
 |---|---|---|
 | `mergeResearchNotes(existing, additions)` | normally | Appends what came back, skipping lines already present (exact, case-insensitive). |
-| `replaceResearchNotes(snapshot, current, returned)` | past `NOTES_LINE_CEILING` (30 facts) | Swaps in the consolidated list the run was asked for, plus any line in `current` that isn't in `snapshot` — the user's own, typed while the model was thinking, and never seen by it. An empty `returned` falls back to leaving the notes alone: a derailed run must cost the tidy-up, not the notes. |
+| `replaceResearchNotes(snapshot, current, returned)` | past `NOTES_LINE_CEILING` (30 facts) | Swaps in the consolidated list the run was asked for, reconciled against both directions of `snapshot` → `current` — the edits the user made while the model was thinking, which it never saw. A line added since survives the swap; a line deleted since does not come back with it (the `Clear` button makes that a whole-block case, and without it a run in flight would undo the clear). Matching is exact, so it catches a deleted line the consolidation passed through unchanged, not one it reworded — partial, but never worse than the old behaviour. An empty `returned` falls back to leaving the notes alone: a derailed run must cost the tidy-up, not the notes, and that guard reads the *returned* list rather than the reconciled one, since reconciliation can legitimately empty it. |
 
 **Why a second mode exists.** Append-only plus exact-line dedupe doesn't hold, because the model
 paraphrases rather than repeats — the same fact in fresh words is a new line every time. One real

@@ -169,7 +169,12 @@ in an uncached segment below it.
   it's the only engine that could answer. What keeps the block from filling up in the first place is
   `NOTES_ARE_A_DELTA` in the task block — the field is what's *new*, since the stored block persists
   whether or not the model returns it, and without that said the honest response is to restate
-  everything visible.
+  everything visible. **The two must be read together, and the consolidation ask says so explicitly**
+  (*"this overrides the delta rule in the task above"*), because on that one run they otherwise
+  contradict: obeying the delta rule literally would return only the new facts, and the swap would
+  then replace the whole block with those — destroying the notes on the run meant to protect them.
+  The delta rule names the exception from its own side too, so neither block states an unqualified
+  negative the other overturns.
 - **`<counts>` is gone, not moved.** It gave raw turn/word/question tallies per side, followed by a
   caveat that the numbers were unreliable because the user may only have entered part of a
   conversation. There was no source for it — no finding says "count the question marks"; it was a
