@@ -210,9 +210,11 @@ export const SUGGESTION_SHAPE = `{
   "honest_note": string,            // anything true the user probably doesn't want to hear. "" if none —
                                     // and "" is the common case. Do not manufacture a downside to
                                     // look balanced, and do not use this to relitigate their odds.
-  "research_notes": string[],       // durable facts worth remembering from web research this run
-                                    // (e.g. "Cafe Lumen closes 9pm Sundays"). [] if you didn't
-                                    // research, or found nothing worth keeping past this answer.
+  "research_notes": string[],       // durable facts from web research THIS run that aren't already
+                                    // in <research_notes> (e.g. "Cafe Lumen closes 9pm Sundays").
+                                    // A delta — what's stored stays stored either way. [] if you
+                                    // didn't research, found nothing worth keeping past this
+                                    // answer, or everything you found is already in the block.
   ${updateShape('mind').replace(/,$/, '')}                                 // what to change about
                                     // YOURSELF — see "Amending yourself" above. changed: false on
                                     // most runs. Nothing about the person in this request; that
