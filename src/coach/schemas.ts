@@ -215,6 +215,8 @@ export const SUGGESTION_SHAPE = `{
                                     // A delta — what's stored stays stored either way. [] if you
                                     // didn't research, found nothing worth keeping past this
                                     // answer, or everything you found is already in the block.
+                                    // Unless <research_notes> asks you to consolidate: then it is
+                                    // the complete replacement list, and what you omit is dropped.
   ${updateShape('mind').replace(/,$/, '')}                                 // what to change about
                                     // YOURSELF — see "Amending yourself" above. changed: false on
                                     // most runs. Nothing about the person in this request; that
