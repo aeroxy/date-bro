@@ -98,7 +98,12 @@ export function replaceResearchNotes(
     const key = line.toLowerCase()
     return !before.has(key) || now.has(key)
   })
-  return mergeResearchNotes(kept.map((f) => `- ${f}`).join('\n'), theirs)
+  // Folded through an empty base first, because `mergeResearchNotes` dedupes what
+  // it is handed and not what it already holds — and here the model's list is the
+  // base rather than the addition. It arrives deduped on the append path for
+  // exactly that reason, and this is the path that exists to remove duplicates,
+  // so it cannot be the one that stores "Fact" and "fact" side by side.
+  return mergeResearchNotes(mergeResearchNotes('', kept), theirs)
 }
 
 /**
