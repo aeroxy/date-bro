@@ -1,5 +1,6 @@
 import { createCachedExecutor, executeTool, runAgentWithValidation } from '@/lib/agent'
 import { completeJSON } from '@/lib/llm-client'
+import { needsConsolidation } from '@/lib/research-notes'
 import { getActiveConfig, getMind, getSettings, saveMind } from '@/lib/storage'
 import { ALL_TOOLS, buildVerdictSchema, VERDICT_NAME } from '@/lib/tools/definitions'
 import type { ToolCall, ToolDefinition } from '@/lib/tools/types'
@@ -195,6 +196,9 @@ export async function suggestMove(
     mind,
     customPrompt,
     tools.length > 0,
+    // Derived from the same snapshot the caller re-derives it from when it
+    // stores the answer, so the app applies whatever this asked for.
+    needsConsolidation(record.researchNotes),
   )
 
   type Raw = Omit<Suggestion, 'id' | 'generatedAt' | 'question'> & { mind?: ProfileUpdate }

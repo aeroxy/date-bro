@@ -44,6 +44,27 @@ describe('adviceTurn', () => {
     expect(adviceTurn(suggestion()).advice?.options).toHaveLength(2)
   })
 
+  // Local, not `Date.UTC`, for the reason given at the top of `birthday.test.ts`
+  // — and mid-year, so the year can be asserted in any zone. The exact wording is
+  // the runtime's, so what's pinned is that the stamp is there, carries the year,
+  // and reaches the line a prompt actually shows.
+  test('timestamps itself, which no other turn can', () => {
+    const at = new Date(2026, 7, 15, 23, 36).getTime()
+    const turn = adviceTurn(suggestion({ generatedAt: at }))
+    expect(turn.at).toBeTruthy()
+    expect(turn.at).toContain('2026')
+    expect(formatTurn(record([]), { ...turn, number: 12 })).toContain(`[12] COACH (${turn.at}):`)
+  })
+
+  // `db.ts` builds these from suggestions stored by older versions too, and an
+  // untimed turn is the normal case for every other speaker. "Invalid Date" is
+  // not — the model would read it as something the user wrote.
+  test('leaves the stamp off rather than inventing one, when there is none', () => {
+    const turn = adviceTurn(suggestion({ generatedAt: undefined as unknown as number }))
+    expect(turn.at).toBeUndefined()
+    expect(formatTurn(record([]), { ...turn, number: 3 })).toStartWith('[3] COACH: ')
+  })
+
   test('survives a suggestion with unlabelled options', () => {
     const turn = adviceTurn(
       suggestion({
@@ -57,10 +78,10 @@ describe('adviceTurn', () => {
 })
 
 describe('coach turns in the transcript', () => {
-  test('render under a COACH label with their number', () => {
+  test('render under a COACH label with their number, and their own stamp', () => {
     const turn = { ...adviceTurn(suggestion()), number: 12 }
     expect(speakerLabel(record([]), 'coach')).toBe('COACH')
-    expect(formatTurn(record([]), turn)).toStartWith('[12] COACH: Get a specific evening')
+    expect(formatTurn(record([]), turn)).toStartWith(`[12] COACH (${turn.at}): Get a specific`)
   })
 
   test('are outside every count — nobody showed up in the conversation', () => {

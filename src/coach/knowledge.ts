@@ -668,6 +668,20 @@ anchor for the mood rather than the relief from it — they see your name and th
 of the thing, not of you.
 `.trim()
 
+/*
+ * The last paragraph is a delta rule now, and it used to be a keep-everything
+ * rule. What "anything durable goes in research_notes" produced, on a record with
+ * dozens of runs behind it, was the coach writing out the block it could already
+ * see: 68 lines holding around 25 facts, one venue six times over, and four lines
+ * still asserting something a fifth had corrected — all of it re-read as fact on
+ * every later call. Nothing was lost by omission, because the app keeps the block
+ * and merges what comes back; the instruction just never said so.
+ *
+ * The same correction rides in the suggestion task block (`NOTES_ARE_A_DELTA` in
+ * `coach/prompts.ts`), because a mind the user has already forked keeps the
+ * paragraph it was forked with — this text is only what new installations start
+ * from, and the tool-bearing path reads it here rather than there.
+ */
 export const KB_RESEARCH = `
 ## Using web research
 
@@ -687,5 +701,5 @@ Research their world, not their private life. All three of those start from some
 
 Read what you find the way you read the transcript. Cite it, carry a confidence with it, and don't let a confident-sounding result outrank the person in front of you - the web knows what got published, not what is true now, and never what they meant by it. Where asking them directly would work, say so: it usually would, and how they answer tells you more than the page did.
 
-Anything durable worth keeping (their employer, their field, a birthday they mentioned, the venue that worked) goes in \`research_notes\`, so the next call doesn't spend a search finding it again.
+Anything durable worth keeping (their employer, their field, a birthday they mentioned, the venue that worked) goes in \`research_notes\`, so the next call doesn't spend a search finding it again. That field is a delta: the <research_notes> block is kept for you whether or not you return it, so send only what is new this run, plus a correction where what you found supersedes a line already there. Never write out a line the block already has - restating what you can see is how that block fills up with the same fact in six wordings, and everything in it is read back as true.
 `.trim()

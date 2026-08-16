@@ -18,7 +18,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { chatAboutProfile, rebuildPersonContext, rebuildSelfContext, suggestMove } from '@/coach/run'
 import { useDates } from '@/hooks/useDates'
 import { cn } from '@/lib/cn'
-import { mergeResearchNotes } from '@/lib/research-notes'
+import { applyResearchNotes } from '@/lib/research-notes'
 import { adviceTurn } from '@/lib/transcript'
 import type { ThinkingSummary } from '@/types/coach'
 import { STAGES, type ChatEngine, type DateRecord, type Engine, type Turn } from '@/types/date'
@@ -185,7 +185,9 @@ export default function App() {
           )
           // Against `current`, not the snapshot this run started from: the user
           // can add turns or edit the research notes while the model is
-          // thinking, and a snapshot-derived patch would undo them.
+          // thinking, and a snapshot-derived patch would undo them. The notes
+          // need both — the snapshot to know which mode the prompt asked for and
+          // which lines the model saw, `current` for what the user typed since.
           //
           // `evidence: false` because the advice is the coach's own line, not
           // something either person said — without it, asking "what do I say?"
@@ -194,7 +196,11 @@ export default function App() {
             id,
             (current) => ({
               turns: [...current.turns, adviceTurn(suggestion)],
-              researchNotes: mergeResearchNotes(current.researchNotes, suggestion.research_notes),
+              researchNotes: applyResearchNotes(
+                record.researchNotes,
+                current.researchNotes,
+                suggestion.research_notes,
+              ),
             }),
             { evidence: false },
           )

@@ -143,15 +143,32 @@ section of your own mind. It arrives late in the request, but it is not lesser:
 read it with the same authority as the rest of what you believe.`
 }
 
-function researchNotesBlock(record: DateRecord): string | null {
+/**
+ * `consolidate` is the one run in a while that is allowed to rewrite this block
+ * instead of adding to it. Only the suggestion engine ever passes true: it is the
+ * only shape with a `research_notes` field, so it is the only engine that could
+ * act on the instruction, and telling a rebuild to return one would be asking for
+ * a field its schema doesn't have.
+ */
+function researchNotesBlock(record: DateRecord, consolidate: boolean): string | null {
   const notes = record.researchNotes?.trim()
   if (!notes) return null
+  const ask = consolidate
+    ? `
+
+This list has grown long enough to be worth tidying, and this run is the one that does it: return
+the whole of it, rewritten, in "research_notes". On this run that field replaces the block instead
+of adding to it. Merge the lines that say the same thing, fold each correction into the line it
+corrects and drop the version it corrected, and drop what has stopped mattering. Keep the facts,
+not the history of learning them — one line per thing that is true, written the way you'd want to
+read it next time.`
+    : ''
   return `<research_notes>
 ${notes}
 </research_notes>
 Durable facts kept from earlier web research. Reuse them instead of re-searching — only search
 again if what you need isn't here or might have changed (an opening-hours note from months ago,
-for instance).`
+for instance). Where two lines conflict, the later one is the correction.${ask}`
 }
 
 /**
@@ -300,11 +317,21 @@ something that happened. Only their replies and the user's notes are material.`
  * sits lowest. Everything here is below every breakpoint, so none of it can
  * disturb the profile or the transcript above.
  */
-function volatileBlock(record: DateRecord, mind: string, ...trailing: (string | null)[]): string {
+function volatileBlock(
+  record: DateRecord,
+  mind: string,
+  consolidateNotes: boolean,
+  ...trailing: (string | null)[]
+): string {
   // `nowBlock` sits last of the standing blocks — see its comment. It is the
   // most volatile thing in the request, so it belongs as late as possible, and
   // below every breakpoint including the profile one above.
-  return [learnedBlock(mind), researchNotesBlock(record), nowBlock(), ...trailing]
+  return [
+    learnedBlock(mind),
+    researchNotesBlock(record, consolidateNotes),
+    nowBlock(),
+    ...trailing,
+  ]
     .filter(Boolean)
     .join('\n\n')
 }
@@ -510,6 +537,7 @@ ${PERSON_SHAPE}`
         text: volatileBlock(
           record,
           mind,
+          false,
           fromUserBlock(message),
           `Update what you know about ${record.name}. Return the JSON object only, with all of headline, interest_read, flags, open_questions and profile.`,
         ),
@@ -571,6 +599,7 @@ ${SELF_SHAPE}`
         text: volatileBlock(
           record,
           mind,
+          false,
           fromUserBlock(message),
           'Update the read of the user in this connection. Return the JSON object only, with all of headline, goal_read, open_questions and profile.',
         ),
@@ -656,7 +685,7 @@ ${CHAT_SHAPE}`
       { text: profileBlock(record, engine, true), cache: true },
       ...transcriptSegments(record),
       {
-        text: volatileBlock(record, mind, fromUserBlock(message)),
+        text: volatileBlock(record, mind, false, fromUserBlock(message)),
       },
     ]),
   ]
@@ -685,9 +714,33 @@ const KEEP_WHAT_YOU_LOOKED_UP = `- If you looked anything up while answering thi
   keep what will still be true next month in "research_notes": the fact, not the
   search. "Cafe Lumen closes 9pm Sundays", "the studio is real, four people".
   It is the only part of your research this app can keep, it comes back to you
-  in <research_notes> on the next call, and anything you leave out is something
-  the next run pays to find again. Still [] when you looked nothing up, or when
-  what you found only mattered to this answer.
+  in <research_notes> on the next call, and anything you found today and leave
+  out is something the next run pays to find again. Still [] when you looked
+  nothing up, or when what you found only mattered to this answer.
+`
+
+/**
+ * The rule that keeps the block from doubling every run, and the one both paths
+ * need — so it is here rather than folded into either.
+ *
+ * `<research_notes>` persists on its own: the app keeps what is already stored
+ * and adds what comes back. Without this said out loud the field reads as the
+ * set of things to have next time, and the honest response to that is to restate
+ * everything already visible — which is what a real record did, until one venue
+ * was written out six times and four stale lines outnumbered the one correcting
+ * them. `KEEP_WHAT_YOU_LOOKED_UP` above sharpens the same edge from the other
+ * side: what is lost by omission is today's findings, not the block.
+ *
+ * The tool-bearing path hears the rest of this from `KB_RESEARCH`, in the mind —
+ * but a mind the user has already forked keeps the paragraph it was forked with,
+ * so the correction has to travel in the task block too, where it reaches every
+ * installation on the next release.
+ */
+const NOTES_ARE_A_DELTA = `- "research_notes" is a delta, not the list. Whatever is in <research_notes>
+  stays there whether or not you return it, so never write out a line that is
+  already in that block. Return what is new — and when something you found
+  supersedes a line that's there, the correction, as a line that stands on its
+  own and says what it replaces.
 `
 
 export function buildSuggestionMessages(
@@ -696,6 +749,8 @@ export function buildSuggestionMessages(
   mind: string,
   customPrompt: string,
   hasTools: boolean,
+  /** Ask this run to rewrite the notes rather than add to them — see `researchNotesBlock`. */
+  consolidateNotes: boolean,
 ): ChatMessage[] {
   const task = `<task>
 Tell the user what to do next, and give them something they can actually send.
@@ -736,7 +791,7 @@ ${mindInstructions()}
 ${OUTPUT_RULES}
 - Every "draft" is verbatim sendable text (for a message) or a concrete, scheduled
   action (for an action). Never a description of what to say.
-${hasTools ? '' : KEEP_WHAT_YOU_LOOKED_UP}
+${hasTools ? '' : KEEP_WHAT_YOU_LOOKED_UP}${NOTES_ARE_A_DELTA}
 Shape:
 ${SUGGESTION_SHAPE}`
 
@@ -761,6 +816,7 @@ ${SUGGESTION_SHAPE}`
         text: volatileBlock(
           record,
           mind,
+          consolidateNotes,
           fromUserBlock(message),
           'What should the user say or do next? Return the JSON object only.',
         ),

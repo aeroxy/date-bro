@@ -189,13 +189,34 @@ the user reads, and it's read at the moment they turn the capability on.
 
 ## `research-notes.ts`
 
-`mergeResearchNotes(existing, additions)` folds new facts (`Suggestion.research_notes`, populated by
-the model when a run finds something durable — a venue's hours, a confirmed claim) into the record's
-persistent `researchNotes` string, skipping lines already present (case-insensitive) so repeat runs
-don't pile up duplicates. `App.tsx` calls it right after every `suggestMove`; the result is fed back
-into every future prompt via `<research_notes>` (see `coach/prompts.ts`) so the same fact isn't
-re-searched next time. It's plain user-editable text — `ProfileModal` exposes it with a `Clear`
-button — so a wrong or stale note can be fixed by hand as easily as any other entry.
+Folds new facts (`Suggestion.research_notes`, populated by the model when a run finds something
+durable — a venue's hours, a confirmed claim) into the record's persistent `researchNotes` string,
+which is fed back into every future prompt via `<research_notes>` (see `coach/prompts.ts`) so the
+same fact isn't re-searched next time. It's plain user-editable text — `ProfileModal` exposes it
+with a `Clear` button — so a wrong or stale note can be fixed by hand as easily as any other entry.
+
+`App.tsx` calls `applyResearchNotes(snapshot, current, returned)` right after every `suggestMove`,
+and it picks one of two modes from `needsConsolidation(snapshot)` — the same predicate
+`coach/run.ts` used to build the prompt, off the same snapshot, so the app always applies what the
+prompt asked for:
+
+| Mode | When | What it does |
+|---|---|---|
+| `mergeResearchNotes(existing, additions)` | normally | Appends what came back, skipping lines already present (exact, case-insensitive). |
+| `replaceResearchNotes(snapshot, current, returned)` | past `NOTES_LINE_CEILING` (30 facts) | Swaps in the consolidated list the run was asked for, plus any line in `current` that isn't in `snapshot` — the user's own, typed while the model was thinking, and never seen by it. An empty `returned` falls back to leaving the notes alone: a derailed run must cost the tidy-up, not the notes. |
+
+**Why a second mode exists.** Append-only plus exact-line dedupe doesn't hold, because the model
+paraphrases rather than repeats — the same fact in fresh words is a new line every time. One real
+record reached 68 lines holding ~25 facts, one venue written out six times, and four lines still
+asserting something a fifth had corrected, all of it re-read as fact on every later call. The
+prompt is the actual fix (`NOTES_ARE_A_DELTA` in `coach/prompts.ts` tells the model the block
+persists whether or not it returns it); this is the backstop that cleans what accumulated. Records
+already over the ceiling consolidate on their next "What do I say?" run — no migration.
+
+**Rejected: numbering the lines** so the model could delete and replace by index. `[n]` already
+means a transcript turn *inside* these notes, positional indices go stale the moment the user edits
+the free-text box, and stable ids would need a counter and a migration — all to sweep up after a
+prompt that was asking for the duplicates in the first place.
 
 ## `qwen/`
 
@@ -303,7 +324,7 @@ can't produce a false staleness chip. It also runs the four migrations; see
 | `formatTurn(record, turn)` | One turn as the model sees it — number, speaker label, optional time/channel, and the user's own note inline. Takes a **`NumberedTurn`**, so it cannot be handed a turn without a number and has no fallback to invent one. It briefly did fall back to `index + 1`, which quietly reinstated the positional scheme and could *collide*: an unnumbered turn dropped at index 60 of a record already holding 60 and 61 rendered as `[61]`, giving two turns one citation. A type that can't be satisfied without a number is cheaper than a test for every route into that state. A pure function of `(turn, name)`, which is what makes the prefix cache work: the prompt sends one block per turn, so appending turn n+1 leaves the first n byte-identical. Dropping the positional dependency strengthened that — inserting a turn mid-transcript used to renumber and so rewrite every block below it, invalidating the cache from there down for a one-line change. There is deliberately no `formatTranscript` joining them — the prompt is the only consumer and needs them separate |
 | `numberTurns(record)` | Gives every turn a citation number and remembers the next one to hand out, returning a `NumberedRecord` so the invariant travels in the type rather than in a comment. Uniqueness of numbers *already* stored is assumed, not enforced — a duplicate is carried rather than repaired, because which turn an existing `[12]` meant is unanswerable and renumbering one silently re-aims it; what is enforced is that the counter clears every number any turn holds, so a duplicate can't become a triplicate. Pure, total, idempotent — returns the record by identity when there is nothing to do, like the `db.ts` migrations, so a hundred reads render the same bytes and nothing churns React. Two sources for "next", and the persisted `nextTurnNumber` is allowed to win: the turns can only say what survives, the counter says what has ever been handed out, which is exactly what deletion breaks (`max(number) + 1` re-issues a deleted number, and a profile citing it then points at different content). A record with no numbers at all is pre-field and gets 1…n **by position** — what the old renderer showed, so every `[4]` in a stored profile keeps its meaning. Applied in `normalize` (read), `saveDate` (write) and `useDates.update` (so memory matches what the UI renders) |
 | `speakerLabel(record, speaker)` | `ME`, `NOTE`, `COACH`, or the person's name uppercased — the same label in prompts, UI, and pasted logs |
-| `adviceTurn(suggestion)` | A suggestion as the `coach` turn that goes in the pool: the priority plus the option labels, two lines out of a four-hundred-word generation. Derived here rather than asked of the model — no output field to get wrong, no tokens spent, and the same suggestion always renders the same way. The whole `Suggestion` rides along in `Turn.advice` for the panel; only `text` reaches the prompt. The turn takes the suggestion's own id, so the two can't drift apart |
+| `adviceTurn(suggestion)` | A suggestion as the `coach` turn that goes in the pool: the priority plus the option labels, two lines out of a four-hundred-word generation. Derived here rather than asked of the model — no output field to get wrong, no tokens spent, and the same suggestion always renders the same way. The whole `Suggestion` rides along in `Turn.advice` for the panel; only `text` reaches the prompt. The turn takes the suggestion's own id, so the two can't drift apart — and its `at`, stamped from `generatedAt` in the shape the user's own "when" entries use ("Sat, 15 Aug 2026, 11:36 pm", plus the year because this one is exact). The only turn in the app with a real timestamp; guarded with `Number.isFinite` because `db.ts` also builds these from suggestions stored by older versions, and an untimed turn is normal where `"Invalid Date"` in a prompt is not |
 | `parsePastedLog(raw, theirName)` | `Name: text` lines with the common label variants plus the person's own name, plus an optional bracketed timestamp right after the label — `Name [Tue 9pm]: text`. The bracket is free-form, same string the manual composer's "when" field takes; omit it and the line parses exactly as before. Unlabelled lines join the previous turn, so multi-line messages survive. Anything before the first recognised label is dropped. |
 | `transcriptStats(record)` | Turn, word, and question counts per side — the UI header, and nothing else. The prompt used to carry them as `<counts>`; it doesn't, and the reasoning is in `transcriptSegments`. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |
 

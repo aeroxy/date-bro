@@ -27,7 +27,7 @@ are — they're the addresses an amendment aims at. Split so each engine only pa
 | `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, voice, stated vs revealed goals, who brings the subjects (answering well is the comfortable half and invisible as a gap), and what the user is actually into this month — the one conversational supply that works before a thread has any history, and the only material here that cannot be researched |
 | `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder, cheap well-evidenced wins, texting pragmatics (now carrying density, one-subject-per-burst, their-line-first, and don't-explain-a-tease), set pieces (asking out, opening cold, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means |
 | `KB_WORTH_REPLYING` | suggest | The half `KB_MOVES` lacked: not whether a reply is right, but what the other person gains by reading it. Announce-do-report and its boundary (it yields the next *beat* of a thread, never a new one); the reply owes them something new; guess-don't-survey as two moves — an unmissable description plus a reframe that admires where sympathy was expected, aimed at a self-concept rather than a habit, and never at an insecurity; open-don't-only-answer with a test for "new" and the running loop ruled off its own supply list; a read inflating as fast as a compliment does; take the bid; status as a ticket that needs a seat in it; land it and leave; drafting for voice once the channel changes, which the playbook pushed toward for a year without saying what to do on arrival; don't become the channel for their bad week. Derived from a real 930-turn record rather than from research — see the module comment, which also says what was deliberately left out and why the examples in the prose are load-bearing |
-| `KB_RESEARCH` | suggest, only when tools are attached | Three lanes: what they've said about themselves, whether it holds up, and the logistics of the move. Search what would change the advice, as many times as that needs — but not for its own sake, and with the query built from the thread's current state, or it looks up a venue in the city they left four turns ago. Bounded by where it starts — outward from what the person disclosed, not a sweep for everything findable about them, which is the one scope limit any section carries. Check `<research_notes>` before searching again |
+| `KB_RESEARCH` | suggest, only when tools are attached | Three lanes: what they've said about themselves, whether it holds up, and the logistics of the move. Search what would change the advice, as many times as that needs — but not for its own sake, and with the query built from the thread's current state, or it looks up a venue in the city they left four turns ago. Bounded by where it starts — outward from what the person disclosed, not a sweep for everything findable about them, which is the one scope limit any section carries. Check `<research_notes>` before searching again, and write back only what's new — the block is kept for you, so restating it is how it fills with the same fact in six wordings |
 
 **Who the advice is for**, because it decides what a good answer is. The user almost always already
 knows the other person is keener, or less keen, or unreadable — that is *why* they opened the app. An
@@ -138,7 +138,12 @@ in an uncached segment below it.
 - **`COACH:` lines are the coach's own past advice, in the position it was given.** A `coach` turn
   carries a two-line summary — the priority and the option labels, derived in code by `adviceTurn`,
   never asked of the model — while the whole `Suggestion` rides along in `Turn.advice` for the UI
-  and never reaches the prompt. `coachEntryNote` tells the model what to do with the pair: what
+  and never reaches the prompt. It is also the **only turn the app can timestamp**: `Turn.at` is
+  free text everywhere else, which is why `<right_now>` tells the model to say it doesn't know
+  rather than estimate an interval, but this one was written by the app at a moment it knows
+  exactly, so `adviceTurn` stamps it from `generatedAt`. Without it a later run could see what it
+  advised and what came back, but not whether the reply landed four minutes or four days later, nor
+  how long outstanding advice has been outstanding. `coachEntryNote` tells the model what to do with the pair: what
   follows a `COACH` line is either one of the drafts, meaning they took it and the reply is evidence
   about whether it worked, or something else, meaning they didn't and the read of their voice was
   off. Both are worth having, and neither costs anything to collect. Two guards ride with it —
@@ -155,9 +160,16 @@ in an uncached segment below it.
   list is replaced wholesale on the next rebuild, by which point the answer is in the material.
 - **`<research_notes>`** carries `record.researchNotes` — durable facts kept from earlier
   `suggestMove` runs (see `lib/research-notes.ts`) — with an instruction to reuse them instead of
-  re-searching. Shown to all three engines, not just `suggestMove`: it's already-vetted factual
-  content by the time it lands here, no different from anything else the user could have written
-  down as a `NOTE` by hand.
+  re-searching, and the standing rule that where two lines conflict the later one is the correction.
+  Shown to all three engines, not just `suggestMove`: it's already-vetted factual content by the
+  time it lands here, no different from anything else the user could have written down as a `NOTE`
+  by hand. Past `NOTES_LINE_CEILING` the block gains one extra instruction — rewrite the whole list
+  into `research_notes` this run, merging duplicates and folding each correction into the line it
+  corrects. Only `suggestMove` ever gets it: it's the one shape with a `research_notes` field, so
+  it's the only engine that could answer. What keeps the block from filling up in the first place is
+  `NOTES_ARE_A_DELTA` in the task block — the field is what's *new*, since the stored block persists
+  whether or not the model returns it, and without that said the honest response is to restate
+  everything visible.
 - **`<counts>` is gone, not moved.** It gave raw turn/word/question tallies per side, followed by a
   caveat that the numbers were unreliable because the user may only have entered part of a
   conversation. There was no source for it — no finding says "count the question marks"; it was a

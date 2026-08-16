@@ -25,6 +25,15 @@ export function speakerLabel(record: Pick<DateRecord, 'name'>, speaker: Speaker)
  *
  * The turn takes the suggestion's own id. One thing, one identity: the panel
  * can key on either and they can't drift apart.
+ *
+ * It also takes a real timestamp, and it is the only turn in the app that can.
+ * `Turn.at` is free text the user may never fill in, which is why `nowBlock`
+ * tells the model to say it doesn't know rather than estimate an interval — but
+ * this turn was written by the app at a moment it knows exactly. Without it a
+ * later run can see what it advised and what came back, and not whether the
+ * reply landed four minutes later or four days later, or how long outstanding
+ * advice has been outstanding. `generatedAt` was already on the record; it just
+ * stopped at the panel.
  */
 export function adviceTurn(suggestion: Suggestion): Turn {
   const labels = suggestion.options.map((o) => o.label.trim()).filter(Boolean)
@@ -34,8 +43,37 @@ export function adviceTurn(suggestion: Suggestion): Turn {
   ]
     .filter(Boolean)
     .join('\n')
-  return { id: suggestion.id, speaker: 'coach', text, advice: suggestion }
+  const at = stamp(suggestion.generatedAt)
+  return { id: suggestion.id, speaker: 'coach', text, ...(at ? { at } : {}), advice: suggestion }
 }
+
+/**
+ * Shaped like the timestamps the user types into the same field — "Mon Jul 27,
+ * 1:02pm" — so a stamped coach turn reads as one of the transcript's own lines
+ * rather than as machine output, in the prompt and in the export alike.
+ *
+ * The year is the one addition, because this one is exact and a record can run
+ * for months: "Aug 15" next to a `<right_now>` in a later year is a date the
+ * model would have to infer, and inferring intervals is the exact thing the
+ * `<right_now>` caveat exists to stop. Local time, like every other turn and
+ * like `<right_now>`, which names the zone once for all of them.
+ *
+ * Guarded because `db.ts` also builds these from suggestions stored by older
+ * versions of the app, where any given field may simply not be there. An absent
+ * stamp is the same untimed turn every other speaker gets; `new Date(undefined)`
+ * would put the string "Invalid Date" in the prompt, which reads as material.
+ */
+const stamp = (ms: number): string | undefined =>
+  !Number.isFinite(ms)
+    ? undefined
+    : new Date(ms).toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 
 /**
  * Give every turn a citation number and remember the next one to hand out.
