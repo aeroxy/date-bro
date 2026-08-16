@@ -86,6 +86,19 @@ describe('replaceResearchNotes', () => {
     )
   })
 
+  // The list the model hands back is the base of the swap rather than an
+  // addition to it, so it has to be deduped on the way in like anything else.
+  // This is the path whose whole job is removing duplicates.
+  test('dedupes the consolidated list against itself', () => {
+    expect(
+      replaceResearchNotes(snapshot, snapshot, [
+        'The studio closes 9pm',
+        'the studio closes 9pm',
+        'one week of annual leave left',
+      ]),
+    ).toBe('- The studio closes 9pm\n- one week of annual leave left')
+  })
+
   // A derailed run leaves this field unwritten. That must cost the tidy-up, not
   // every fact the coach has ever looked up — and it is a different case from
   // the list emptying because the user just cleared the box, which is why the
