@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { CornerDownLeft } from 'lucide-react'
+import { Check, Copy, CornerDownLeft } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
 import type { Flag, PersonProfile, SelfProfile } from '@/types/coach'
@@ -16,16 +16,59 @@ export interface AnswerProps {
 }
 
 /**
- * The engines already end every run by naming what they don't know. That list
- * used to be something to read and forget; here each line is a question you can
- * answer in a few words, and the answer goes straight into the conversation as a
- * note carrying the question with it.
+ * A question on the clipboard, for the half of the list the user can't answer.
  *
- * Which is the point: answering "what does she do for work" can't be filed under
- * the wrong person, and a three-word reply is a much lower bar than an empty
- * box. Nothing tracks which questions are done — a question disappears when a
- * turn exists that answers it, and the whole list is replaced on the next
- * rebuild anyway, by which point the answer is in the material.
+ * The row's own click is for the other half — you know it, you type it, it lands
+ * as a note. This is the opposite case and the more common one: the gap is a gap
+ * because nobody has asked, so what the user wants is a message that asks it.
+ * Copying hands the question to the Next move box, where it becomes the note
+ * that run is built around.
+ *
+ * `self-start` is load-bearing. The row is a stretch flex and a question wraps
+ * to two lines more often than not, so without it the button takes the whole
+ * height of the row and its hover fill paints a tall grey slab down the side of
+ * the text. Sized to a single line instead: a 12px icon in 4px of padding is the
+ * 20px that 12.5px text at `leading-relaxed` occupies.
+ */
+function CopyQuestion({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1600)
+          })
+          // Rejects when the document isn't focused. Nothing to say about it —
+          // the tick just doesn't appear, and the question is still on screen.
+          .catch(() => {})
+      }}
+      title="Copy the question — paste it into Next move to get a draft that asks it"
+      className="shrink-0 self-start rounded-md p-1 text-fg-3 transition hover:bg-surface-muted hover:text-fg"
+    >
+      {copied ? <Check size={12} className="text-yes" /> : <Copy size={12} />}
+    </button>
+  )
+}
+
+/**
+ * The engines already end every run by naming what they don't know. That list
+ * used to be something to read and forget; here each line is two things you can
+ * do with it, depending on which way the gap runs.
+ *
+ * **You know it** — click the question and answer it in a few words. The answer
+ * goes into the conversation as a note carrying the question with it, which is
+ * the point: answering "what does she do for work" can't be filed under the
+ * wrong person, and a three-word reply is a much lower bar than an empty box.
+ *
+ * **They haven't been asked** — copy it, and paste it into Next move. Most gaps
+ * are this kind, and the coach is the thing that turns one into a sendable line.
+ *
+ * Nothing tracks which questions are done — a question disappears when a turn
+ * exists that answers it, and the whole list is replaced on the next rebuild
+ * anyway, by which point the answer is in the material.
  */
 function OpenQuestions({ items, answer }: { items: string[]; answer?: AnswerProps }) {
   const [open, setOpen] = useState<string | null>(null)
@@ -62,8 +105,9 @@ function OpenQuestions({ items, answer }: { items: string[]; answer?: AnswerProp
                 {item}
               </button>
             ) : (
-              <span>{item}</span>
+              <span className="min-w-0 flex-1">{item}</span>
             )}
+            <CopyQuestion text={item} />
           </div>
           {answer && open === item ? (
             <div className="mt-1.5 flex items-center gap-1.5 pl-3">
