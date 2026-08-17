@@ -21,24 +21,43 @@ import type {
 } from '@/types/coach'
 
 /**
- * One amendment, addressed by heading rather than by byte range.
+ * One amendment, addressed by heading — and, for `edit`, by a quoted fragment
+ * inside that heading's body.
  *
- * `old_string` → `new_string` is the primitive coding agents use, and it works
- * there because code is near-unique and the agent has just read the exact bytes.
- * Prose is the opposite: a profile repeats phrasing constantly (her name, "she
- * mentioned", "he said"), so a uniqueness failure is the common case rather than
- * the rare one — and markdown whitespace is exactly what a model reproduces
- * imprecisely. Addressing by heading sidesteps both, and it pushes the document
- * toward staying organised, which is the only lever we have against bloat.
+ * The outer address stays the heading, for the reason it always was: a profile
+ * repeats phrasing constantly (her name, "she mentioned", "he said"), so a
+ * document-wide string match has a uniqueness problem that the same primitive
+ * doesn't have over code, and heading addressing pushes the document toward
+ * staying organised, which is the only lever we have against bloat. `append` is
+ * still the mode that carries most traffic, because most updates are a fact
+ * *added*.
  *
- * `append` is the mode that matters most: most updates are a fact *added*, and
- * string replacement handles that worst of all.
+ * `edit` is the correction mode, and it exists because not having it was making
+ * the documents worse. Fixing one wrong bullet used to mean `replace` on its
+ * whole section: regenerating a dozen bullets from memory, where anything not
+ * re-emitted was destroyed silently and without warning. Faced with that, the
+ * model reliably took the lossless option instead and appended a bullet
+ * correcting the earlier one — then, later, a third correcting the second. Real
+ * profiles grew chains of "**Supersedes the bullet above.**", which is bloat and
+ * also a document you have to read in order, holding earlier lines in your head
+ * as provisional. Scoping the quote to one section is what makes it workable:
+ * the ambiguity that sinks string matching across a whole document is rare
+ * inside a few hundred words, and `validateProfileUpdate` turns what's left into
+ * a complaint the model can act on rather than a silent hit on the wrong line.
  */
 export interface SectionUpdate {
   heading: string
-  mode: 'replace' | 'append' | 'delete'
-  /** Required unless deleting. Markdown — bullets, mostly. */
+  mode: 'replace' | 'append' | 'delete' | 'edit'
+  /**
+   * Required unless deleting. Markdown — bullets, mostly. For `edit`, the text
+   * that replaces `old`, or `""` to remove it.
+   */
   content?: string
+  /**
+   * `edit` only: the exact text within the section that `content` replaces.
+   * Empty for every other mode.
+   */
+  old?: string
 }
 
 /**
@@ -181,11 +200,59 @@ function serialise(preamble: string, sections: Section[]): string {
 // --- Apply --------------------------------------------------------------------
 
 /**
+ * Where `old` sits inside a section body, or why it doesn't sit there exactly
+ * once.
+ *
+ * Exact match first. The single fallback compares line by line with each line's
+ * outer whitespace ignored, which covers the one difference a model reliably
+ * introduces when quoting markdown back — indentation it normalised on the way
+ * through. Nothing else is attempted on purpose. Every other way a quote can be
+ * wrong (a changed word, a dropped clause, a summarised bullet) is a quote of
+ * text that isn't there, and guessing which nearby line was probably meant is
+ * how the wrong bullet gets rewritten.
+ */
+type Located = { start: number; end: number } | 'missing' | 'ambiguous'
+
+function locate(body: string, old: string): Located {
+  const first = body.indexOf(old)
+  if (first >= 0) {
+    return body.indexOf(old, first + old.length) >= 0
+      ? 'ambiguous'
+      : { start: first, end: first + old.length }
+  }
+
+  const lines = body.split('\n')
+  const needle = old.split('\n').map((line) => line.trim())
+  while (needle.length && !needle[needle.length - 1]) needle.pop()
+  while (needle.length && !needle[0]) needle.shift()
+  if (!needle.length) return 'missing'
+
+  // Start offset of every line, so a matched window of lines maps back onto the
+  // body it was found in.
+  const offsets: number[] = []
+  let at = 0
+  for (const line of lines) {
+    offsets.push(at)
+    at += line.length + 1
+  }
+
+  let hit: { start: number; end: number } | null = null
+  for (let i = 0; i + needle.length <= lines.length; i++) {
+    if (needle.some((want, j) => lines[i + j]!.trim() !== want)) continue
+    if (hit) return 'ambiguous'
+    const last = i + needle.length - 1
+    hit = { start: offsets[i]!, end: offsets[last]! + lines[last]!.length }
+  }
+  return hit ?? 'missing'
+}
+
+/**
  * Ops apply in order, so a model can delete a section and recreate it in one
- * update. Both misses are forgiving on purpose: `replace`/`append` against an
- * unknown heading creates it at the end, and `delete` on one is a no-op rather
- * than an error. Failing a whole rebuild because a heading was renamed three
- * turns ago would lose the other four amendments in the same payload.
+ * update. Every miss is forgiving on purpose: `replace`/`append` against an
+ * unknown heading creates it at the end, `delete` on one is a no-op rather than
+ * an error, and an `edit` whose quote no longer fits is dropped on its own.
+ * Failing a whole rebuild because a heading was renamed three turns ago would
+ * lose the other four amendments in the same payload.
  */
 export function applyProfileUpdate(markdown: string, update: ProfileUpdate): string {
   if (!update.changed) return markdown
@@ -198,6 +265,44 @@ export function applyProfileUpdate(markdown: string, update: ProfileUpdate): str
 
     if (op.mode === 'delete') {
       if (at >= 0) sections.splice(at, 1)
+      continue
+    }
+
+    if (op.mode === 'edit') {
+      // An empty `content` is a real answer here: it removes the text quoted in
+      // `old`. That is the other half of collapsing a correction — one edit
+      // fixes the bullet that was wrong, a second drops the bullet that was
+      // added to correct it — and without it the only way to shed a line is
+      // `replace` on its whole section, which is the lossy op this mode exists
+      // to avoid. An *absent* content field is not the same answer, and is
+      // skipped rather than read as a deletion.
+      if (typeof op.content !== 'string') continue
+
+      // A quote that no longer fits is dropped rather than repaired. It should
+      // be unreachable from a rebuild, where `validateProfileUpdate` checked the
+      // quote against this exact document — but the other writers apply to a
+      // document they didn't validate against. The coach's own amendment lands
+      // on a fresh read of the mind taken after the run. Losing the one op that
+      // stopped fitting beats losing the payload it arrived in, and beats
+      // rewriting whichever text happened to be nearest.
+      const existing = at >= 0 ? sections[at]! : null
+      if (!existing) continue
+      const found = locate(existing.body, op.old ?? '')
+      if (typeof found === 'string') continue
+
+      const replacement = op.content.trim()
+      let { start, end } = found
+      // A removed line takes its newline with it, or the document grows a blank
+      // line everywhere a bullet was dropped.
+      if (!replacement) {
+        if (existing.body[end] === '\n') end += 1
+        else if (start > 0 && existing.body[start - 1] === '\n') start -= 1
+      }
+      existing.body = (
+        existing.body.slice(0, start) +
+        replacement +
+        existing.body.slice(end)
+      ).trim()
       continue
     }
 
@@ -222,15 +327,59 @@ export function applyProfileUpdate(markdown: string, update: ProfileUpdate): str
 
 // --- Validate -----------------------------------------------------------------
 
-const MODES = new Set(['replace', 'append', 'delete'])
+const MODES = new Set(['replace', 'append', 'delete', 'edit'])
+
+/**
+ * An `edit` is the one op that can be wrong in a way the document itself knows
+ * about, so it is the one op worth checking against the document.
+ *
+ * Every complaint is phrased as an instruction rather than a diagnosis, because
+ * `completeJSON` sends it back for exactly one retry: whatever it says has to be
+ * repairable on first reading, and it has to leave a way out that isn't another
+ * edit. The escape hatch matters more than it looks — a model that cannot get
+ * the quote right twice would otherwise fail the whole rebuild, so the
+ * not-found complaint names `append`/`replace` as alternatives.
+ *
+ * `base` is absent where the caller has no document to check against, which is
+ * every structural-only test and any caller validating an update before it knows
+ * what it will be applied to. The quote is then taken on trust, and
+ * `applyProfileUpdate` drops it if it turns out not to fit.
+ */
+function validateEdit(op: SectionUpdate, base: string | undefined, at: string): string | null {
+  const old = typeof op.old === 'string' ? op.old : ''
+  if (!old.trim()) {
+    return `"${at}.old" is required when mode is "edit" — the exact text you are replacing, quoted from that section`
+  }
+  if (base === undefined) return null
+
+  const section = parse(base).sections.find((s) => key(s.heading) === key(op.heading))
+  if (!section) {
+    return `"${at}" edits "${op.heading}", which is not a section of the document — use "replace" to create it`
+  }
+  const found = locate(section.body, old)
+  if (found === 'missing') {
+    return `"${at}.old" is not in "${section.heading}" — quote the text you are replacing exactly as it appears there, character for character, or use "append"/"replace" instead`
+  }
+  if (found === 'ambiguous') {
+    return `"${at}.old" appears more than once in "${section.heading}" — extend it with the surrounding text that makes it unique`
+  }
+  return null
+}
 
 /**
  * The backstop for every backend. Qwen gets no schema enforcement at all, and
  * even the strict paths can return a well-typed update that means nothing —
  * `changed: true` with neither sections nor a rewrite — so the complaint has to
  * be specific enough for the model to fix on retry.
+ *
+ * `base` is the document this update is about to be applied to, when the caller
+ * has it. It buys the `edit` checks and nothing else.
  */
-export function validateProfileUpdate(value: unknown, field = 'profile'): string | null {
+export function validateProfileUpdate(
+  value: unknown,
+  field = 'profile',
+  base?: string,
+): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return `"${field}" must be an object`
   }
@@ -259,7 +408,15 @@ export function validateProfileUpdate(value: unknown, field = 'profile'): string
     if (!MODES.has(op.mode)) {
       return `"${field}.sections[${i}].mode" must be "replace", "append" or "delete"`
     }
-    if (op.mode !== 'delete' && (typeof op.content !== 'string' || !op.content.trim())) {
+    if (op.mode === 'edit') {
+      // Empty is allowed and means "remove what I quoted"; absent is not, so a
+      // dropped field can't read as a deletion.
+      if (typeof op.content !== 'string') {
+        return `"${field}.sections[${i}].content" must be a string when mode is "edit" — the replacement text, or "" to remove the text you quoted`
+      }
+      const err = validateEdit(op, base, `${field}.sections[${i}]`)
+      if (err) return err
+    } else if (op.mode !== 'delete' && (typeof op.content !== 'string' || !op.content.trim())) {
       return `"${field}.sections[${i}].content" is required unless mode is "delete"`
     }
   }

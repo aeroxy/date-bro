@@ -203,7 +203,9 @@ in an uncached segment below it.
 - **`updateInstructions(sections)`** — how a rebuild amends the document; rides in the system block
   with the rest of the task, so it is constant per engine and caches with it. Names the modes, pins the canonical headings, asks for bullets carrying confidence
   and a turn citation, states the ~1,500-word ceiling, and says plainly that `changed: false` is a
-  real answer rather than a failure.
+  real answer rather than a failure. It also bans, in those words, a bullet that corrects another
+  bullet — see the `edit` mode below for why that instruction needed an op behind it before it
+  worked.
 - **`buildSystem(task, customPrompt)`** assembles the whole instructional half — identity, inference
   discipline, the engine's task — and appends the user's house rules, scoped to override the style
   preferences in the task but never the non-negotiables. Nothing record-specific may enter it.
@@ -282,6 +284,12 @@ Every engine has three descriptions of its output, because different backends ne
 `validateSuggestion` additionally rejects an empty `draft`, because the failure mode worth catching
 isn't malformed JSON — it's a model that describes what to say instead of saying it.
 
+Each `validate*` takes an optional second argument: the document the update is about to be applied
+to, which is the only thing that makes an `edit`'s quote checkable. `run.ts` passes it everywhere —
+the profile snapshot for the two rebuilds and the amend, the mind text for `suggestMove`. Omitted,
+the update is checked for shape alone and a bad quote is dropped later by `applyProfileUpdate`
+instead.
+
 ### Amending a profile
 
 `buildChatMessages(record, engine, message, mind, customPrompt)` sends **one instruction**, not a
@@ -359,6 +367,38 @@ minute and the user may have edited it by hand in the meantime — and `mindText
 an amendment lands on the full document rather than on an empty one, forking only the section it
 actually rewrote.
 
+### The profile proposal
+
+`suggestMove` can also amend **a profile** — and this one it returns rather than writes. The
+`profile` field of its response is a `ProfileUpdate` with a `target` (`"them"` / `"me"`) alongside
+it; `toProposal` nests it into the `ProfileProposal` stored on the `Suggestion`, which rides the
+advice turn into the record. `changed: false` — the answer on most runs — becomes no field at all.
+
+The asymmetry with `mind` is the whole design:
+
+- A profile **is** a field of the record, so the merge belongs to whoever owns the record.
+- The user is the **editor** of these two documents. A rebuild is something they asked for. An
+  amendment arriving as a side effect of "what do I say next" is not, and writing it would rewrite
+  the page they were reading with no diff and no undo. `SuggestionView` renders it as a card at the
+  foot of the advice with an Apply button; `applyProposal` in `App.tsx` writes the profile and
+  stamps `appliedAt` back into the stored turn in the same transaction, so the offer and its outcome
+  can't disagree across a reload.
+- Losing a `mind` amendment costs the coach one finding. Silently dropping a profile write would
+  leave the user believing something was recorded that wasn't.
+
+Two guards keep the offer honest. **The bar**, in `proposalInstructions`: propose only what a
+rebuild wouldn't find on its own — the user's note this run, what research established, a correction
+they made — because a rebuild reads the same transcript and would otherwise write the same fact a
+second time in a second wording. **Staleness**, in `App.tsx`: if the target profile's `generatedAt`
+or `amendedAt` moved past the suggestion's `generatedAt`, the button is replaced by "Profile moved
+on". The `edit` quotes were validated against the document as it stood during the run, so a document
+that has changed since could take some ops and drop others — a half-applied amendment reported as
+"Applied" is the one outcome worth a disabled button to avoid.
+
+Not in the export. `export-markdown.ts` keeps only the drafts out of a suggestion by policy; an
+applied proposal is already visible in the profile it amended, and an unapplied one is an offer that
+was declined.
+
 ## Output contracts
 
 | Engine | Returns | Notable fields |
@@ -366,7 +406,7 @@ actually rewrote.
 | `rebuildPersonContext` | `PersonProfile` | `markdown` (amended, not regenerated) + `judgment`: `interest_read` with `signals_for` / `signals_against` / `honest_note`; `flags`; `open_questions` |
 | `rebuildSelfContext` | `SelfProfile` | `markdown` + `judgment`: `goal_read` splitting stated from revealed; `open_questions` |
 | `chatAboutProfile` | `{reply, headline, markdown, changed}` | one instruction: prose for the user, an optional `ProfileUpdate` applied to the stored markdown, and a replacement headline when the amendment made the old one wrong (`""` otherwise, the common case) |
-| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), and `mind` (a `ProfileUpdate` the coach applies **to itself**) |
+| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profile` (a `ProfileProposal` it returns for the user to apply — see above) |
 
 **An amendment moves the prose, and the headline with it.** `markdown`, `amendedAt`,
 `amendedTurnsAt` and — when the amendment made the old one wrong — `judgment.headline`. The rest of
@@ -540,22 +580,46 @@ arrives in the tail, a couple of blocks above where the answer starts.
 The memory of a person, as markdown amended by section.
 
 ```ts
-type SectionUpdate = { heading: string; mode: 'replace' | 'append' | 'delete'; content?: string }
+type SectionUpdate = {
+  heading: string
+  mode: 'replace' | 'append' | 'delete' | 'edit'
+  content?: string // for `edit`, what replaces `old` — or "" to remove it
+  old?: string     // `edit` only: the exact text being replaced, quoted from that section
+}
 type ProfileUpdate = { changed: boolean; sections?: SectionUpdate[]; rewrite?: string }
 ```
 
 `applyProfileUpdate(markdown, update)` splits on `##` followed by a space, applies ops in order, and
 re-serialises.
-Both misses are forgiving on purpose: `replace`/`append` against an unknown heading creates it, and
-`delete` on one is a no-op. Failing a whole rebuild because a heading was renamed three turns ago
-would throw away the other four amendments in the same payload.
+Every miss is forgiving on purpose: `replace`/`append` against an unknown heading creates it,
+`delete` on one is a no-op, and an `edit` whose quote no longer fits is dropped on its own. Failing a
+whole rebuild because a heading was renamed three turns ago would throw away the other four
+amendments in the same payload.
 
-- **Addressed by heading, not by byte range.** `old_string` → `new_string` is what coding agents use,
-  and it works there because code is near-unique and the agent has just read the exact bytes. Prose
-  is the opposite: a profile repeats phrasing constantly, so uniqueness failures are the common case,
-  and markdown whitespace is exactly what a model reproduces imprecisely. Heading matching folds
-  case, spacing and trailing punctuation; a section genuinely *renamed* gets a new section, which is
-  more honest than fuzzy-matching an edit onto the wrong target.
+- **Addressed by heading, and for `edit` by a quote within it.** The outer address is the heading for
+  the reason it always was: prose repeats phrasing constantly, so a document-wide string match has a
+  uniqueness problem code doesn't. Heading matching folds case, spacing and trailing punctuation; a
+  section genuinely *renamed* gets a new section, which is more honest than fuzzy-matching onto the
+  wrong target.
+- **`edit` is the correction mode, and its absence was making documents worse.** Fixing one wrong
+  bullet used to mean `replace` on its whole section — regenerating a dozen bullets from memory,
+  where anything not re-emitted was destroyed silently. So the model reliably took the lossless
+  option and *appended a bullet correcting the earlier one*, then later a third correcting the
+  second. Real profiles grew chains of "**Supersedes the bullet above.**", which is bloat and also a
+  document that has to be read in order, holding earlier lines as provisional. `updateInstructions`
+  had told rebuilds to say what a fact *is now* rather than what it used to be since the beginning;
+  the instruction lost to the incentive every time, and only stopped losing once the op existed.
+  Scoping the quote to one section is what makes string matching workable here — ambiguity that
+  sinks it document-wide is rare inside a few hundred words. `content: ""` removes the quoted text,
+  which is the other half of collapsing a chain: edit the original true, then edit the correction
+  away.
+- **A bad quote is a complaint, not a silent miss.** `validateProfileUpdate` takes the document as an
+  optional `base` — every engine passes the same string it will apply to afterwards — and turns a
+  quote that isn't there, or is there twice, into a specific instruction. `completeJSON` allows
+  exactly one retry before the whole rebuild throws, so the not-found complaint deliberately names
+  `append`/`replace` as a way out that isn't another edit. The one tolerance is per-line outer
+  whitespace, the single difference a model reliably introduces when quoting markdown back; guessing
+  at anything beyond that is how the wrong bullet gets rewritten.
 - **`append` is the mode that matters most.** Most updates are a fact *added*, which is what string
   replacement handles worst. Content starting with a bullet joins the list with a single newline;
   anything else starts its own paragraph.
@@ -586,8 +650,12 @@ next-move engine is told to open a new subject once an exchange has resolved, an
 the other person's open threads are empty: without this the instruction has nothing to draw on but
 the loop already running. It is also the only material in either profile that cannot be researched.
 
-**Drift and bloat are the unsolved risk.** Amend-in-place documents grow and contradict themselves.
-The mitigations are all editorial: a ~1,500-word ceiling stated in the prompt with an instruction to
-spend a rebuild consolidating past it, `delete` as a first-class mode, and clearing a profile as a
-deliberate start-over. Nothing measures whether a profile is actually drifting. None of the reference
-implementations solve this automatically either.
+**Drift and bloat are the partly-solved risk.** Amend-in-place documents grow and contradict
+themselves. `edit` removes the structural half of it — a correction no longer has to arrive as an
+extra bullet — but the rest of the mitigations are still editorial: a ~1,500-word ceiling stated in
+the prompt with an instruction to spend a rebuild consolidating past it, `delete` as a first-class
+mode, and clearing a profile as a deliberate start-over. Nothing measures whether a profile is
+actually drifting, nothing triggers the consolidation pass, and documents already carrying supersede
+chains only heal when a rebuild happens to touch those lines. The research notes have the machinery
+this still wants — `needsConsolidation` in `lib/research-notes.ts` detects the condition and flips
+the prompt into replace-the-whole-list mode; profiles have the instruction and no trigger.

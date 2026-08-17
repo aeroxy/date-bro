@@ -126,6 +126,162 @@ describe('applyProfileUpdate', () => {
     expect(out.startsWith('A note that was never under a heading.')).toBe(true)
   })
 
+  test('edits one bullet and leaves the rest of the section alone', () => {
+    const doc = `## Who they are
+
+- Landscape architect (high)
+- Between flats (medium)
+- Runs most mornings (low)`
+    const out = applyProfileUpdate(
+      doc,
+      change([
+        {
+          heading: 'Who they are',
+          mode: 'edit',
+          old: '- Between flats (medium)',
+          content: '- Moved in with her sister (high)',
+        },
+      ]),
+    )
+    expect(out).toBe(`## Who they are
+
+- Landscape architect (high)
+- Moved in with her sister (high)
+- Runs most mornings (low)`)
+  })
+
+  test('an edit only searches the section it names', () => {
+    const doc = '## Who they are\n\n- Between flats\n\n## Right now\n\n- Between flats'
+    const out = applyProfileUpdate(
+      doc,
+      change([
+        { heading: 'Right now', mode: 'edit', old: '- Between flats', content: '- Moved in' },
+      ]),
+    )
+    expect(out).toBe('## Who they are\n\n- Between flats\n\n## Right now\n\n- Moved in')
+  })
+
+  // The whole of the fallback: outer whitespace per line. A quote that differs
+  // in any other way is a quote of text that isn't there, and stays a miss.
+  test('an edit matches when the quote carries whitespace the document does not', () => {
+    const doc = '## Who they are\n\n- Landscape architect (high)\n- Runs most mornings (low)'
+    const out = applyProfileUpdate(
+      doc,
+      change([
+        {
+          heading: 'Who they are',
+          mode: 'edit',
+          old: '  - Landscape architect (high)  ',
+          content: '- Landscape architect, own studio (high)',
+        },
+      ]),
+    )
+    expect(out).toBe(
+      '## Who they are\n\n- Landscape architect, own studio (high)\n- Runs most mornings (low)',
+    )
+  })
+
+  test('an edit spanning several lines replaces all of them', () => {
+    const doc = '## Patterns\n\n- One\n- Two\n- Three'
+    const out = applyProfileUpdate(
+      doc,
+      change([{ heading: 'Patterns', mode: 'edit', old: '- One\n- Two', content: '- Merged' }]),
+    )
+    expect(out).toBe('## Patterns\n\n- Merged\n- Three')
+  })
+
+  // Unreachable from a rebuild, which validates the quote against this exact
+  // document — but the mind amendment and (later) an applied proposal both land
+  // on a document read after the quote was written.
+  test('an edit whose quote is gone is dropped, and takes nothing with it', () => {
+    const out = applyProfileUpdate(
+      DOC,
+      change([
+        { heading: 'Who they are', mode: 'edit', old: '- Nurse (high)', content: '- Doctor' },
+        { heading: 'Right now', mode: 'append', content: '- Also cycling' },
+      ]),
+    )
+    expect(out).toContain('- Landscape architect (high)')
+    expect(out).not.toContain('Doctor')
+    expect(out).toContain('- Between flats (medium)\n- Also cycling')
+  })
+
+  test('an ambiguous edit is dropped rather than applied to a guess', () => {
+    const doc = '## Patterns\n\n- Answers with a list\n- Answers with a list'
+    const out = applyProfileUpdate(
+      doc,
+      change([
+        { heading: 'Patterns', mode: 'edit', old: '- Answers with a list', content: '- Fixed' },
+      ]),
+    )
+    expect(out).toBe(doc)
+  })
+
+  test('an edit with empty content removes the line, newline and all', () => {
+    const doc = '## Patterns\n\n- One\n- Two\n- Three'
+    const out = applyProfileUpdate(
+      doc,
+      change([{ heading: 'Patterns', mode: 'edit', old: '- Two', content: '' }]),
+    )
+    expect(out).toBe('## Patterns\n\n- One\n- Three')
+  })
+
+  test('removing the last line leaves no trailing blank', () => {
+    const doc = '## Patterns\n\n- One\n- Two'
+    const out = applyProfileUpdate(
+      doc,
+      change([{ heading: 'Patterns', mode: 'edit', old: '- Two', content: '' }]),
+    )
+    expect(out).toBe('## Patterns\n\n- One')
+  })
+
+  // The whole point of the mode, end to end: a bullet plus the bullet somebody
+  // wrote to correct it become one true bullet.
+  test('collapses a correction that was written as a second bullet', () => {
+    const doc = `## Who you are
+
+- Grew up in California, then school near Pittsburgh (medium)
+- **Supersedes the above.** Born in Fujian; California came later (high)
+- Writes long messages (medium)`
+    const out = applyProfileUpdate(
+      doc,
+      change([
+        {
+          heading: 'Who you are',
+          mode: 'edit',
+          old: '- Grew up in California, then school near Pittsburgh (medium)',
+          content: '- Born in Fujian, California later, then school near Pittsburgh (high)',
+        },
+        {
+          heading: 'Who you are',
+          mode: 'edit',
+          old: '- **Supersedes the above.** Born in Fujian; California came later (high)',
+          content: '',
+        },
+      ]),
+    )
+    expect(out).toBe(`## Who you are
+
+- Born in Fujian, California later, then school near Pittsburgh (high)
+- Writes long messages (medium)`)
+  })
+
+  test('an edit whose content field is absent removes nothing', () => {
+    const out = applyProfileUpdate(
+      DOC,
+      change([{ heading: 'Who they are', mode: 'edit', old: '- Landscape architect (high)' }]),
+    )
+    expect(out).toBe(DOC)
+  })
+
+  test('an edit does not create the section it failed to find', () => {
+    const out = applyProfileUpdate(
+      DOC,
+      change([{ heading: 'Handle with care', mode: 'edit', old: '- Her ex', content: '- Nothing' }]),
+    )
+    expect(out).toBe(DOC)
+  })
+
   test('a rewrite replaces everything', () => {
     expect(applyProfileUpdate(DOC, { changed: true, rewrite: '## All new\n\n- Yes' })).toBe(
       '## All new\n\n- Yes',
@@ -179,6 +335,77 @@ describe('validateProfileUpdate', () => {
     expect(validateProfileUpdate(change([{ heading: '  ', mode: 'delete' }]))).toContain('heading')
   })
 
+  test('allows an edit to empty — it removes the quoted text — but not an absent one', () => {
+    const remove = change([
+      {
+        heading: 'Who they are',
+        mode: 'edit',
+        old: '- Landscape architect (high)',
+        content: '',
+      },
+    ])
+    expect(validateProfileUpdate(remove, 'profile', DOC)).toBeNull()
+
+    const absent = change([
+      { heading: 'Who they are', mode: 'edit', old: '- Landscape architect (high)' },
+    ])
+    expect(validateProfileUpdate(absent, 'profile', DOC)).toContain('content')
+  })
+
+  test('requires a quote on an edit, whether or not there is a document to check', () => {
+    const noQuote = change([{ heading: 'Who they are', mode: 'edit', content: '- x' }])
+    expect(validateProfileUpdate(noQuote)).toContain('old')
+    expect(validateProfileUpdate(noQuote, 'profile', DOC)).toContain('old')
+  })
+
+  // Without a base the quote is taken on trust: nothing here can tell whether it
+  // is in the document, and `applyProfileUpdate` drops it later if it isn't.
+  test('accepts an unverifiable edit when there is no document to check against', () => {
+    const update = change([
+      { heading: 'Who they are', mode: 'edit', old: '- Nurse', content: '- Doctor' },
+    ])
+    expect(validateProfileUpdate(update)).toBeNull()
+    expect(validateProfileUpdate(update, 'profile', DOC)).toContain('quote the text you are replacing')
+  })
+
+  test('accepts an edit whose quote is really there', () => {
+    const update = change([
+      {
+        heading: 'Who they are',
+        mode: 'edit',
+        old: '- Landscape architect (high)',
+        content: '- Landscape architect, own studio (high)',
+      },
+    ])
+    expect(validateProfileUpdate(update, 'profile', DOC)).toBeNull()
+  })
+
+  test('rejects an ambiguous quote with the instruction that fixes it', () => {
+    const doc = '## Patterns\n\n- Answers with a list\n- Answers with a list'
+    const update = change([
+      { heading: 'Patterns', mode: 'edit', old: '- Answers with a list', content: '- Fixed' },
+    ])
+    expect(validateProfileUpdate(update, 'profile', doc)).toContain('more than once')
+  })
+
+  test('rejects an edit aimed at a section that does not exist', () => {
+    const update = change([
+      { heading: 'Handle with care', mode: 'edit', old: '- Her ex', content: '- x' },
+    ])
+    expect(validateProfileUpdate(update, 'profile', DOC)).toContain('not a section')
+  })
+
+  // One retry, then the whole rebuild throws — so a model that can't reproduce
+  // the quote has to be told what to do instead of trying a third time.
+  test('the not-found complaint offers a way out that is not another edit', () => {
+    const update = change([
+      { heading: 'Who they are', mode: 'edit', old: '- Nurse', content: '- Doctor' },
+    ])
+    const complaint = validateProfileUpdate(update, 'profile', DOC) ?? ''
+    expect(complaint).toContain('append')
+    expect(complaint).toContain('replace')
+  })
+
   test('rejects the shapes a loose backend can return', () => {
     expect(validateProfileUpdate(null)).toContain('must be an object')
     expect(validateProfileUpdate([])).toContain('must be an object')
@@ -223,6 +450,29 @@ describe('rebuild schemas', () => {
       expect(shape.lastIndexOf('"profile"')).toBeGreaterThan(shape.lastIndexOf('"open_questions"'))
     })
   }
+
+  // The section op is nested three deep, so the drift check the tests above run
+  // on the top level doesn't reach it — and it is the half of the contract the
+  // model reads as prose.
+  test('the section op is strict-mode clean, and the sketch names every mode', () => {
+    const op = (
+      PERSON_SCHEMA.schema.properties as unknown as {
+        profile: {
+          properties: {
+            sections: { items: { required: string[]; properties: Record<string, unknown> } }
+          }
+        }
+      }
+    ).profile.properties.sections.items
+    expect(Object.keys(op.properties).sort()).toEqual([...op.required].sort())
+
+    const modes = (op.properties.mode as { enum: string[] }).enum
+    expect(modes).toContain('edit')
+    for (const shape of [PERSON_SHAPE, SELF_SHAPE, CHAT_SHAPE, SUGGESTION_SHAPE]) {
+      for (const mode of modes) expect(shape).toContain(`"${mode}"`)
+      expect(shape).toContain('"old"')
+    }
+  })
 
   test('the shapes are self-consistent JSON-ish sketches, not truncated', () => {
     for (const shape of [PERSON_SHAPE, SELF_SHAPE, CHAT_SHAPE]) {
@@ -321,7 +571,7 @@ describe('the suggestion contract', () => {
     for (const field of required) expect(SUGGESTION_SHAPE).toContain(`"${field}"`)
   })
 
-  test('the mind amendment is emitted after the drafts, not before them', () => {
+  test('both amendments are emitted after the drafts, with the proposal last', () => {
     const { required } = SUGGESTION_SCHEMA.schema as { required: string[] }
     // This assertion used to run the other way, on the lesson `open_questions`
     // cost: a field that comes after three drafts is one the model sometimes
@@ -332,7 +582,11 @@ describe('the suggestion contract', () => {
     // drafts. Ordering can't make the nested object safe, only decide what it
     // takes down with it.
     expect(required.indexOf('mind')).toBeGreaterThan(required.indexOf('options'))
-    expect(required.at(-1)).toBe('mind')
+    // The proposal sits below the mind for the same reason the mind sits below
+    // the drafts: of the two nested objects it is the rarer, so it is the
+    // cheaper one for a derailment to take with it.
+    expect(required.indexOf('profile')).toBeGreaterThan(required.indexOf('mind'))
+    expect(required.at(-1)).toBe('profile')
   })
 
   test('an absent mind amendment is allowed — it means nothing was learned', () => {
@@ -342,6 +596,61 @@ describe('the suggestion contract', () => {
   test('a present but malformed mind amendment is rejected, not applied', () => {
     const bad = { ...ok(), mind: { changed: true, sections: 'lots', rewrite: '' } }
     expect(validateSuggestion(bad)).toContain('mind')
+  })
+
+  test('an absent profile proposal is allowed — it means nothing was learned', () => {
+    expect(validateSuggestion(ok(), { them: DOC })).toBeNull()
+    expect(validateSuggestion({ ...ok(), profile: { changed: false } }, { them: DOC })).toBeNull()
+  })
+
+  test('a proposal with nothing to aim needs no target', () => {
+    const idle = { ...ok(), profile: { changed: false, sections: [], rewrite: '' } }
+    expect(validateSuggestion(idle, { them: DOC, me: DOC })).toBeNull()
+  })
+
+  test('a proposal that changes something must say whose profile it is', () => {
+    const untargeted = {
+      ...ok(),
+      profile: change([{ heading: 'Right now', mode: 'append', content: '- Moved in' }]),
+    }
+    expect(validateSuggestion(untargeted, { them: DOC })).toContain('target')
+    expect(
+      validateSuggestion({ ...untargeted, profile: { ...untargeted.profile, target: 'us' } }, { them: DOC }),
+    ).toContain('target')
+  })
+
+  test('a well-formed proposal passes, and its quotes are checked against the target', () => {
+    const proposal = (target: string) => ({
+      ...ok(),
+      profile: {
+        target,
+        ...change([
+          {
+            heading: 'Right now',
+            mode: 'edit',
+            old: '- Between flats (medium)',
+            content: '- Moved in (high)',
+          },
+        ]),
+      },
+    })
+    // Same heading in both documents, different text under it — so the only
+    // thing separating a pass from a complaint is which one the quote is
+    // checked against.
+    const bases = { them: DOC, me: '## Right now\n\n- Between jobs (medium)' }
+
+    expect(validateSuggestion(proposal('them'), bases)).toBeNull()
+    expect(validateSuggestion(proposal('me'), bases)).toContain('quote the text you are replacing')
+  })
+
+  // The app refuses to invent a profile no rebuild has produced, so a proposal
+  // against one would render an offer that does nothing when clicked.
+  test('a proposal against a profile that does not exist yet is rejected', () => {
+    const proposal = {
+      ...ok(),
+      profile: { target: 'me', ...change([{ heading: 'Who you are', mode: 'append', content: '- x' }]) },
+    }
+    expect(validateSuggestion(proposal, { them: DOC, me: '' })).toContain("isn't one yet")
   })
 
   test('a well-formed mind amendment passes', () => {

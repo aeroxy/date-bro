@@ -8,6 +8,7 @@ import type { LLMConfig } from '@/types/settings'
 import type {
   PersonJudgment,
   PersonProfile,
+  ProfileProposal,
   SelfJudgment,
   SelfProfile,
   Suggestion,
@@ -59,6 +60,23 @@ function resolveSuggestionOutput(config: LLMConfig): { tools: ToolDefinition[]; 
   return { tools: [...ALL_TOOLS, buildVerdictSchema(SUGGESTION_SCHEMA)], verdictName: VERDICT_NAME }
 }
 
+/**
+ * The wire shape into the stored one: flat on the way in, nested on the way out,
+ * so `update` can go straight to `applyProfileUpdate` with nothing to strip.
+ *
+ * `changed: false` is the usual answer and becomes nothing at all, which is what
+ * keeps the field off the stored suggestion — and off the advice turn — on every
+ * run that had nothing to say. A target the model didn't set, or set to
+ * something that isn't one of the two documents, is dropped for the same reason:
+ * an amendment nobody can aim is not an offer worth showing.
+ */
+function toProposal(raw: (ProfileUpdate & { target?: string }) | undefined): ProfileProposal | undefined {
+  if (!raw?.changed) return undefined
+  const { target, ...update } = raw
+  if (target !== 'them' && target !== 'me') return undefined
+  return { target, update }
+}
+
 /** A human-readable line for the UI while research is in flight. */
 function describeToolCall(call: ToolCall): string {
   try {
@@ -97,16 +115,20 @@ export async function rebuildPersonContext(
   onThinking?: (thinking: ThinkingSummary) => void,
 ): Promise<PersonProfile> {
   const { config, customPrompt, mind } = await context()
+  // One snapshot, validated against and then applied to. They have to be the
+  // same string: an `edit` is checked for fitting *this* document, and checking
+  // one copy while amending another would pass quotes that then silently miss.
+  const base = record.themProfile?.markdown ?? ''
   const { profile, ...judgment } = await completeJSON<Rebuild<PersonJudgment>>(
     config,
     buildPersonMessages(record, message, mind, customPrompt),
-    validatePerson,
+    (r) => validatePerson(r, base),
     { signal, jsonSchema: PERSON_SCHEMA, onThinking, sessionId: record.id },
   )
   return {
     generatedAt: Date.now(),
     turnsAt: record.turnsUpdatedAt,
-    markdown: applyProfileUpdate(record.themProfile?.markdown ?? '', profile),
+    markdown: applyProfileUpdate(base, profile),
     judgment,
   }
 }
@@ -119,16 +141,17 @@ export async function rebuildSelfContext(
   onThinking?: (thinking: ThinkingSummary) => void,
 ): Promise<SelfProfile> {
   const { config, customPrompt, mind } = await context()
+  const base = record.meProfile?.markdown ?? ''
   const { profile, ...judgment } = await completeJSON<Rebuild<SelfJudgment>>(
     config,
     buildSelfMessages(record, message, mind, customPrompt),
-    validateSelf,
+    (r) => validateSelf(r, base),
     { signal, jsonSchema: SELF_SCHEMA, onThinking, sessionId: record.id },
   )
   return {
     generatedAt: Date.now(),
     turnsAt: record.turnsUpdatedAt,
-    markdown: applyProfileUpdate(record.meProfile?.markdown ?? '', profile),
+    markdown: applyProfileUpdate(base, profile),
     judgment,
   }
 }
@@ -160,12 +183,12 @@ export async function chatAboutProfile(
     reply: string
     headline?: string
     profile: ProfileUpdate
-  }>(config, buildChatMessages(record, engine, message, mind, customPrompt), validateChat, {
-    signal,
-    jsonSchema: CHAT_SCHEMA,
-    onThinking,
-    sessionId: record.id,
-  })
+  }>(
+    config,
+    buildChatMessages(record, engine, message, mind, customPrompt),
+    (r) => validateChat(r, current),
+    { signal, jsonSchema: CHAT_SCHEMA, onThinking, sessionId: record.id },
+  )
 
   return {
     reply: reply.trim(),
@@ -201,25 +224,51 @@ export async function suggestMove(
     needsConsolidation(record.researchNotes),
   )
 
-  type Raw = Omit<Suggestion, 'id' | 'generatedAt' | 'question'> & { mind?: ProfileUpdate }
-  const { mind: amendment, ...result } =
+  // Both amendments arrive flat on the wire — the proposal is a `ProfileUpdate`
+  // with a `target` alongside it, because a nested object inside a nested object
+  // is one more level for a model to lose its place in.
+  type RawProposal = ProfileUpdate & { target?: string }
+  type Raw = Omit<Suggestion, 'id' | 'generatedAt' | 'question' | 'profile'> & {
+    mind?: ProfileUpdate
+    profile?: RawProposal
+  }
+
+  // Every document this response could amend, as this run was built from it, so
+  // an `edit` is checked against the text the model was actually shown. The two
+  // profiles are exactly what `profileBlock` put in the prompt. The mind write
+  // below re-reads deliberately, and an edit that stops fitting in between is
+  // dropped by `applyProfileUpdate` rather than landing somewhere else.
+  const validate = (r: object) =>
+    validateSuggestion(r, {
+      mind,
+      them: record.themProfile?.markdown ?? '',
+      me: record.meProfile?.markdown ?? '',
+    })
+  const { mind: amendment, profile: proposed, ...result } =
     tools.length > 0
       ? await runAgentWithValidation<Raw>(config, messages, {
           tools,
           executeTool: createCachedExecutor(executeTool),
           signal,
           verdictName,
-          validate: validateSuggestion,
+          validate,
           onToolCall: onActivity ? (call) => onActivity(describeToolCall(call)) : undefined,
           onThinking,
           sessionId: record.id,
         })
-      : await completeJSON<Raw>(config, messages, validateSuggestion, {
+      : await completeJSON<Raw>(config, messages, validate, {
           signal,
           jsonSchema: SUGGESTION_SCHEMA,
           onThinking,
           sessionId: record.id,
         })
+
+  // Returned, not written — the whole difference between this and the mind
+  // amendment below. A profile is a field of the record, so its merge belongs to
+  // the caller that owns the record; and the user is the editor of that document,
+  // so an amendment arriving as a side effect of asking what to say next is
+  // theirs to accept rather than ours to apply.
+  const proposal = toProposal(proposed)
 
   // The coach amending itself. Written here rather than handed back for the
   // caller to store, unlike the profile amendments: the mind isn't a field of any
@@ -254,5 +303,6 @@ export async function suggestMove(
     generatedAt: Date.now(),
     turnsAt: record.turnsUpdatedAt,
     question: message.trim() || undefined,
+    ...(proposal ? { profile: proposal } : {}),
   }
 }

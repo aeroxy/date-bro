@@ -399,7 +399,10 @@ ${me}
       ? `What is known about these two, accumulated across every rebuild so far. Work
 from it. The transcript above stays the source for exact wording, and for
 anything said after the profile was last updated — where they disagree, the
-transcript wins.`
+transcript wins.
+
+These are also the documents a proposed amendment aims at, when you have one to
+propose. Whichever you address, address it by the headings you can see here.`
       : `The profile as it stands, which you are about to amend. It was written from
 earlier versions of this same transcript. Where the newer turns contradict it,
 the transcript wins and the profile is what needs correcting.${
@@ -418,6 +421,47 @@ and the first thing they see is wrong.`
 }
 
 /**
+ * The suggestion engine's one channel into a profile, and deliberately a narrow
+ * one.
+ *
+ * Not `updateInstructions`, though the ops are the same. That block is a
+ * rebuild's whole job, thirty lines of doctrine about what a profile is for, and
+ * pasting it here would put a second full task next to the one the user actually
+ * asked for — competing for attention with the drafts, which are what they
+ * opened the app to get. What this engine needs is the bar and the targeting.
+ *
+ * The bar is the load-bearing part. A rebuild reads the same transcript this
+ * engine just read, so anything visible in it will be caught by the button next
+ * to this one; proposing it here only means the same fact gets written twice, by
+ * two engines, in two wordings. What a rebuild genuinely cannot see is what the
+ * user typed into their note this run and what research turned up — so that is
+ * what the bar is set to, and everything else is told to stay a `changed: false`.
+ */
+function proposalInstructions(): string {
+  return `## Proposing an amendment to a profile
+
+You may propose ONE amendment to ONE of the two profiles above, or none. None is
+the answer on most runs — return changed: false, and that is a real answer.
+
+- **Propose only what a rebuild would not find on its own.** The user has a
+  Rebuild button for each of these documents, and it reads the same transcript
+  you just read. Anything in the transcript is already covered. What is not: what
+  the user told you in their note this run, what your research established about
+  the person, and any correction they made to a read of yours. That is the list.
+- **You are proposing, not writing.** The user sees what you suggest and decides
+  whether it lands. So amend the one thing that is new or wrong, in the smallest
+  edit that says it. This is not the place to reorganise a document, consolidate
+  it, or bring it up to date generally.
+- **"target"** is "them" for something about the person and "me" for something
+  about the user in this connection. Nothing about *yourself* belongs here — that
+  is the mind amendment, and the two are not interchangeable.
+- **Amend by heading, the same ops a rebuild uses.** A fact that turned out to be
+  wrong is an "edit" quoting the text it replaces — never a new bullet correcting
+  an old one, here least of all, where the user is reading the change as a single
+  offer and a correction-of-a-correction is what they would be accepting.`
+}
+
+/**
  * How a rebuild is told to amend the document. Rides in the system block with
  * the rest of the task, so it is constant per engine and caches with it.
  *
@@ -433,13 +477,31 @@ under <profile_of_them> or <profile_of_the_user>, or absent if this is the first
 rebuild. You do not rewrite it. You return only what changed.
 
 - Amend by heading. "replace" swaps a section's body, "append" adds to the end of
-  one, "delete" removes it. An unknown heading is created, so the first rebuild is
-  just a list of "replace" ops that build the document.
+  one, "delete" removes it, "edit" rewrites one piece of text inside it. An
+  unknown heading is created, so the first rebuild is just a list of "replace"
+  ops that build the document.
 - Return changed: false when nothing you read actually changes it. After one new
   turn that is usually the right answer, and it is a real answer, not a failure.
-- Prefer "append" for a fact learned. Use "replace" when something you already
-  wrote turned out to be wrong or has moved on — and say what it is now, not what
-  it used to be.
+- Prefer "append" for a fact learned.
+- **Something you already wrote turned out to be wrong: that is an "edit".** Put
+  the text you are replacing in "old" — copied out of the section above,
+  character for character, and enough of it that it appears there only once — and
+  what it should say now in "content". Nothing else in the section moves, so a
+  correction costs you nothing and there is never a reason to avoid making one.
+- **Never write a bullet that corrects another bullet.** No "supersedes the
+  above", no "actually, it's X now", no second version of a fact sitting next to
+  the first for the reader to reconcile. If you are about to write one of those,
+  what you actually have is an "edit" to the line you were going to correct.
+- **An "edit" with "" for content removes the text you quoted.** That is how a
+  line that has stopped being true leaves — and how you collapse a correction
+  someone already wrote as a second bullet: edit the original to say the right
+  thing, then edit the correction away. Neither costs the rest of the section.
+- **A correction from the user outranks anything you inferred.** When their
+  message says something in the profile is wrong, edit that text to say what they
+  told you. Do not annotate it, and do not keep your version alongside theirs.
+- Use "replace" when a whole section has gone stale enough that fixing it line by
+  line is the wrong shape of job — and say what things are now, not what they used
+  to be.
 - Headings to work with, in this order. Add your own where the material genuinely
   needs one; don't rename these:
 ${sections.map((s) => `  - ${s}`).join('\n')}
@@ -791,6 +853,8 @@ Standards for the drafts:
   plainly which one you'd pick.
 
 ${mindInstructions()}
+
+${proposalInstructions()}
 
 ${OUTPUT_RULES}
 - Every "draft" is verbatim sendable text (for a message) or a concrete, scheduled

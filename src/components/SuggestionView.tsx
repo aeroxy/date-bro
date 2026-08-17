@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy, MessageSquare, Send, Zap } from 'lucide-react'
+import { Check, Copy, FilePen, MessageSquare, Send, Zap } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
-import type { Suggestion, SuggestionOption } from '@/types/coach'
+import type { ProfileProposal, Suggestion, SuggestionOption } from '@/types/coach'
 import { Chip, Eyebrow, SectionHead } from './ui/Card'
 
 const RISK_TONE = { low: 'yes', medium: 'warn', high: 'no' } as const
@@ -144,15 +144,92 @@ function Option({
   )
 }
 
+/**
+ * What the coach wants to change, in one line the user can decide on without
+ * opening the document.
+ *
+ * Headings, not content. The amendment is a few hundred words of markdown and
+ * rendering it here would put a second profile inside the advice; the honest
+ * summary of "I learned something about you" is which part of which document it
+ * lands in, and the document itself is one tab away.
+ */
+function proposalSummary(proposal: ProfileProposal): string {
+  const whose = proposal.target === 'them' ? 'their profile' : 'your profile'
+  const headings = [
+    ...new Set((proposal.update.sections ?? []).map((s) => s.heading.trim()).filter(Boolean)),
+  ]
+  if (!headings.length) return `Rewrite ${whose}`
+  return `Update ${headings.map((h) => `“${h}”`).join(', ')} in ${whose}`
+}
+
+/**
+ * The one thing on this card that writes to something other than the transcript,
+ * so it is the one thing that asks first.
+ *
+ * Bottom of the card, quietly. The drafts are what the user opened the app for;
+ * an offer to amend a profile is worth surfacing and not worth interrupting them
+ * with, and putting it above the options would give the smaller thing the louder
+ * position.
+ */
+function ProposalCard({
+  proposal,
+  stale,
+  onApply,
+}: {
+  proposal: ProfileProposal
+  /** The target document moved on after this was written — see `applyProposal`. */
+  stale?: boolean
+  onApply?: () => void
+}) {
+  const applied = !!proposal.appliedAt
+  return (
+    <div className="flex items-start gap-2.5 rounded-md border border-dashed border-border-strong bg-surface-sunken px-3.5 py-2.5">
+      <FilePen size={13} className="mt-[3px] shrink-0 text-fg-3" />
+      <div className="min-w-0 flex-1">
+        <Eyebrow className="block">Also learned</Eyebrow>
+        <p className="mt-0.5 text-pretty text-[12.5px] leading-relaxed text-fg-2">
+          {proposalSummary(proposal)}
+        </p>
+      </div>
+      {applied ? (
+        <span className="inline-flex shrink-0 items-center gap-1 px-2 py-1 text-[11px] font-semibold text-yes">
+          <Check size={12} /> Applied
+        </span>
+      ) : stale || !onApply ? (
+        // Not hidden. The coach did notice something, and saying why it can't be
+        // taken is more use than an offer that quietly disappears.
+        <span
+          className="shrink-0 px-2 py-1 text-[11px] font-semibold text-fg-3"
+          title="The profile changed after this was written, so this amendment may no longer fit. Rebuild instead."
+        >
+          Profile moved on
+        </span>
+      ) : (
+        <button
+          onClick={onApply}
+          title="Writes this into the profile. Nothing else about it changes."
+          className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-fg-3 transition hover:bg-surface-muted hover:text-fg"
+        >
+          Apply
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function SuggestionView({
   suggestion,
   sent,
   onSend,
+  proposalStale,
+  onApplyProposal,
 }: {
   suggestion: Suggestion
   /** Draft texts already in the conversation as turns of the user's. */
   sent?: Set<string>
   onSend?: (draft: string) => void
+  proposalStale?: boolean
+  onApplyProposal?: () => void
 }) {
   return (
     <div className="space-y-6">
@@ -213,6 +290,14 @@ export function SuggestionView({
           <Eyebrow className="block text-white/50!">Straight with you</Eyebrow>
           <p className="mt-1 text-[13px] leading-relaxed">{suggestion.honest_note}</p>
         </div>
+      ) : null}
+
+      {suggestion.profile ? (
+        <ProposalCard
+          proposal={suggestion.profile}
+          stale={proposalStale}
+          onApply={onApplyProposal}
+        />
       ) : null}
     </div>
   )

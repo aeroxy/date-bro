@@ -1,3 +1,5 @@
+import type { ProfileUpdate } from '@/coach/profile'
+
 export type Confidence = 'high' | 'medium' | 'low'
 
 /**
@@ -230,6 +232,30 @@ export interface SuggestionOption {
   then: string
 }
 
+/**
+ * A profile amendment the coach wrote while working out what to say next, and
+ * deliberately did not apply.
+ *
+ * The asymmetry with the mind amendment is the design, not an oversight. The
+ * mind is written by `suggestMove` itself, because it is nobody's field and
+ * there is no caller to merge it. A profile is a field of the record, its merge
+ * belongs to whoever owns the record, and — the part that actually decides it —
+ * the user is the editor of these two documents. A rebuild is something they
+ * asked for; an amendment arriving as a side effect of "what do I say next" is
+ * not, and would rewrite the page they were reading with no diff and no undo.
+ *
+ * So it is stored, unapplied, on the suggestion that produced it, and rides the
+ * advice turn into the record. `appliedAt` is what makes the offer survive a
+ * reload in whichever state the user left it.
+ */
+export interface ProfileProposal {
+  /** Whose document: the person, or the user in this connection. */
+  target: 'them' | 'me'
+  update: ProfileUpdate
+  /** When the user accepted it. Absent while the offer still stands. */
+  appliedAt?: number
+}
+
 /** Output of "what should I say or do". */
 export interface Suggestion extends TurnBasis {
   id: string
@@ -250,4 +276,9 @@ export interface Suggestion extends TurnBasis {
    * ran or nothing was worth keeping.
    */
   research_notes: string[]
+  /**
+   * An amendment to one of the two profiles, offered rather than applied.
+   * Absent on most runs, which is the correct answer on most runs.
+   */
+  profile?: ProfileProposal
 }
