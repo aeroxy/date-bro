@@ -34,10 +34,11 @@ const profileUpdate = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['heading', 'mode', 'content'],
+        required: ['heading', 'mode', 'old', 'content'],
         properties: {
           heading: { type: 'string' },
-          mode: { type: 'string', enum: ['replace', 'append', 'delete'] },
+          mode: { type: 'string', enum: ['replace', 'append', 'delete', 'edit'] },
+          old: { type: 'string' },
           content: { type: 'string' },
         },
       },
@@ -46,14 +47,25 @@ const profileUpdate = {
   },
 } as const
 
-const updateShape = (field: string) => `"${field}": {
-    "changed": boolean,             // false when nothing you read changes the document. Common, and correct.
+// `old` before `content`, so the model states what it is replacing before it
+// writes the replacement. It is required like everything else here — strict
+// `json_schema` allows no optional properties — and "" on the three modes that
+// don't use it, the same convention `content` already follows for "delete".
+const UPDATE_FIELDS = `"changed": boolean,             // false when nothing you read changes the document. Common, and correct.
     "sections": [{                  // the amendments. [] when changed is false, or when rewriting.
       "heading": string,            // an existing heading to amend, or a new one to create
-      "mode": "replace" | "append" | "delete",
-      "content": string             // markdown for the section body. "" only when mode is "delete".
+      "mode": "replace" | "append" | "delete" | "edit",
+      "old": string,                // mode "edit" only: the exact text you are replacing, copied character
+                                    // for character out of that section. "" for every other mode.
+      "content": string             // markdown for the section body. For "edit", the text that replaces
+                                    // "old" — or "" to remove what you quoted, which is how a line
+                                    // leaves the document without rewriting its section. "" also when
+                                    // mode is "delete".
     }],
-    "rewrite": string               // "" almost always — see the note above about when a rewrite is warranted
+    "rewrite": string               // "" almost always — see the note above about when a rewrite is warranted`
+
+const updateShape = (field: string) => `"${field}": {
+    ${UPDATE_FIELDS}
   },`
 
 const PROFILE_UPDATE_SHAPE = updateShape('profile')
@@ -217,20 +229,47 @@ export const SUGGESTION_SHAPE = `{
                                     // answer, or everything you found is already in the block.
                                     // Unless <research_notes> asks you to consolidate: then it is
                                     // the complete replacement list, and what you omit is dropped.
-  ${updateShape('mind').replace(/,$/, '')}                                 // what to change about
+  ${updateShape('mind')}                                // what to change about
                                     // YOURSELF — see "Amending yourself" above. changed: false on
                                     // most runs. Nothing about the person in this request; that
-                                    // goes in their profile.
+                                    // goes in "profile" below.
+  "profile": {                      // ONE amendment to ONE of the two profiles above, PROPOSED —
+                                    // the user reviews it and applies it, you are not writing it.
+                                    // changed: false on most runs. See "Proposing an amendment".
+    "target": "them" | "me",        // whose document. Ignored when changed is false.
+    ${UPDATE_FIELDS}
+  }
 }`
+
+/**
+ * The proposal is `profileUpdate` plus the one thing an update aimed at two
+ * possible documents needs: which one.
+ *
+ * Nullable was the other option and lost to consistency. `mind` already spells
+ * "nothing to say" as `changed: false`, the strict schemas here allow no
+ * optional properties, and an `anyOf` against `null` is exactly the construct
+ * `ProfileUpdate` was flattened to avoid. One convention, expressed once.
+ */
+const profileProposal = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['target', ...profileUpdate.required],
+  properties: {
+    target: { type: 'string', enum: ['them', 'me'] },
+    ...profileUpdate.properties,
+  },
+} as const
 
 export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
   name: 'suggestion',
   schema: {
     type: 'object',
     additionalProperties: false,
-    // `mind` last in both lists, and the order is load-bearing rather than
-    // cosmetic — see the note in SUGGESTION_SHAPE. A model that derails on this
-    // nested object should lose only this object, not the drafts above it.
+    // The two nested update objects go last, and the order is load-bearing
+    // rather than cosmetic — see the note in SUGGESTION_SHAPE. A model that
+    // derails on one of them should lose only it and whatever is below, never
+    // the drafts above. `profile` is below `mind` because it is the newer and
+    // rarer of the two, so it is the cheaper one to lose.
     required: [
       'read',
       'priority',
@@ -240,6 +279,7 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       'honest_note',
       'research_notes',
       'mind',
+      'profile',
     ],
     properties: {
       read: { type: 'string' },
@@ -265,6 +305,7 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       honest_note: { type: 'string' },
       research_notes: stringArray,
       mind: profileUpdate,
+      profile: profileProposal,
     },
   },
 }
@@ -334,13 +375,19 @@ function needsString(obj: object, field: string): string | null {
     : `"${field}" must be a string`
 }
 
-export function validatePerson(r: object): string | null {
+/**
+ * `base` is the document the update is about to be applied to. Every engine has
+ * it — it is the same string it passes to `applyProfileUpdate` afterwards — and
+ * passing it is what lets an `edit`'s quote be checked while there is still a
+ * retry left to fix it. Omitted, the update is checked for shape alone.
+ */
+export function validatePerson(r: object, base?: string): string | null {
   const structural =
     missing(r, ['headline', 'profile', 'interest_read', 'flags', 'open_questions']) ??
     needsString(r, 'headline') ??
     needsArray(r, 'open_questions') ??
     needsArrays(r, ['flags']) ??
-    validateProfileUpdate((r as { profile: unknown }).profile)
+    validateProfileUpdate((r as { profile: unknown }).profile, 'profile', base)
   if (structural) return structural
 
   const interest = (r as { interest_read: object }).interest_read
@@ -350,17 +397,17 @@ export function validatePerson(r: object): string | null {
   )
 }
 
-export function validateSelf(r: object): string | null {
+export function validateSelf(r: object, base?: string): string | null {
   return (
     missing(r, ['headline', 'profile', 'goal_read', 'open_questions']) ??
     needsString(r, 'headline') ??
     needsArray(r, 'open_questions') ??
-    validateProfileUpdate((r as { profile: unknown }).profile) ??
+    validateProfileUpdate((r as { profile: unknown }).profile, 'profile', base) ??
     missing((r as { goal_read: object }).goal_read, ['stated', 'revealed', 'tension'])
   )
 }
 
-export function validateChat(r: object): string | null {
+export function validateChat(r: object, base?: string): string | null {
   const headline = (r as { headline?: unknown }).headline
   return (
     missing(r, ['reply', 'profile']) ??
@@ -375,12 +422,52 @@ export function validateChat(r: object): string | null {
     // and says nothing, and the thread shows a blank bubble where an answer
     // should be.
     ((r as { reply: string }).reply.trim() ? null : '"reply" must not be empty — answer the user') ??
-    validateProfileUpdate((r as { profile: unknown }).profile)
+    validateProfileUpdate((r as { profile: unknown }).profile, 'profile', base)
   )
 }
 
-export function validateSuggestion(r: object): string | null {
+/**
+ * The three documents a suggestion can carry an amendment to. Each is the
+ * markdown as this run was built from it, and each is optional: absent means
+ * there is nothing to check the quotes in an `edit` against, not that the
+ * document is empty. `run.ts` passes all three.
+ */
+export interface SuggestionBases {
+  mind?: string
+  them?: string
+  me?: string
+}
+
+/**
+ * The proposal is checked in the order its fields become meaningful. `changed:
+ * false` says nothing about a target, so a target is only required once there is
+ * an amendment to aim, and a shape check still runs on the rest.
+ *
+ * The empty-document case is a complaint rather than a shrug because the app
+ * cannot apply it: `applyProposal` refuses to invent a profile that no rebuild
+ * has produced, so a proposal against one would render an offer that does
+ * nothing when clicked.
+ */
+function validateProposal(value: unknown, bases: SuggestionBases): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return '"profile" must be an object'
+  }
+  const { target, changed } = value as { target?: unknown; changed?: unknown }
+  if (changed !== true) return validateProfileUpdate(value, 'profile')
+
+  if (target !== 'them' && target !== 'me') {
+    return '"profile.target" must be "them" or "me" — whose profile this amendment is for'
+  }
+  const base = bases[target]
+  if (base !== undefined && !base.trim()) {
+    return `"profile" amends the ${target === 'them' ? "person's" : "user's"} profile, and there isn't one yet — it has to be built before it can be amended, so return changed: false`
+  }
+  return validateProfileUpdate(value, 'profile', base)
+}
+
+export function validateSuggestion(r: object, bases: SuggestionBases = {}): string | null {
   const mind = (r as { mind?: unknown }).mind
+  const proposal = (r as { profile?: unknown }).profile
   const structural =
     missing(r, ['read', 'priority', 'options', 'avoid', 'timing', 'honest_note', 'research_notes']) ??
     needsString(r, 'read') ??
@@ -395,7 +482,11 @@ export function validateSuggestion(r: object): string | null {
     // correct value is empty on most runs. An explicit `null` is the same
     // answer written differently, and gets the same pass. Present and malformed
     // still fails: a half-formed update would be applied to the coach itself.
-    (mind == null ? null : validateProfileUpdate(mind, 'mind'))
+    (mind == null ? null : validateProfileUpdate(mind, 'mind', bases.mind)) ??
+    // Absent passes for the same reason `mind` does: it is empty on most runs,
+    // and the backend with no schema enforcement shouldn't spend its one retry
+    // on the field whose correct value is usually nothing.
+    (proposal == null ? null : validateProposal(proposal, bases))
   if (structural) return structural
 
   const options = (r as { options: Array<Record<string, unknown>> }).options

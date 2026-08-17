@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { Chip, Eyebrow } from '@/components/ui/Card'
 import { Logo } from '@/components/ui/Logo'
 import { Spinner } from '@/components/ui/Spinner'
+import { applyProfileUpdate } from '@/coach/profile'
 import { chatAboutProfile, rebuildPersonContext, rebuildSelfContext, suggestMove } from '@/coach/run'
 import { useDates } from '@/hooks/useDates'
 import { cn } from '@/lib/cn'
@@ -330,6 +331,69 @@ export default function App() {
   )
 
   /**
+   * Accept an amendment the coach proposed while working out the next move.
+   *
+   * Local and instant: the model already wrote the amendment and it was
+   * validated against this document when it did, so accepting is an apply, not
+   * another call. The judgment is left exactly as its last rebuild produced it,
+   * for the reason `sendChat` leaves it — one accepted fact is not grounds to
+   * re-decide where things stand — and the headline with it, since a proposal
+   * has no reply channel that could rewrite it honestly.
+   *
+   * `appliedAt` is written back into the stored advice turn in the same
+   * transaction as the profile, so the offer and its outcome can't disagree
+   * across a reload.
+   */
+  const applyProposal = useCallback(
+    (adviceId: string) => {
+      if (!active) return
+      const id = active.id
+      const advice = active.turns.find((t) => t.id === adviceId)?.advice
+      const proposal = advice?.profile
+      if (!advice || !proposal || proposal.appliedAt) return
+      const now = Date.now()
+      const key = proposal.target === 'them' ? 'themProfile' : 'meProfile'
+
+      persist(
+        // Against `current`, not the snapshot: this is a click, so the user has
+        // had as long as they liked to change something else first.
+        update(
+          id,
+          (current) => {
+            const profile = current[key]
+            // No profile on that side yet. `validateProposal` refuses to let the
+            // model aim at one, so this is only reachable if it was cleared
+            // between the run and the click — and inventing a profile here would
+            // fabricate a judgment nothing produced, the same rule `sendChat`
+            // follows.
+            if (!profile) return {}
+            return {
+              [key]: {
+                ...profile,
+                markdown: applyProfileUpdate(profile.markdown, proposal.update),
+                amendedAt: now,
+                // The transcript the amendment was written from, which is the
+                // suggestion's, not this moment's.
+                amendedTurnsAt: advice.turnsAt,
+              },
+              turns: current.turns.map((t) =>
+                t.id === adviceId && t.advice
+                  ? { ...t, advice: { ...t.advice, profile: { ...proposal, appliedAt: now } } }
+                  : t,
+              ),
+            }
+          },
+          // The amendment changes the profile, not what either person said, so
+          // it is not new evidence and must not mark both profiles stale.
+          { evidence: false },
+        ),
+        'next',
+      )
+    },
+    [active, persist, update],
+  )
+
+  /**
    * An answer to one of an engine's own open questions. It lands in the pool as
    * a note carrying the question, which is what makes a three-word reply mean
    * something later — and what fixes attribution for free, since a question
@@ -392,6 +456,25 @@ export default function App() {
   const shownAdvice =
     adviceTurns.find((t) => t.id === viewing) ?? adviceTurns[adviceTurns.length - 1]
   const suggestion = shownAdvice?.advice
+  /**
+   * Whether the document a proposal aims at has moved since the proposal was
+   * written.
+   *
+   * One guard covering both clocks, because both invalidate it in the same way:
+   * the quotes in an `edit` were checked against the profile as it stood during
+   * the run, and a rebuild or a chat amendment since then means they were
+   * checked against text that no longer exists. `applyProfileUpdate` would drop
+   * whichever ops stopped fitting and silently apply the rest — a half-applied
+   * amendment reported as "Applied", which is the one outcome worth spending a
+   * disabled button to avoid. Rebuild is the honest answer at that point.
+   */
+  const proposalStale = (() => {
+    const proposal = suggestion?.profile
+    if (!active || !suggestion || !proposal || proposal.appliedAt) return false
+    const profile = proposal.target === 'them' ? active.themProfile : active.meProfile
+    if (!profile) return true
+    return Math.max(profile.generatedAt, profile.amendedAt ?? 0) > suggestion.generatedAt
+  })()
   // Which drafts have been sent, derived rather than flagged — the same trick
   // as `answered` below. A draft is sent when a turn of the user's holds that
   // exact text, which survives a reload and can't drift out of step with the
@@ -713,6 +796,8 @@ export default function App() {
                     <SuggestionView
                       suggestion={suggestion}
                       sent={sentDrafts}
+                      proposalStale={proposalStale}
+                      onApplyProposal={() => applyProposal(shownAdvice!.id)}
                       onSend={(draft) => {
                         const turn: Turn = {
                           id: crypto.randomUUID(),
