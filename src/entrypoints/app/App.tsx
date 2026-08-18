@@ -76,7 +76,28 @@ function staleness(
 export default function App() {
   const { dates, active, activeId, setActiveId, loaded, loadError, create, update, remove } =
     useDates()
-  const [tab, setTab] = useState<Tab>('them')
+  /**
+   * Which tab each person is on. This was one global value, and a global tab
+   * belongs to nobody: leaving her on Next move, glancing at his You profile
+   * and coming back put you on *her* You profile — the tab you left someone on
+   * is the tab you expect to land on. Keyed by person like the run maps below,
+   * for the same reason they are. No entry means Them, which is where you start
+   * with someone new. In memory only: it's where you were looking, not part of
+   * the record.
+   */
+  const [tabs, setTabs] = useState<Record<string, Tab>>({})
+  const tab: Tab = (activeId && tabs[activeId]) || 'them'
+  /**
+   * Move one person's tab. `id` defaults to the selected person, and `run`
+   * passes its own: a run owns the record it started on, not whoever happens to
+   * be selected when the write lands.
+   */
+  const setTab = useCallback(
+    (which: Tab, id: string | null = activeId) => {
+      if (id) setTabs((prev) => ({ ...prev, [id]: which }))
+    },
+    [activeId],
+  )
   /**
    * Everything a run owns is keyed by person, because a run belongs to one.
    * Two profiles share nothing but the backend, so a single global slot meant
@@ -112,6 +133,22 @@ export default function App() {
   // key can't miss a route. One slot for all of them would also mean two people
   // amended at once and only the one that finished last got a reply.
   const [edits, setEdits] = useState<Record<string, { tab: ChatEngine } & ProfileEdit>>({})
+  /**
+   * What's half-typed in the footer box, under the same key the box is mounted
+   * on: person, tab and mode. The box used to hold its own draft, so switching
+   * to a profile unmounted it and threw the text away — and looking someone up
+   * before deciding what to ask is exactly why you'd switch. Kept apart by the
+   * key as before, but now it survives the trip. In memory only, like the box's
+   * one-shot contract: nothing typed here is ever stored.
+   */
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const draft = useCallback(
+    (key: string) => ({
+      value: drafts[key] ?? '',
+      onChange: (text: string) => setDrafts((prev) => ({ ...prev, [key]: text })),
+    }),
+    [drafts],
+  )
   /**
    * The real mutex, and the abort handle each run is stopped by. `runs` drives
    * the UI but only lands on the next render, so two calls in one tick (a fast
@@ -164,7 +201,7 @@ export default function App() {
       const id = active.id
       const controller = claim(id, which)
       if (!controller) return false
-      setTab(which)
+      setTab(which, id)
 
       const record = active
       const onThinking = (t: ThinkingSummary) => setThinking((prev) => ({ ...prev, [id]: t }))
@@ -219,7 +256,7 @@ export default function App() {
         release(id)
       }
     },
-    [active, claim, release, update],
+    [active, claim, release, setTab, update],
   )
 
   /** Tear down one person's run. `run`'s catch swallows the AbortError. */
@@ -500,6 +537,8 @@ export default function App() {
   // Whether this tab has ever produced anything, which is what decides between
   // "build" and "rebuild" wherever the distinction is visible.
   const ranThisTab = tab === 'next' ? !!suggestion : !seeding
+  // Which footer box is showing, and so which draft it holds — see `drafts`.
+  const composerKey = `${activeId}:${tab}:${tab === 'next' ? 'next' : seeding ? 'seed' : 'amend'}`
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -821,15 +860,18 @@ export default function App() {
                 )}
               </div>
 
-              {/* One box per tab, in the same place, all one-shot. Keyed on the
-                  person, the tab *and* the mode so a half-typed instruction
-                  about her can't reappear under him, under the drafts, or —
-                  same slot, same component, so React keeps the draft — in the
-                  seed box after Start over, where "drop the avoidant read"
-                  would be handed over as background on who she is. */}
+              {/* One box per tab, in the same place, all one-shot. Person, tab
+                  *and* mode go into the key, so a half-typed instruction about
+                  her can't reappear under him, under the drafts, or in the seed
+                  box after Start over, where "drop the avoidant read" would be
+                  handed over as background on who she is. The draft itself sits
+                  in `drafts` under that same key rather than inside the box:
+                  the panel unmounts on every tab switch, and reading a profile
+                  before deciding what to ask shouldn't cost you the question. */}
               {tab === 'next' ? (
                 <AskComposer
-                  key={`${active.id}:next`}
+                  key={composerKey}
+                  {...draft(composerKey)}
                   label="Anything specific right now?"
                   placeholder="e.g. she left me on read for 2 days — optional"
                   cta="What do I say?"
@@ -844,7 +886,8 @@ export default function App() {
                    it becoming a turn they later have to go and delete. Read
                    once, absorbed into the profile, never stored. */
                 <AskComposer
-                  key={`${active.id}:${tab}:seed`}
+                  key={composerKey}
+                  {...draft(composerKey)}
                   label={`Tell it about ${tab === 'them' ? active.name : 'you'}`}
                   placeholder={
                     tab === 'them'
@@ -859,7 +902,8 @@ export default function App() {
                 />
               ) : (
                 <AskComposer
-                  key={`${active.id}:${tab}:amend`}
+                  key={composerKey}
+                  {...draft(composerKey)}
                   label={`Change what it knows about ${tab === 'them' ? active.name : 'you'}`}
                   // Tab-specific: the example under "change what it knows about
                   // you" used to be a correction about *her*, which reads as the
