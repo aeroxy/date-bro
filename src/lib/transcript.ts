@@ -62,11 +62,15 @@ export function adviceTurn(suggestion: Suggestion): Turn {
  * versions of the app, where any given field may simply not be there. An absent
  * stamp is the same untimed turn every other speaker gets; `new Date(undefined)`
  * would put the string "Invalid Date" in the prompt, which reads as material.
+ *
+ * Asked of the date rather than the number, because finite isn't the same as
+ * representable: anything past ±8.64e15 ms is a real number and an unreal date,
+ * and `toLocaleString` answers it with that same "Invalid Date".
  */
-const stamp = (ms: number): string | undefined =>
-  !Number.isFinite(ms)
-    ? undefined
-    : new Date(ms).toLocaleString(undefined, {
+const stamp = (ms: number): string | undefined => {
+  const date = new Date(ms)
+  if (!Number.isFinite(date.getTime())) return undefined
+  return date.toLocaleString(undefined, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -74,6 +78,7 @@ const stamp = (ms: number): string | undefined =>
     hour: 'numeric',
     minute: '2-digit',
   })
+}
 
 /**
  * Give every turn a citation number and remember the next one to hand out.
