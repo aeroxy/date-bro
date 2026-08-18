@@ -620,6 +620,16 @@ amendments in the same payload.
   `append`/`replace` as a way out that isn't another edit. The one tolerance is per-line outer
   whitespace, the single difference a model reliably introduces when quoting markdown back; guessing
   at anything beyond that is how the wrong bullet gets rewritten.
+- **Every op is validated against what the ops before it did.** They apply in order, and the checks
+  used to read the base document for all of them. `replace` then `edit` on one section — a payload
+  that applies perfectly — was rejected, which burns `completeJSON`'s single retry and can throw the
+  whole rebuild; `delete` then `edit` passed and was then silently dropped on apply. Validation folds
+  each op through `applyProfileUpdate` as it goes, so the two agree by construction.
+- **The document's indentation survives an edit.** Both match paths put the replacement where the
+  line starts and `content` is trimmed, so editing a sub-bullet promoted it to a top-level one — the
+  fallback normalises indentation away, and an exact quote carrying its own indent loses it to the
+  trim. The leading whitespace of the line is put back whenever the match opens one; a quote starting
+  mid-line is left alone, since its indent is already to the left of the splice.
 - **The match is shrunk to the text, not the separators around it.** A quote of whole lines
   plausibly carries the newline that ends the last one — the model is told to copy the section
   exactly, and that is what exact looks like. It matched exactly, was spliced over, and since

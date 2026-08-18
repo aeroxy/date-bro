@@ -102,6 +102,12 @@ State worth knowing about:
   to their newest by a run you weren't watching. Switching people no longer resets it either — the
   selection is theirs. The advice history *is* the conversation — no parallel list, no cap, no pills.
 - `sentDrafts` is derived per render from the turns, like `answered`. See `SuggestionView`.
+- **`applyProposal` is gated on the run that would overwrite it.** A `them`/`me` rebuild writes that
+  profile whole from the record it started with, and the suggestion panel is fully live whenever the
+  busy tab isn't the open one — so Apply on Next move during a Them rebuild landed, was overwritten a
+  moment later, and left the card reading "Applied" with `proposalStale` blocking a retry. The card
+  shows `Rebuilding…` instead (`proposalBusy`), and `runsRef` now carries which tab is running so the
+  handler can refuse in the frame between claiming a run and rendering that fact.
 - `tabs` holds which tab each person is on, keyed by person; no entry means Them. It was a single
   global `tab`, and a global tab belongs to nobody — leaving her on Next move, glancing at his You
   profile and coming back landed you on *her* You profile. `setTab(which, id?)` defaults to the

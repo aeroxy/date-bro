@@ -155,7 +155,7 @@ export default function App() {
    * double-click, Enter held down) would both read the slot as free and start.
    * A ref is set synchronously.
    */
-  const runsRef = useRef(new Map<string, AbortController>())
+  const runsRef = useRef(new Map<string, { tab: Tab; controller: AbortController }>())
 
   /**
    * Take this person's one run slot, or refuse. A second run on the same record
@@ -164,7 +164,7 @@ export default function App() {
   const claim = useCallback((id: string, which: Tab): AbortController | null => {
     if (runsRef.current.has(id)) return null
     const controller = new AbortController()
-    runsRef.current.set(id, controller)
+    runsRef.current.set(id, { tab: which, controller })
     setRuns((prev) => ({ ...prev, [id]: which }))
     // This run's own slate: the last failure, and the last run's steps and
     // reasoning, all of which described something that is no longer happening.
@@ -260,7 +260,7 @@ export default function App() {
   )
 
   /** Tear down one person's run. `run`'s catch swallows the AbortError. */
-  const stop = useCallback((id: string) => runsRef.current.get(id)?.abort(), [])
+  const stop = useCallback((id: string) => runsRef.current.get(id)?.controller.abort(), [])
 
   /**
    * One instruction to amend a profile, applied and forgotten.
@@ -388,6 +388,13 @@ export default function App() {
       const advice = active.turns.find((t) => t.id === adviceId)?.advice
       const proposal = advice?.profile
       if (!advice || !proposal || proposal.appliedAt) return
+      // The rebuild this amendment would land under writes its profile whole,
+      // from the record it started with — so an apply that slips in first is
+      // overwritten the moment it lands, while the card still says "Applied"
+      // and `proposalStale` blocks re-applying. The button is disabled for the
+      // same case; this is the synchronous half, for the frame between claiming
+      // a run and rendering that fact.
+      if (runsRef.current.get(id)?.tab === proposal.target) return
       const now = Date.now()
       const key = proposal.target === 'them' ? 'themProfile' : 'meProfile'
 
@@ -505,6 +512,12 @@ export default function App() {
    * amendment reported as "Applied", which is the one outcome worth spending a
    * disabled button to avoid. Rebuild is the honest answer at that point.
    */
+  // The other reason an offer can't be taken right now: a rebuild of the very
+  // document it amends is in flight, and it writes that profile whole from the
+  // record it started with. Applying underneath it is silently undone, so the
+  // card says so and waits — and once the rebuild lands, `proposalStale` takes
+  // over with the honest answer.
+  const proposalBusy = !!busyTab && busyTab === suggestion?.profile?.target
   const proposalStale = (() => {
     const proposal = suggestion?.profile
     if (!active || !suggestion || !proposal || proposal.appliedAt) return false
@@ -836,6 +849,7 @@ export default function App() {
                       suggestion={suggestion}
                       sent={sentDrafts}
                       proposalStale={proposalStale}
+                      proposalBusy={proposalBusy}
                       onApplyProposal={() => applyProposal(shownAdvice!.id)}
                       onSend={(draft) => {
                         const turn: Turn = {
