@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { CornerDownLeft, PencilLine, X } from 'lucide-react'
 
 import { Button } from './ui/Button'
@@ -78,6 +77,8 @@ export function AskComposer({
   busy,
   needsText,
   edit,
+  value,
+  onChange,
   onDismiss,
   onSend,
 }: {
@@ -96,6 +97,14 @@ export function AskComposer({
    */
   needsText?: boolean
   edit?: ProfileEdit | null
+  /**
+   * What's typed, held by the caller. Not local state: the three boxes live in
+   * a panel that unmounts on a tab switch, and reading her profile before
+   * deciding what to ask is the switch people actually make — it used to take
+   * the half-written question with it.
+   */
+  value: string
+  onChange: (draft: string) => void
   onDismiss?: () => void
   /**
    * Resolves false when the run failed, and the box keeps what was typed.
@@ -105,14 +114,12 @@ export function AskComposer({
    */
   onSend: (message: string) => Promise<boolean>
 }) {
-  const [draft, setDraft] = useState('')
-
-  const ready = !busy && (!needsText || !!draft.trim())
+  const ready = !busy && (!needsText || !!value.trim())
 
   const send = () => {
     if (!ready) return
-    void onSend(draft.trim()).then((sent) => {
-      if (sent) setDraft('')
+    void onSend(value.trim()).then((sent) => {
+      if (sent) onChange('')
     })
   }
 
@@ -124,9 +131,9 @@ export function AskComposer({
         // else. The label rather than the placeholder, which is example text.
         aria-label={label}
         rows={2}
-        value={draft}
+        value={value}
         disabled={busy}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
         }}
@@ -137,7 +144,7 @@ export function AskComposer({
         {/* ⌘ only, though the handler takes Ctrl too. macOS is what this is
             designed for; naming both would widen a hint to cover a platform
             nobody here is on. */}
-        <span className="text-[11px] text-fg-3">{draft.trim() ? '⌘↵ to send' : hint}</span>
+        <span className="text-[11px] text-fg-3">{value.trim() ? '⌘↵ to send' : hint}</span>
         <span className="flex-1" />
         <Button variant="accent" size="sm" disabled={!ready} onClick={send}>
           {busy ? <Spinner /> : <CornerDownLeft size={12} />}
