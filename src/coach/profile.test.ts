@@ -211,6 +211,47 @@ describe('applyProfileUpdate', () => {
     expect(out).toBe('## Patterns\n\n- One\n- Merged')
   })
 
+  // Both match paths put the replacement where the line starts, and `content` is
+  // trimmed — so the document's own indentation is what has to be put back, or
+  // editing a sub-point promotes it to a top-level one.
+  test('an edit keeps the indentation of the line it replaces', () => {
+    const doc = '## Patterns\n\n- Asks a question back\n  - Usually about work\n- Replies at night'
+    const out = applyProfileUpdate(
+      doc,
+      change([
+        { heading: 'Patterns', mode: 'edit', old: '  - Usually about work', content: '- About work' },
+      ]),
+    )
+    expect(out).toBe('## Patterns\n\n- Asks a question back\n  - About work\n- Replies at night')
+  })
+
+  test('an edit keeps the indentation when the quote normalised it away', () => {
+    const doc = '## Patterns\n\n- Asks a question back\n  - Usually about work\n- Replies at night'
+    const out = applyProfileUpdate(
+      doc,
+      change([
+        {
+          heading: 'Patterns',
+          mode: 'edit',
+          old: '    - Usually about work',
+          content: '- About work',
+        },
+      ]),
+    )
+    expect(out).toBe('## Patterns\n\n- Asks a question back\n  - About work\n- Replies at night')
+  })
+
+  // A quote that starts mid-line leaves the indent to the left of the splice,
+  // where putting it back would double it.
+  test('an edit inside an indented line does not double the indent', () => {
+    const doc = '## Patterns\n\n- Asks a question back\n  - Usually about work'
+    const out = applyProfileUpdate(
+      doc,
+      change([{ heading: 'Patterns', mode: 'edit', old: 'about work', content: 'about her studio' }]),
+    )
+    expect(out).toBe('## Patterns\n\n- Asks a question back\n  - Usually about her studio')
+  })
+
   // The deletion path reads the character either side of the match to take one
   // newline with the line, so it has to keep working on a quote that already
   // carried it — otherwise dropping a bullet this way leaves a blank line.
@@ -437,6 +478,42 @@ describe('validateProfileUpdate', () => {
     const complaint = validateProfileUpdate(update, 'profile', DOC) ?? ''
     expect(complaint).toContain('append')
     expect(complaint).toContain('replace')
+  })
+
+  // Ops apply in order, so the checks have to walk the same document the apply
+  // will. Both of these used to disagree with `applyProfileUpdate`: this one
+  // applies cleanly and was rejected, burning the one retry.
+  test('validates each op against what the ops before it did', () => {
+    const update = change([
+      { heading: 'Right now', mode: 'replace', content: '- Moved in with her sister (high)' },
+      {
+        heading: 'Right now',
+        mode: 'edit',
+        old: '- Moved in with her sister (high)',
+        content: '- Moved in with her sister (medium)',
+      },
+    ])
+    expect(validateProfileUpdate(update, 'profile', DOC)).toBeNull()
+    expect(applyProfileUpdate(DOC, update)).toContain('- Moved in with her sister (medium)')
+  })
+
+  // And the inverse: this passed, then the edit was silently dropped on apply.
+  test('rejects an edit aimed at a section an earlier op deleted', () => {
+    const update = change([
+      { heading: 'Right now', mode: 'delete' },
+      { heading: 'Right now', mode: 'edit', old: '- Between flats (medium)', content: '- Moved in' },
+    ])
+    expect(validateProfileUpdate(update, 'profile', DOC)).toContain('not a section')
+  })
+
+  test('the invalid-mode complaint names every mode, edit included', () => {
+    const complaint =
+      validateProfileUpdate(
+        { changed: true, sections: [{ heading: 'Who they are', mode: 'rewrite', content: '- x' }] },
+        'profile',
+        DOC,
+      ) ?? ''
+    expect(complaint).toContain('edit')
   })
 
   test('rejects the shapes a loose backend can return', () => {

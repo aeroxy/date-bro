@@ -174,11 +174,18 @@ function proposalSummary(proposal: ProfileProposal): string {
 function ProposalCard({
   proposal,
   stale,
+  busy,
   onApply,
 }: {
   proposal: ProfileProposal
   /** The target document moved on after this was written — see `applyProposal`. */
   stale?: boolean
+  /**
+   * A rebuild of the document this amends is running. It writes that profile
+   * whole, from the record it started with, so an apply landing underneath it is
+   * overwritten a moment later while this card still reads "Applied".
+   */
+  busy?: boolean
   onApply?: () => void
 }) {
   const applied = !!proposal.appliedAt
@@ -194,6 +201,15 @@ function ProposalCard({
       {applied ? (
         <span className="inline-flex shrink-0 items-center gap-1 px-2 py-1 text-[11px] font-semibold text-yes">
           <Check size={12} /> Applied
+        </span>
+      ) : busy && !stale ? (
+        // Waiting, not refused: the rebuild finishing is what decides which of
+        // the two this becomes, and it usually makes it stale.
+        <span
+          className="shrink-0 px-2 py-1 text-[11px] font-semibold text-fg-3"
+          title="A rebuild of that profile is running and would overwrite this. It'll be applicable again — or superseded — once that finishes."
+        >
+          Rebuilding…
         </span>
       ) : stale || !onApply ? (
         // Not hidden. The coach did notice something, and saying why it can't be
@@ -222,6 +238,7 @@ export function SuggestionView({
   sent,
   onSend,
   proposalStale,
+  proposalBusy,
   onApplyProposal,
 }: {
   suggestion: Suggestion
@@ -229,6 +246,7 @@ export function SuggestionView({
   sent?: Set<string>
   onSend?: (draft: string) => void
   proposalStale?: boolean
+  proposalBusy?: boolean
   onApplyProposal?: () => void
 }) {
   return (
@@ -296,6 +314,7 @@ export function SuggestionView({
         <ProposalCard
           proposal={suggestion.profile}
           stale={proposalStale}
+          busy={proposalBusy}
           onApply={onApplyProposal}
         />
       ) : null}

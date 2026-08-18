@@ -308,8 +308,20 @@ export function applyProfileUpdate(markdown: string, update: ProfileUpdate): str
         if (existing.body[end] === '\n') end += 1
         else if (start > 0 && existing.body[start - 1] === '\n') start -= 1
       }
+      // The document's indentation, not the quote's. `content` is trimmed and a
+      // whole-line match starts where the line starts, so editing a sub-bullet
+      // wrote the new text back at the top level and quietly promoted it — the
+      // fallback normalises indentation away, and an exact quote that carries
+      // its own indent loses it to the trim. Only when the match opens a line: a
+      // quote starting mid-line leaves the indent to the left of the splice,
+      // where re-adding it would double it. The first line of a multi-line
+      // replacement is the one that inherits it; the rest are the model's own.
+      const lineStart = start > 0 ? existing.body.lastIndexOf('\n', start - 1) + 1 : 0
+      const indent =
+        replacement && start === lineStart ? /^[ \t]*/.exec(existing.body.slice(lineStart))![0] : ''
       existing.body = (
         existing.body.slice(0, start) +
+        indent +
         replacement +
         existing.body.slice(end)
       ).trim()
@@ -408,6 +420,14 @@ export function validateProfileUpdate(
     return `"${field}.changed" is true but nothing was sent — return sections, a rewrite, or changed: false`
   }
 
+  // Ops apply in order and each one sees what the ones before it did, so the
+  // checks have to walk the same document `applyProfileUpdate` will. Checking
+  // every quote against the base rejected `replace` then `edit` on one section —
+  // a payload that applies perfectly — which burns `completeJSON`'s single retry
+  // and can throw the whole rebuild; and it passed `delete` then `edit`, which
+  // then vanished on apply with nothing said to the model about why.
+  let doc = base
+
   for (const [i, op] of sections.entries()) {
     if (!op || typeof op !== 'object' || Array.isArray(op)) {
       return `"${field}.sections[${i}]" must be an object`
@@ -416,7 +436,9 @@ export function validateProfileUpdate(
       return `"${field}.sections[${i}].heading" must be a non-empty string`
     }
     if (!MODES.has(op.mode)) {
-      return `"${field}.sections[${i}].mode" must be "replace", "append" or "delete"`
+      // Every mode, `edit` included. Naming three of the four steered a retry
+      // away from the one op that can fix a line without rewriting its section.
+      return `"${field}.sections[${i}].mode" must be "replace", "append", "edit" or "delete"`
     }
     if (op.mode === 'edit') {
       // Empty is allowed and means "remove what I quoted"; absent is not, so a
@@ -424,11 +446,12 @@ export function validateProfileUpdate(
       if (typeof op.content !== 'string') {
         return `"${field}.sections[${i}].content" must be a string when mode is "edit" — the replacement text, or "" to remove the text you quoted`
       }
-      const err = validateEdit(op, base, `${field}.sections[${i}]`)
+      const err = validateEdit(op, doc, `${field}.sections[${i}]`)
       if (err) return err
     } else if (op.mode !== 'delete' && (typeof op.content !== 'string' || !op.content.trim())) {
       return `"${field}.sections[${i}].content" is required unless mode is "delete"`
     }
+    if (doc !== undefined) doc = applyProfileUpdate(doc, { changed: true, sections: [op] })
   }
   return null
 }
