@@ -292,6 +292,16 @@ export function applyProfileUpdate(markdown: string, update: ProfileUpdate): str
 
       const replacement = op.content.trim()
       let { start, end } = found
+      // A quote of whole lines plausibly carries the newline that ends the last
+      // one — the model is asked to copy the text exactly, and that is what
+      // exact looks like. Matched, it was spliced over, and since `content` is
+      // trimmed the replacement welded itself onto the following line:
+      // `- One\n- Two\n` → `- Merged` left `- Merged- Three`. Shrink the match
+      // back to the text it quoted and let the document's own separators stand.
+      // The line-by-line fallback already ends its match at the last line's
+      // last character, so this only ever bites an exact hit.
+      while (end > start && existing.body[end - 1] === '\n') end -= 1
+      while (start < end && existing.body[start] === '\n') start += 1
       // A removed line takes its newline with it, or the document grows a blank
       // line everywhere a bullet was dropped.
       if (!replacement) {

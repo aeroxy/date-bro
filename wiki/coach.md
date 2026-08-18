@@ -620,6 +620,13 @@ amendments in the same payload.
   `append`/`replace` as a way out that isn't another edit. The one tolerance is per-line outer
   whitespace, the single difference a model reliably introduces when quoting markdown back; guessing
   at anything beyond that is how the wrong bullet gets rewritten.
+- **The match is shrunk to the text, not the separators around it.** A quote of whole lines
+  plausibly carries the newline that ends the last one — the model is told to copy the section
+  exactly, and that is what exact looks like. It matched exactly, was spliced over, and since
+  `content` is trimmed the replacement welded onto the next line: `old: "- One\n- Two\n"` with
+  `content: "- Merged"` left `- Merged- Three` in the profile. Newlines at either end of an exact
+  hit are handed back to the document before the splice. The per-line fallback never had this
+  problem — its match ends at the last line's last character.
 - **`append` is the mode that matters most.** Most updates are a fact *added*, which is what string
   replacement handles worst. Content starting with a bullet joins the list with a single newline;
   anything else starts its own paragraph.

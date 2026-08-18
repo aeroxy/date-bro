@@ -190,6 +190,39 @@ describe('applyProfileUpdate', () => {
     expect(out).toBe('## Patterns\n\n- Merged\n- Three')
   })
 
+  // Quoting whole lines includes the newline that ends the last one, which is
+  // what "copy it exactly" produces. It matched exactly, so the splice ate the
+  // separator and left `- Merged- Three`.
+  test('an edit whose quote carries the newline after it keeps the line break', () => {
+    const doc = '## Patterns\n\n- One\n- Two\n- Three'
+    const out = applyProfileUpdate(
+      doc,
+      change([{ heading: 'Patterns', mode: 'edit', old: '- One\n- Two\n', content: '- Merged' }]),
+    )
+    expect(out).toBe('## Patterns\n\n- Merged\n- Three')
+  })
+
+  test('an edit whose quote opens with a newline keeps the line break', () => {
+    const doc = '## Patterns\n\n- One\n- Two\n- Three'
+    const out = applyProfileUpdate(
+      doc,
+      change([{ heading: 'Patterns', mode: 'edit', old: '\n- Two\n- Three', content: '- Merged' }]),
+    )
+    expect(out).toBe('## Patterns\n\n- One\n- Merged')
+  })
+
+  // The deletion path reads the character either side of the match to take one
+  // newline with the line, so it has to keep working on a quote that already
+  // carried it — otherwise dropping a bullet this way leaves a blank line.
+  test('a deleting edit whose quote carries the newline leaves no blank line', () => {
+    const doc = '## Patterns\n\n- One\n- Two\n- Three'
+    const out = applyProfileUpdate(
+      doc,
+      change([{ heading: 'Patterns', mode: 'edit', old: '- Two\n', content: '' }]),
+    )
+    expect(out).toBe('## Patterns\n\n- One\n- Three')
+  })
+
   // Unreachable from a rebuild, which validates the quote against this exact
   // document — but the mind amendment and (later) an applied proposal both land
   // on a document read after the quote was written.
