@@ -65,6 +65,15 @@ describe('adviceTurn', () => {
     expect(formatTurn(record([]), { ...turn, number: 3 })).toStartWith('[3] COACH: ')
   })
 
+  // A finite number is not the same as a representable date: past ±8.64e15 ms
+  // `toLocaleString` hands back that same "Invalid Date", so the check has to be
+  // asked of the date and not of the number that made it.
+  test('leaves the stamp off for a number no date can hold', () => {
+    const turn = adviceTurn(suggestion({ generatedAt: 1e18 }))
+    expect(turn.at).toBeUndefined()
+    expect(formatTurn(record([]), { ...turn, number: 3 })).toStartWith('[3] COACH: ')
+  })
+
   test('survives a suggestion with unlabelled options', () => {
     const turn = adviceTurn(
       suggestion({

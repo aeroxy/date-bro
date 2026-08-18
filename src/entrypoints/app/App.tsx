@@ -404,6 +404,13 @@ export default function App() {
         update(
           id,
           (current) => {
+            // Asked of `current`, because the guard above reads the snapshot:
+            // two clicks in one frame both pass it, and the second would apply
+            // the amendment again — duplicating every `append` it carries — on
+            // a card that already says "Applied". The first click's write has
+            // landed here by then.
+            const landed = current.turns.find((t) => t.id === adviceId)?.advice?.profile
+            if (!landed || landed.appliedAt) return {}
             const profile = current[key]
             // No profile on that side yet. `validateProposal` refuses to let the
             // model aim at one, so this is only reachable if it was cleared
