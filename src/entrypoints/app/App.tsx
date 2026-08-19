@@ -145,20 +145,24 @@ export default function App() {
   const [edits, setEdits] = useState<Record<string, { tab: ChatEngine } & ProfileEdit>>({})
   /**
    * What's half-typed in the footer box, under the same key the box is mounted
-   * on: person, tab and mode. The box used to hold its own draft, so switching
-   * to a profile unmounted it and threw the text away — and looking someone up
-   * before deciding what to ask is exactly why you'd switch. Kept apart by the
-   * key as before, but now it survives the trip. In memory only, like the box's
-   * one-shot contract: nothing typed here is ever stored.
+   * on: person, tab and mode. The box used to hold this alone, so switching to a
+   * profile unmounted it and threw the text away — and looking someone up before
+   * deciding what to ask is exactly why you'd switch.
+   *
+   * A ref rather than state, because nothing here renders it: `AskComposer`
+   * keeps the keystrokes in its own state and hands each one up, and this only
+   * has to still be holding the text when the box comes back. State would put a
+   * full App render — the transcript, both profiles, the rail — behind every
+   * character typed. In memory only either way, like the box's one-shot
+   * contract: nothing typed here is ever stored.
    */
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const draft = useCallback(
-    (key: string) => ({
-      value: drafts[key] ?? '',
-      onChange: (text: string) => setDrafts((prev) => ({ ...prev, [key]: text })),
-    }),
-    [drafts],
-  )
+  const draftsRef = useRef<Record<string, string>>({})
+  const draft = (key: string) => ({
+    initial: draftsRef.current[key] ?? '',
+    onDraft: (text: string) => {
+      draftsRef.current[key] = text
+    },
+  })
   /**
    * The real mutex, and the abort handle each run is stopped by. `runs` drives
    * the UI but only lands on the next render, so two calls in one tick (a fast
@@ -904,7 +908,7 @@ export default function App() {
                   her can't reappear under him, under the drafts, or in the seed
                   box after Start over, where "drop the avoidant read" would be
                   handed over as background on who she is. The draft itself sits
-                  in `drafts` under that same key rather than inside the box:
+                  in `draftsRef` under that same key rather than inside the box:
                   the panel unmounts on every tab switch, and reading a profile
                   before deciding what to ask shouldn't cost you the question. */}
               {tab === 'next' ? (

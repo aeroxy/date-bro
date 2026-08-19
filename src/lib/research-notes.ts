@@ -73,6 +73,12 @@ export function mergeResearchNotes(existing: string, additions: string[]): strin
  * button in `ProfileModal` makes the second case a whole-block version of the
  * first, and without it a run in flight would undo the clear wholesale.
  *
+ * An *edited* line is both directions at once — the old wording missing from
+ * `current`, the new one missing from `snapshot` — so the user's version survives
+ * and the model's copy of what it replaced is dropped. That is the right way
+ * round: the box is the user's, and the model was working from a page that had
+ * already been corrected under it.
+ *
  * Matching is exact, so this catches a deleted line the consolidation passed
  * through unchanged — the common case, since most lines have no duplicate to
  * merge with — and not one it reworded. Partial, never wrong: the worst outcome

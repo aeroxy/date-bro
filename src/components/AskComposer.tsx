@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { CornerDownLeft, PencilLine, X } from 'lucide-react'
 
 import { Button } from './ui/Button'
@@ -77,8 +78,8 @@ export function AskComposer({
   busy,
   needsText,
   edit,
-  value,
-  onChange,
+  initial,
+  onDraft,
   onDismiss,
   onSend,
 }: {
@@ -98,13 +99,18 @@ export function AskComposer({
   needsText?: boolean
   edit?: ProfileEdit | null
   /**
-   * What's typed, held by the caller. Not local state: the three boxes live in
-   * a panel that unmounts on a tab switch, and reading her profile before
-   * deciding what to ask is the switch people actually make — it used to take
-   * the half-written question with it.
+   * The draft, seeded on mount and handed back on every keystroke.
+   *
+   * Split like this because it has two jobs with different lifetimes. The box
+   * lives in a panel that unmounts on a tab switch, and reading her profile
+   * before deciding what to ask is the switch people actually make — so the text
+   * has to outlive the component, which is what `onDraft` is for. But typing is
+   * the one interaction where the render has to stay cheap, and a caller holding
+   * it in state would re-render the transcript, both profiles and the rail on
+   * every character. Local while it's being typed, remembered above.
    */
-  value: string
-  onChange: (draft: string) => void
+  initial: string
+  onDraft: (draft: string) => void
   onDismiss?: () => void
   /**
    * Resolves false when the run failed, and the box keeps what was typed.
@@ -114,12 +120,18 @@ export function AskComposer({
    */
   onSend: (message: string) => Promise<boolean>
 }) {
-  const ready = !busy && (!needsText || !!value.trim())
+  const [draft, setDraft] = useState(initial)
+  const write = (text: string) => {
+    setDraft(text)
+    onDraft(text)
+  }
+
+  const ready = !busy && (!needsText || !!draft.trim())
 
   const send = () => {
     if (!ready) return
-    void onSend(value.trim()).then((sent) => {
-      if (sent) onChange('')
+    void onSend(draft.trim()).then((sent) => {
+      if (sent) write('')
     })
   }
 
@@ -131,9 +143,9 @@ export function AskComposer({
         // else. The label rather than the placeholder, which is example text.
         aria-label={label}
         rows={2}
-        value={value}
+        value={draft}
         disabled={busy}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => write(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
         }}
@@ -144,7 +156,7 @@ export function AskComposer({
         {/* ⌘ only, though the handler takes Ctrl too. macOS is what this is
             designed for; naming both would widen a hint to cover a platform
             nobody here is on. */}
-        <span className="text-[11px] text-fg-3">{value.trim() ? '⌘↵ to send' : hint}</span>
+        <span className="text-[11px] text-fg-3">{draft.trim() ? '⌘↵ to send' : hint}</span>
         <span className="flex-1" />
         <Button variant="accent" size="sm" disabled={!ready} onClick={send}>
           {busy ? <Spinner /> : <CornerDownLeft size={12} />}
