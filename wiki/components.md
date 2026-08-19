@@ -60,14 +60,16 @@ State worth knowing about:
   single global slot meant a rebuild on Mira disabled every control on Sam. The maps would have to be
   keyed regardless — one `thinking` would be overwritten by whichever profile streamed last, and
   switching to the other one would show its thoughts.
-- `runsRef` (a `Map<dateId, AbortController>`) is the actual mutex, not `runs`, and holds the abort
-  handles. State lands on the next render, so two calls in the same tick — a fast double-click, or
+- `runsRef` (a `Map<dateId, { tab, controller }>`) is the actual mutex, not `runs`, and holds the
+  abort handles. It carries the tab as well as the controller because two things have to be answered
+  synchronously, not on the next render: whether this person is busy, and *what* is running —
+  `applyProposal` refuses a click aimed at the profile a rebuild is about to overwrite. State lands on the next render, so two calls in the same tick — a fast double-click, or
   Enter held down on the situation field — both read the slot as free and both start. When that
   happened, the second aborted the first, and the *first*'s `finally` cleared the slot while the
   second was still running: spinner gone, buttons live, a third run one click away. A ref is set
   synchronously, so it can't. `claim(id, tab)` takes the slot or returns null; `release(id)` gives it
   back in `finally`.
-- The tab strip's Stop reaches `runsRef.get(id)`. Without it the whole abort chain — the
+- The tab strip's Stop reaches `runsRef.get(id)?.controller`. Without it the whole abort chain — the
   `AbortSignal` threaded through `postJSON`/`postSSE`, `QWEN_CHAT_CANCEL` back to the controller the
   background holds, `abortableDelay` collapsing the anti-bot back-off — is unreachable, and a Qwen
   throttle (three 30s waits) has no exit but closing the tab. It stops **this** person only; someone

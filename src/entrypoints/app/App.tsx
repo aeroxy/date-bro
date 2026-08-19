@@ -63,6 +63,16 @@ function isStale(record: DateRecord, basis?: number): boolean {
  */
 type Staleness = 'fresh' | 'judgment' | 'stale'
 
+/**
+ * Whether a profile has been written since `at` — by a rebuild or by an
+ * amendment, which invalidate a proposal's quotes identically. One function
+ * because `proposalStale` answers it for the button and `applyProposal` asks it
+ * again against `current` when the click lands.
+ */
+function movedSince(profile: { generatedAt: number; amendedAt?: number }, at: number): boolean {
+  return Math.max(profile.generatedAt, profile.amendedAt ?? 0) > at
+}
+
 function staleness(
   record: DateRecord,
   profile?: { turnsAt?: number; amendedTurnsAt?: number },
@@ -418,6 +428,14 @@ export default function App() {
             // fabricate a judgment nothing produced, the same rule `sendChat`
             // follows.
             if (!profile) return {}
+            // The same clock `proposalStale` disables the button on, asked of
+            // `current`. The render-time answer is about the document as it was
+            // when the card was drawn, and a rebuild landing in the frame this
+            // click crossed leaves it saying fresh about text that is already
+            // gone — whereupon `applyProfileUpdate` drops whichever quotes
+            // stopped fitting and applies the rest, which is a half-applied
+            // amendment reported as "Applied".
+            if (movedSince(profile, advice.generatedAt)) return {}
             return {
               [key]: {
                 ...profile,
@@ -530,7 +548,7 @@ export default function App() {
     if (!active || !suggestion || !proposal || proposal.appliedAt) return false
     const profile = proposal.target === 'them' ? active.themProfile : active.meProfile
     if (!profile) return true
-    return Math.max(profile.generatedAt, profile.amendedAt ?? 0) > suggestion.generatedAt
+    return movedSince(profile, suggestion.generatedAt)
   })()
   // Which drafts have been sent, derived rather than flagged — the same trick
   // as `answered` below. A draft is sent when a turn of the user's holds that

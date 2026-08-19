@@ -285,10 +285,13 @@ Every engine has three descriptions of its output, because different backends ne
 isn't malformed JSON — it's a model that describes what to say instead of saying it.
 
 Each `validate*` takes an optional second argument: the document the update is about to be applied
-to, which is the only thing that makes an `edit`'s quote checkable. `run.ts` passes it everywhere —
-the profile snapshot for the two rebuilds and the amend, the mind text for `suggestMove`. Omitted,
-the update is checked for shape alone and a bad quote is dropped later by `applyProfileUpdate`
-instead.
+to, which is the only thing that makes an `edit`'s quote checkable. `validatePerson`, `validateSelf`
+and `validateChat` take the one profile snapshot they rewrite. `validateSuggestion` takes a
+`SuggestionBases` — `{ mind?, them?, me? }` — because a suggestion can carry two amendments at once,
+one to the coach's document and one to either profile, and they are quoted from different documents;
+`run.ts` passes all three. An absent base means there is nothing to check against, not that the
+document is empty, and the update is then checked for shape alone with a bad quote dropped later by
+`applyProfileUpdate` instead.
 
 ### Amending a profile
 

@@ -63,11 +63,15 @@ export function adviceTurn(suggestion: Suggestion): Turn {
  * stamp is the same untimed turn every other speaker gets; `new Date(undefined)`
  * would put the string "Invalid Date" in the prompt, which reads as material.
  *
- * Asked of the date rather than the number, because finite isn't the same as
- * representable: anything past ±8.64e15 ms is a real number and an unreal date,
- * and `toLocaleString` answers it with that same "Invalid Date".
+ * Both checks, because each catches what the other waves through. `Date`
+ * coerces, so a stored `null` is the epoch rather than a miss — a suggestion
+ * stamped 1 Jan 1970, which is material of exactly the kind this guard exists
+ * to keep out. And finite isn't the same as representable, so a number past
+ * ±8.64e15 ms passes `Number.isFinite` and still builds an unreal date that
+ * `toLocaleString` answers with that same "Invalid Date".
  */
 const stamp = (ms: number): string | undefined => {
+  if (!Number.isFinite(ms)) return undefined
   const date = new Date(ms)
   if (!Number.isFinite(date.getTime())) return undefined
   return date.toLocaleString(undefined, {
