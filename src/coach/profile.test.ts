@@ -348,6 +348,21 @@ describe('applyProfileUpdate', () => {
     expect(out).toBe(DOC)
   })
 
+  // Unreachable from a rebuild — `validateProfileUpdate` demands a quote — but
+  // the writers that apply to a document they didn't validate against can hand
+  // one over. An empty quote addresses nothing, and the empty string is at every
+  // offset in the body, so `locate` reads it as ambiguous and the op is dropped
+  // rather than splicing content into the top of the section.
+  test('an edit with no quote to aim at changes nothing, content or not', () => {
+    for (const old of [undefined, '']) {
+      const out = applyProfileUpdate(
+        DOC,
+        change([{ heading: 'Who they are', mode: 'edit', old, content: '- Doctor (high)' }]),
+      )
+      expect(out).toBe(DOC)
+    }
+  })
+
   test('an edit does not create the section it failed to find', () => {
     const out = applyProfileUpdate(
       DOC,
