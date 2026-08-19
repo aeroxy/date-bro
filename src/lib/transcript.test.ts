@@ -74,6 +74,14 @@ describe('adviceTurn', () => {
     expect(formatTurn(record([]), { ...turn, number: 3 })).toStartWith('[3] COACH: ')
   })
 
+  // `Date` coerces where the check doesn't: `new Date(null)` is the epoch, so a
+  // stored null would stamp a suggestion 1 Jan 1970 rather than leave it untimed.
+  test('leaves the stamp off for a stored null', () => {
+    const turn = adviceTurn(suggestion({ generatedAt: null as unknown as number }))
+    expect(turn.at).toBeUndefined()
+    expect(formatTurn(record([]), { ...turn, number: 3 })).toStartWith('[3] COACH: ')
+  })
+
   test('survives a suggestion with unlabelled options', () => {
     const turn = adviceTurn(
       suggestion({
