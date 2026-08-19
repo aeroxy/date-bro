@@ -389,14 +389,21 @@ The asymmetry with `mind` is the whole design:
 - Losing a `mind` amendment costs the coach one finding. Silently dropping a profile write would
   leave the user believing something was recorded that wasn't.
 
-Two guards keep the offer honest. **The bar**, in `proposalInstructions`: propose only what a
+Three guards keep the offer honest. **The bar**, in `proposalInstructions`: propose only what a
 rebuild wouldn't find on its own — the user's note this run, what research established, a correction
 they made — because a rebuild reads the same transcript and would otherwise write the same fact a
 second time in a second wording. **Staleness**, in `App.tsx`: if the target profile's `generatedAt`
 or `amendedAt` moved past the suggestion's `generatedAt`, the button is replaced by "Profile moved
 on". The `edit` quotes were validated against the document as it stood during the run, so a document
 that has changed since could take some ops and drop others — a half-applied amendment reported as
-"Applied" is the one outcome worth a disabled button to avoid.
+"Applied" is the one outcome worth a disabled button to avoid. **A rebuild in flight**, which is that
+same failure one moment earlier: it writes the target profile whole from the record it started with,
+so an apply that lands underneath is silently overwritten while the card reads "Applied" and
+staleness then blocks re-applying. `proposalBusy` gives the card a third state, "Rebuilding…", rather
+than the "Profile moved on" that would be a false statement about a document that hasn't moved yet;
+it keys on the run's *target*, since a next-move run touches neither profile. `applyProposal` refuses
+the same click synchronously through `runsRef` — state lands on the next render, and the frame
+between claiming a run and rendering that fact is exactly where a click gets in.
 
 Not in the export. `export-markdown.ts` keeps only the drafts out of a suggestion by policy; an
 applied proposal is already visible in the profile it amended, and an unapplied one is an offer that
