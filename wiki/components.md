@@ -115,11 +115,14 @@ State worth knowing about:
   profile and coming back landed you on *her* You profile. `setTab(which, id?)` defaults to the
   selected person and `run` passes the id it started on, so a run moves its own record's tab and
   not whoever is selected when the write lands. Memory only, like `drafts` and `viewingAdvice`.
-- `drafts` holds what's half-typed in the footer box, keyed `person:tab:mode` — the same key the
-  box is mounted on. Lifted out of `AskComposer` because the insight panel unmounts on every tab
-  switch, and the switch people actually make is Next move → her profile to look something up
-  before finishing the question; the box took the question with it. Memory only, per the box's
-  one-shot contract, and cleared on a successful send.
+- `draftsRef` holds what's half-typed in the footer box, keyed `person:tab:mode` — the same key the
+  box is mounted on. It used to live only in `AskComposer`, and the insight panel unmounts on every
+  tab switch: the switch people actually make is Next move → her profile to look something up before
+  finishing the question, and the box took the question with it. A **ref**, not state, with the box
+  keeping the keystrokes locally and handing each one up — nothing here renders the draft, and state
+  would put a full App render (transcript, both profiles, the rail) behind every character typed.
+  `AskComposer` takes `initial` + `onDraft` for the same reason. Memory only, per the box's one-shot
+  contract, and cleared on a successful send.
 - **Writes derived from a pre-call snapshot go through `update`'s function form.** A model call takes
   half a minute, and the user can edit the profile or delete a suggestion while it runs — a patch
   built from the snapshot `run` started with silently reverts them. `suggestMove`'s write was doing
