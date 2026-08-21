@@ -139,6 +139,29 @@ describe('recordToMarkdown', () => {
     expect(md).toContain("### What you still don't know about Mira")
   })
 
+  // The assertion above doubles as the back-compat case: that fixture has no
+  // `toward`, because judgments written before the field are stored rather than
+  // migrated, and the line has to read cleanly without it.
+  test('says what the interest points at, when the read carries it', () => {
+    const md = recordToMarkdown(
+      record({
+        themProfile: themProfile({
+          judgment: {
+            ...themProfile().judgment,
+            interest_read: {
+              ...themProfile().judgment.interest_read,
+              toward: ['sex', 'companionship'],
+            },
+          },
+        }),
+      }),
+      NOW,
+    )
+    expect(md).toContain(
+      '**Where they stand:** too early · toward sex, companionship (confidence: medium)',
+    )
+  })
+
   test("nests the profile's own headings under the section holding them", () => {
     const md = recordToMarkdown(record({ themProfile: themProfile(), meProfile: meProfile() }), NOW)
     // One outline: `## Mira` owns the prose, so `## Who they are` drops a level.

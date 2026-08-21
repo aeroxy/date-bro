@@ -43,6 +43,21 @@ export type InterestLevel =
   | 'cooling'
   | 'not-interested'
 
+/**
+ * What their interest points *at*, which `level` cannot say — it grades how much
+ * of one undifferentiated thing there is, so someone who wants to sleep with the
+ * user and not date them could only come out as "warm", and the next-move engine
+ * read that as fuel for the next stage. The three are separable and routinely
+ * mismatched, which is why this is a list rather than one value: collapsing a
+ * mismatch into a single token rebuilds the problem one level down.
+ *
+ * `unclear` is the honest early answer, the counterpart of `too-early` on
+ * `level`, and it is meant to stand alone. Nothing enforces that — the prompt
+ * says it, and a model pairing it with a guess is expressing something real
+ * enough that a retry would cost more than it is worth.
+ */
+export type InterestToward = 'partnership' | 'sex' | 'companionship' | 'unclear'
+
 export interface Flag {
   kind: 'green' | 'amber' | 'red'
   label: string
@@ -79,6 +94,13 @@ export interface PersonJudgment {
   interest_read: {
     level: InterestLevel
     confidence: Confidence
+    /**
+     * Optional because judgments written before the field existed are stored,
+     * not migrated — a judgment is regenerated whole on the next rebuild, so
+     * the gap closes itself and a migration would only race it. Required in
+     * `PERSON_SCHEMA`, so anything rebuilt from here on has it.
+     */
+    toward?: InterestToward[]
     signals_for: string[]
     signals_against: string[]
     honest_note: string

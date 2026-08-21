@@ -87,6 +87,15 @@ export const PERSON_SHAPE = `{
                                     // prefer it to "ambiguous"/"cooling" when there simply isn't
                                     // enough yet. A slow reply is not a cooling signal.
     "confidence": "high" | "medium" | "low",
+    "toward": ("partnership" | "sex" | "companionship" | "unclear")[],
+                                    // What their interest points *at*. A different
+                                    // question from "level", which only grades how
+                                    // much: the three are separable and routinely
+                                    // mismatched, so list every one the evidence
+                                    // carries — usually one or two. "unclear" is the
+                                    // honest early answer and goes on its own. This
+                                    // is about them. Where it differs from what the
+                                    // user says they want, that gap is the finding.
     "signals_for": string[],
     "signals_against": string[],
     "honest_note": string           // the thing the user may not want to hear, IF there is one. Say it
@@ -113,13 +122,17 @@ export const PERSON_SCHEMA: JsonSchemaSpec = {
       interest_read: {
         type: 'object',
         additionalProperties: false,
-        required: ['level', 'confidence', 'signals_for', 'signals_against', 'honest_note'],
+        required: ['level', 'confidence', 'toward', 'signals_for', 'signals_against', 'honest_note'],
         properties: {
           level: {
             type: 'string',
             enum: ['strong', 'warm', 'too-early', 'ambiguous', 'cooling', 'not-interested'],
           },
           confidence,
+          toward: {
+            type: 'array',
+            items: { type: 'string', enum: ['partnership', 'sex', 'companionship', 'unclear'] },
+          },
           signals_for: stringArray,
           signals_against: stringArray,
           honest_note: { type: 'string' },
@@ -382,8 +395,14 @@ export function validatePerson(r: object, base?: string): string | null {
 
   const interest = (r as { interest_read: object }).interest_read
   return (
-    missing(interest, ['level', 'confidence', 'signals_for', 'signals_against', 'honest_note']) ??
-    needsArrays(interest, ['signals_for', 'signals_against'])
+    missing(interest, [
+      'level',
+      'confidence',
+      'toward',
+      'signals_for',
+      'signals_against',
+      'honest_note',
+    ]) ?? needsArrays(interest, ['toward', 'signals_for', 'signals_against'])
   )
 }
 
