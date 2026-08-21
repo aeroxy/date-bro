@@ -21,7 +21,7 @@ import { useDates } from '@/hooks/useDates'
 import { cn } from '@/lib/cn'
 import { applyResearchNotes } from '@/lib/research-notes'
 import { adviceTurn } from '@/lib/transcript'
-import type { ThinkingSummary } from '@/types/coach'
+import type { ProfileProposal, ThinkingSummary } from '@/types/coach'
 import { STAGES, type ChatEngine, type DateRecord, type Engine, type Turn } from '@/types/date'
 
 type Tab = Engine
@@ -396,11 +396,14 @@ export default function App() {
    * across a reload.
    */
   const applyProposal = useCallback(
-    (adviceId: string) => {
+    (adviceId: string, target: 'them' | 'me') => {
       if (!active) return
       const id = active.id
       const advice = active.turns.find((t) => t.id === adviceId)?.advice
-      const proposal = advice?.profile
+      // By target, not by position: the two offers on one turn are accepted
+      // independently, and an index would move under the migration that folded
+      // the old single `profile` into this list.
+      const proposal = advice?.profiles?.find((p) => p.target === target)
       if (!advice || !proposal || proposal.appliedAt) return
       // The rebuild this amendment would land under writes its profile whole,
       // from the record it started with — so an apply that slips in first is
@@ -423,7 +426,9 @@ export default function App() {
             // the amendment again — duplicating every `append` it carries — on
             // a card that already says "Applied". The first click's write has
             // landed here by then.
-            const landed = current.turns.find((t) => t.id === adviceId)?.advice?.profile
+            const landed = current.turns
+              .find((t) => t.id === adviceId)
+              ?.advice?.profiles?.find((p) => p.target === target)
             if (!landed || landed.appliedAt) return {}
             const profile = current[key]
             // No profile on that side yet. `validateProposal` refuses to let the
@@ -451,7 +456,18 @@ export default function App() {
               },
               turns: current.turns.map((t) =>
                 t.id === adviceId && t.advice
-                  ? { ...t, advice: { ...t.advice, profile: { ...proposal, appliedAt: now } } }
+                  ? {
+                      ...t,
+                      advice: {
+                        ...t.advice,
+                        // Only this target's entry. The other offer on the same
+                        // turn is a separate decision and keeps whatever state
+                        // the user left it in.
+                        profiles: t.advice.profiles?.map((p) =>
+                          p.target === target ? { ...p, appliedAt: now } : p,
+                        ),
+                      },
+                    }
                   : t,
               ),
             }
@@ -530,9 +546,11 @@ export default function App() {
     adviceTurns.find((t) => t.id === viewing) ?? adviceTurns[adviceTurns.length - 1]
   const suggestion = shownAdvice?.advice
   /**
-   * Whether the document a proposal aims at has moved since the proposal was
-   * written.
+   * Whether an offer can be taken right now, asked per target because a turn can
+   * carry one for each document and they go bad independently — a rebuild of the
+   * person's profile says nothing about an amendment to the user's.
    *
+   * `stale`: the document it aims at has moved since the proposal was written.
    * One guard covering both clocks, because both invalidate it in the same way:
    * the quotes in an `edit` were checked against the profile as it stood during
    * the run, and a rebuild or a chat amendment since then means they were
@@ -540,20 +558,20 @@ export default function App() {
    * whichever ops stopped fitting and silently apply the rest — a half-applied
    * amendment reported as "Applied", which is the one outcome worth spending a
    * disabled button to avoid. Rebuild is the honest answer at that point.
+   *
+   * `busy`: a rebuild of the very document it amends is in flight, and it writes
+   * that profile whole from the record it started with. Applying underneath it
+   * is silently undone, so the card says so and waits — and once the rebuild
+   * lands, `stale` takes over with the honest answer.
    */
-  // The other reason an offer can't be taken right now: a rebuild of the very
-  // document it amends is in flight, and it writes that profile whole from the
-  // record it started with. Applying underneath it is silently undone, so the
-  // card says so and waits — and once the rebuild lands, `proposalStale` takes
-  // over with the honest answer.
-  const proposalBusy = !!busyTab && busyTab === suggestion?.profile?.target
-  const proposalStale = (() => {
-    const proposal = suggestion?.profile
-    if (!active || !suggestion || !proposal || proposal.appliedAt) return false
-    const profile = proposal.target === 'them' ? active.themProfile : active.meProfile
-    if (!profile) return true
-    return movedSince(profile, suggestion.generatedAt)
-  })()
+  const proposalState = (proposal: ProfileProposal) => {
+    const profile = proposal.target === 'them' ? active?.themProfile : active?.meProfile
+    const stale =
+      !active || !suggestion || proposal.appliedAt
+        ? false
+        : !profile || movedSince(profile, suggestion.generatedAt)
+    return { stale, busy: !!busyTab && busyTab === proposal.target }
+  }
   // Which drafts have been sent, derived rather than flagged — the same trick
   // as `answered` below. A draft is sent when a turn of the user's holds that
   // exact text, which survives a reload and can't drift out of step with the
@@ -877,9 +895,8 @@ export default function App() {
                     <SuggestionView
                       suggestion={suggestion}
                       sent={sentDrafts}
-                      proposalStale={proposalStale}
-                      proposalBusy={proposalBusy}
-                      onApplyProposal={() => applyProposal(shownAdvice!.id)}
+                      proposalState={proposalState}
+                      onApplyProposal={(target) => applyProposal(shownAdvice!.id, target)}
                       onSend={(draft) => {
                         const turn: Turn = {
                           id: crypto.randomUUID(),

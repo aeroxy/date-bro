@@ -436,13 +436,28 @@ and the first thing they see is wrong.`
  * two engines, in two wordings. What a rebuild genuinely cannot see is what the
  * user typed into their note this run and what research turned up — so that is
  * what the bar is set to, and everything else is told to stay a `changed: false`.
+ *
+ * One slot per document, where there used to be one slot and a target. The old
+ * shape made "I learned something about both of them" unrepresentable, and the
+ * user reported hitting that often. Two slots cost one thing back: the single
+ * slot enforced the bar by scarcity — a model with one offer to make spends it on
+ * the best one — where two invite a weak second amendment for symmetry. The bar
+ * is now stated per slot, and the reason is spelled out in the shape, because
+ * that is the only thing left holding it.
  */
 function proposalInstructions(): string {
   return `## Proposing an amendment to a profile
 
-You may propose ONE amendment to ONE of the two profiles above, or none. None is
-the answer on most runs — return changed: false, and that is a real answer.
+You may propose an amendment to the person's profile, to the user's, to both, or
+to neither. None is the answer on most runs — return changed: false, and that is
+a real answer.
 
+- **Each slot is judged on its own.** "profile_them" and "profile_me" are two
+  separate offers, and the user accepts them separately. Two amendments are
+  right only when you genuinely learned something about each; an amendment
+  written to fill the second slot is one the user has to read, weigh and decline.
+  One good offer and one changed: false is a better answer than two adequate
+  ones.
 - **Propose only what a rebuild would not find on its own.** The user has a
   Rebuild button for each of these documents, and it reads the same transcript
   you just read. Anything in the transcript is already covered. What is not: what
@@ -452,9 +467,10 @@ the answer on most runs — return changed: false, and that is a real answer.
   whether it lands. So amend the one thing that is new or wrong, in the smallest
   edit that says it. This is not the place to reorganise a document, consolidate
   it, or bring it up to date generally.
-- **"target"** is "them" for something about the person and "me" for something
-  about the user in this connection. Nothing about *yourself* belongs here — that
-  is the mind amendment, and the two are not interchangeable.
+- **Whose document is which.** "profile_them" is for something about the person,
+  "profile_me" for something about the user in this connection. Nothing about
+  *yourself* belongs in either — that is the mind amendment, and they are not
+  interchangeable.
 - **Amend by heading, the same ops a rebuild uses.** A fact that turned out to be
   wrong is an "edit" quoting the text it replaces — never a new bullet correcting
   an old one, here least of all, where the user is reading the change as a single

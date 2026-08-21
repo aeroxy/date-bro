@@ -107,9 +107,12 @@ State worth knowing about:
 - **`applyProposal` is gated on the run that would overwrite it.** A `them`/`me` rebuild writes that
   profile whole from the record it started with, and the suggestion panel is fully live whenever the
   busy tab isn't the open one — so Apply on Next move during a Them rebuild landed, was overwritten a
-  moment later, and left the card reading "Applied" with `proposalStale` blocking a retry. The card
-  shows `Rebuilding…` instead (`proposalBusy`), and `runsRef` now carries which tab is running so the
-  handler can refuse in the frame between claiming a run and rendering that fact.
+  moment later, and left the card reading "Applied" with staleness blocking a retry. The card
+  shows `Rebuilding…` instead, and `runsRef` now carries which tab is running so the
+  handler can refuse in the frame between claiming a run and rendering that fact. Both answers come
+  from `proposalState(proposal)`, asked per card: a turn can offer an amendment to each profile, and
+  a rebuild of one of them must not disable the offer aimed at the other. `applyProposal` takes the
+  target for the same reason — it stamps `appliedAt` into that entry alone.
 - `tabs` holds which tab each person is on, keyed by person; no entry means Them. It was a single
   global `tab`, and a global tab belongs to nobody — leaving her on Next move, glancing at his You
   profile and coming back landed you on *her* You profile. `setTab(which, id?)` defaults to the
