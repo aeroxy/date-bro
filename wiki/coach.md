@@ -370,40 +370,53 @@ minute and the user may have edited it by hand in the meantime — and `mindText
 an amendment lands on the full document rather than on an empty one, forking only the section it
 actually rewrote.
 
-### The profile proposal
+### The profile proposals
 
-`suggestMove` can also amend **a profile** — and this one it returns rather than writes. The
-`profile` field of its response is a `ProfileUpdate` with a `target` (`"them"` / `"me"`) alongside
-it; `toProposal` nests it into the `ProfileProposal` stored on the `Suggestion`, which rides the
-advice turn into the record. `changed: false` — the answer on most runs — becomes no field at all.
+`suggestMove` can also amend **the profiles** — and these it returns rather than writes. The response
+carries one `ProfileUpdate` per document, in two fixed slots: `profile_them` and `profile_me`.
+`toProposals` turns whichever of them says `changed: true` into the `ProfileProposal[]` stored on the
+`Suggestion`, which rides the advice turn into the record. Two idle slots — the answer on most runs —
+become no field at all.
+
+It was one slot with a `target` field until turns that learned something about both people turned out
+to be common; the amendment that didn't fit had nowhere to wait, since nothing carries an unproposed
+finding into the next run. A slot per document also deletes a failure mode: the model can no longer
+name the document it means, so it can no longer name it wrongly, and `validateProposal` checks each
+slot's `edit` quotes against its own base. What the single slot was doing accidentally — enforcing
+the bar by scarcity — now has to be said out loud, so `proposalInstructions` states it per slot: one
+good offer and one `changed: false` beats two adequate ones.
 
 The asymmetry with `mind` is the whole design:
 
 - A profile **is** a field of the record, so the merge belongs to whoever owns the record.
 - The user is the **editor** of these two documents. A rebuild is something they asked for. An
   amendment arriving as a side effect of "what do I say next" is not, and writing it would rewrite
-  the page they were reading with no diff and no undo. `SuggestionView` renders it as a card at the
-  foot of the advice with an Apply button; `applyProposal` in `App.tsx` writes the profile and
-  stamps `appliedAt` back into the stored turn in the same transaction, so the offer and its outcome
-  can't disagree across a reload.
+  the page they were reading with no diff and no undo. `SuggestionView` renders one card per
+  proposal at the foot of the advice, each with its own Apply button; `applyProposal(adviceId,
+  target)` in `App.tsx` writes that profile and stamps `appliedAt` into that entry in the same
+  transaction, so the offer and its outcome can't disagree across a reload. Two cards are two
+  decisions — a single Apply would make taking the useful one cost accepting the other.
 - Losing a `mind` amendment costs the coach one finding. Silently dropping a profile write would
   leave the user believing something was recorded that wasn't.
 
-Three guards keep the offer honest. **The bar**, in `proposalInstructions`: propose only what a
-rebuild wouldn't find on its own — the user's note this run, what research established, a correction
-they made — because a rebuild reads the same transcript and would otherwise write the same fact a
-second time in a second wording. **Staleness**, in `App.tsx`: if the target profile's `generatedAt`
-or `amendedAt` moved past the suggestion's `generatedAt`, the button is replaced by "Profile moved
-on". The `edit` quotes were validated against the document as it stood during the run, so a document
-that has changed since could take some ops and drop others — a half-applied amendment reported as
-"Applied" is the one outcome worth a disabled button to avoid. **A rebuild in flight**, which is that
-same failure one moment earlier: it writes the target profile whole from the record it started with,
-so an apply that lands underneath is silently overwritten while the card reads "Applied" and
-staleness then blocks re-applying. `proposalBusy` gives the card a third state, "Rebuilding…", rather
+Three guards keep the offer honest, and each is asked per proposal — `proposalState(proposal)`
+answers for one target at a time, because a rebuild of the person's profile says nothing about an
+amendment to the user's. **The bar**, in `proposalInstructions`: propose only what a rebuild wouldn't
+find on its own — the user's note this run, what research established, a correction they made —
+because a rebuild reads the same transcript and would otherwise write the same fact a second time in
+a second wording. **Staleness**, in `App.tsx`: if the target profile's `generatedAt` or `amendedAt`
+moved past the suggestion's `generatedAt`, the button is replaced by "Profile moved on". The `edit`
+quotes were validated against the document as it stood during the run, so a document that has changed
+since could take some ops and drop others — a half-applied amendment reported as "Applied" is the one
+outcome worth a disabled button to avoid. **A rebuild in flight**, which is that same failure one
+moment earlier: it writes the target profile whole from the record it started with, so an apply that
+lands underneath is silently overwritten while the card reads "Applied" and staleness then blocks
+re-applying. The `busy` half of `proposalState` gives that card a third state, "Rebuilding…", rather
 than the "Profile moved on" that would be a false statement about a document that hasn't moved yet;
-it keys on the run's *target*, since a next-move run touches neither profile. `applyProposal` refuses
-the same click synchronously through `runsRef` — state lands on the next render, and the frame
-between claiming a run and rendering that fact is exactly where a click gets in.
+it keys on the run's *target*, since a next-move run touches neither profile — and it holds only the
+card aimed at that document, leaving the other one applicable. `applyProposal` refuses the same click
+synchronously through `runsRef` — state lands on the next render, and the frame between claiming a
+run and rendering that fact is exactly where a click gets in.
 
 Not in the export. `export-markdown.ts` keeps only the drafts out of a suggestion by policy; an
 applied proposal is already visible in the profile it amended, and an unapplied one is an offer that
@@ -416,7 +429,7 @@ was declined.
 | `rebuildPersonContext` | `PersonProfile` | `markdown` (amended, not regenerated) + `judgment`: `interest_read` with `signals_for` / `signals_against` / `honest_note`; `flags`; `open_questions` |
 | `rebuildSelfContext` | `SelfProfile` | `markdown` + `judgment`: `goal_read` splitting stated from revealed; `open_questions` |
 | `chatAboutProfile` | `{reply, headline, markdown, changed}` | one instruction: prose for the user, an optional `ProfileUpdate` applied to the stored markdown, and a replacement headline when the amendment made the old one wrong (`""` otherwise, the common case) |
-| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profile` (a `ProfileProposal` it returns for the user to apply — see above) |
+| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profiles` (a `ProfileProposal[]`, at most one per document, returned for the user to apply — see above) |
 
 **An amendment moves the prose, and the headline with it.** `markdown`, `amendedAt`,
 `amendedTurnsAt` and — when the amendment made the old one wrong — `judgment.headline`. The rest of

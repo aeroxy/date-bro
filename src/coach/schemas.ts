@@ -232,44 +232,31 @@ export const SUGGESTION_SHAPE = `{
   ${updateShape('mind')}                                // what to change about
                                     // YOURSELF — see "Amending yourself" above. changed: false on
                                     // most runs. Nothing about the person in this request; that
-                                    // goes in "profile" below.
-  "profile": {                      // ONE amendment to ONE of the two profiles above, PROPOSED —
-                                    // the user reviews it and applies it, you are not writing it.
+                                    // goes in the two profile amendments below.
+  "profile_them": {                 // an amendment to the profile of the PERSON, PROPOSED — the
+                                    // user reviews it and applies it, you are not writing it.
                                     // changed: false on most runs. See "Proposing an amendment".
-    "target": "them" | "me",        // whose document. Ignored when changed is false.
+    ${UPDATE_FIELDS}
+  },
+  "profile_me": {                   // the same, for the profile of the USER in this connection.
+                                    // Its own offer, judged on its own — filling it because you
+                                    // filled "profile_them" is how a run produces an amendment
+                                    // nobody needed.
     ${UPDATE_FIELDS}
   }
 }`
-
-/**
- * The proposal is `profileUpdate` plus the one thing an update aimed at two
- * possible documents needs: which one.
- *
- * Nullable was the other option and lost to consistency. `mind` already spells
- * "nothing to say" as `changed: false`, the strict schemas here allow no
- * optional properties, and an `anyOf` against `null` is exactly the construct
- * `ProfileUpdate` was flattened to avoid. One convention, expressed once.
- */
-const profileProposal = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['target', ...profileUpdate.required],
-  properties: {
-    target: { type: 'string', enum: ['them', 'me'] },
-    ...profileUpdate.properties,
-  },
-} as const
 
 export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
   name: 'suggestion',
   schema: {
     type: 'object',
     additionalProperties: false,
-    // The two nested update objects go last, and the order is load-bearing
+    // The three nested update objects go last, and the order is load-bearing
     // rather than cosmetic — see the note in SUGGESTION_SHAPE. A model that
     // derails on one of them should lose only it and whatever is below, never
-    // the drafts above. `profile` is below `mind` because it is the newer and
-    // rarer of the two, so it is the cheaper one to lose.
+    // the drafts above. They are ordered cheapest-to-lose last: `mind` is the
+    // oldest and most often filled, `profile_them` next, and `profile_me` is
+    // the rarest of the three.
     required: [
       'read',
       'priority',
@@ -279,7 +266,8 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       'honest_note',
       'research_notes',
       'mind',
-      'profile',
+      'profile_them',
+      'profile_me',
     ],
     properties: {
       read: { type: 'string' },
@@ -305,7 +293,8 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       honest_note: { type: 'string' },
       research_notes: stringArray,
       mind: profileUpdate,
-      profile: profileProposal,
+      profile_them: profileUpdate,
+      profile_me: profileUpdate,
     },
   },
 }
@@ -439,35 +428,34 @@ export interface SuggestionBases {
 }
 
 /**
- * The proposal is checked in the order its fields become meaningful. `changed:
- * false` says nothing about a target, so a target is only required once there is
- * an amendment to aim, and a shape check still runs on the rest.
+ * One of the two proposal slots. Which document it aims at is the slot it
+ * arrived in, so there is no target to check and no way to aim one at a document
+ * that doesn't exist — the failure the old single `profile` field, with its
+ * `target` alongside, had to validate its way out of.
  *
  * The empty-document case is a complaint rather than a shrug because the app
  * cannot apply it: `applyProposal` refuses to invent a profile that no rebuild
  * has produced, so a proposal against one would render an offer that does
  * nothing when clicked.
  */
-function validateProposal(value: unknown, bases: SuggestionBases): string | null {
+function validateProposal(value: unknown, target: 'them' | 'me', base?: string): string | null {
+  const field = target === 'them' ? 'profile_them' : 'profile_me'
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return '"profile" must be an object'
+    return `"${field}" must be an object`
   }
-  const { target, changed } = value as { target?: unknown; changed?: unknown }
-  if (changed !== true) return validateProfileUpdate(value, 'profile')
-
-  if (target !== 'them' && target !== 'me') {
-    return '"profile.target" must be "them" or "me" — whose profile this amendment is for'
+  if ((value as { changed?: unknown }).changed !== true) {
+    return validateProfileUpdate(value, field)
   }
-  const base = bases[target]
   if (base !== undefined && !base.trim()) {
-    return `"profile" amends the ${target === 'them' ? "person's" : "user's"} profile, and there isn't one yet — it has to be built before it can be amended, so return changed: false`
+    return `"${field}" amends the ${target === 'them' ? "person's" : "user's"} profile, and there isn't one yet — it has to be built before it can be amended, so return changed: false`
   }
-  return validateProfileUpdate(value, 'profile', base)
+  return validateProfileUpdate(value, field, base)
 }
 
 export function validateSuggestion(r: object, bases: SuggestionBases = {}): string | null {
   const mind = (r as { mind?: unknown }).mind
-  const proposal = (r as { profile?: unknown }).profile
+  const them = (r as { profile_them?: unknown }).profile_them
+  const me = (r as { profile_me?: unknown }).profile_me
   const structural =
     missing(r, ['read', 'priority', 'options', 'avoid', 'timing', 'honest_note', 'research_notes']) ??
     needsString(r, 'read') ??
@@ -483,10 +471,13 @@ export function validateSuggestion(r: object, bases: SuggestionBases = {}): stri
     // answer written differently, and gets the same pass. Present and malformed
     // still fails: a half-formed update would be applied to the coach itself.
     (mind == null ? null : validateProfileUpdate(mind, 'mind', bases.mind)) ??
-    // Absent passes for the same reason `mind` does: it is empty on most runs,
+    // Absent passes for the same reason `mind` does: each is empty on most runs,
     // and the backend with no schema enforcement shouldn't spend its one retry
-    // on the field whose correct value is usually nothing.
-    (proposal == null ? null : validateProposal(proposal, bases))
+    // on a field whose correct value is usually nothing. Two slots make that
+    // likelier, not less — a run with something to say about the person and
+    // nothing to say about the user is the ordinary shape of a filled proposal.
+    (them == null ? null : validateProposal(them, 'them', bases.them)) ??
+    (me == null ? null : validateProposal(me, 'me', bases.me))
   if (structural) return structural
 
   const options = (r as { options: Array<Record<string, unknown>> }).options

@@ -247,6 +247,10 @@ export interface SuggestionOption {
  * So it is stored, unapplied, on the suggestion that produced it, and rides the
  * advice turn into the record. `appliedAt` is what makes the offer survive a
  * reload in whichever state the user left it.
+ *
+ * `target` is not on the wire — the model answers in two fixed slots, and this
+ * is the stored form, where an offer has to say which document it aims at to be
+ * applied, gone stale, or accepted independently of the other one.
  */
 export interface ProfileProposal {
   /** Whose document: the person, or the user in this connection. */
@@ -277,8 +281,10 @@ export interface Suggestion extends TurnBasis {
    */
   research_notes: string[]
   /**
-   * An amendment to one of the two profiles, offered rather than applied.
-   * Absent on most runs, which is the correct answer on most runs.
+   * Amendments to the two profiles, offered rather than applied — at most one
+   * per document, so at most two. Empty on most runs, which is the correct
+   * answer on most runs, and each is accepted on its own: a turn that learns
+   * something about both people should not make the user take both or neither.
    */
-  profile?: ProfileProposal
+  profiles?: ProfileProposal[]
 }
