@@ -612,7 +612,14 @@ describe('rebuild schemas', () => {
 describe('rebuild validators', () => {
   const person = {
     headline: 'x',
-    interest_read: { level: 'warm', confidence: 'low', signals_for: [], signals_against: [], honest_note: '' },
+    interest_read: {
+      level: 'warm',
+      confidence: 'low',
+      toward: ['unclear'],
+      signals_for: [],
+      signals_against: [],
+      honest_note: '',
+    },
     flags: [],
     open_questions: ['what does she study?'],
     profile: { changed: false },
@@ -637,6 +644,14 @@ describe('rebuild validators', () => {
     const { open_questions: _, ...withoutSelf } = self
     expect(validatePerson(withoutPerson)).toContain('open_questions')
     expect(validateSelf(withoutSelf)).toContain('open_questions')
+  })
+
+  // `toward` is what separates *kind* of interest from *degree*; a read without
+  // it collapses back to six gradations of one undifferentiated thing, which is
+  // the failure the field was added for. Required in the schema, so required here.
+  test('reject a rebuild whose interest read says nothing about what it points at', () => {
+    const { toward, ...read } = person.interest_read
+    expect(validatePerson({ ...person, interest_read: read })).toContain('toward')
   })
 
   test('reject a rebuild carrying no profile update at all', () => {

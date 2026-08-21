@@ -144,7 +144,9 @@ function personSection(name: string, profile: PersonProfile): string {
     `## ${name}`,
     freshness(profile),
     headline.trim() ? quote(headline) : null,
-    `**Where they stand:** ${read.level.replace('-', ' ')} (confidence: ${read.confidence})`,
+    `**Where they stand:** ${read.level.replace('-', ' ')}${
+      read.toward?.length ? ` · toward ${read.toward.join(', ')}` : ''
+    } (confidence: ${read.confidence})`,
     labelled('Pointing yes', read.signals_for),
     labelled('Pointing no', read.signals_against),
     read.honest_note.trim() ? `**Straight with you:** ${read.honest_note.trim()}` : null,

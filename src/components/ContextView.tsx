@@ -246,6 +246,17 @@ export function PersonContextView({
           <Chip tone={INTEREST_TONE[interest_read.level] ?? 'neutral'}>
             {interest_read.level.replace('-', ' ')}
           </Chip>
+          {/* Absent on judgments rebuilt before `toward` existed — see PersonJudgment. */}
+          {interest_read.toward?.length ? (
+            <>
+              <span className="text-[11px] text-fg-3">toward</span>
+              {interest_read.toward.map((t) => (
+                <Chip key={t} tone="neutral">
+                  {t}
+                </Chip>
+              ))}
+            </>
+          ) : null}
           <span className="text-[11px] text-fg-3">confidence: {interest_read.confidence}</span>
         </div>
         <div className="grid grid-cols-2 gap-3">
