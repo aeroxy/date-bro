@@ -117,18 +117,24 @@ export function ProfileModal({
         <div className="grid grid-cols-4 gap-3">
           {/* A birthday, not an age: this record gets read for months, so a
               number typed once is wrong by the time it matters. Setting one
-              clears any legacy `age`, which is the only thing that ever does. */}
+              clears any legacy `age`, which is the only thing that ever does.
+
+              Free text, not a date picker. What the user knows is often partial
+              — a month with no day, a year with no month — and a picker refuses
+              all of it, which leaves them recording nothing at all. A full date
+              still earns the derived age and the countdown; anything else
+              reaches the model as the words that were typed. */}
           <Field
             label="Birthday"
             hint={draft.meta.birthday || !draft.meta.age ? 'optional' : `now: age ${draft.meta.age}`}
           >
             <Input
-              type="date"
               value={draft.meta.birthday ?? ''}
               onChange={(e) => {
                 setMeta('birthday', e.target.value)
                 if (e.target.value) setMeta('age', '')
               }}
+              placeholder="1997-03-14, or August"
             />
           </Field>
           <Field label="Pronouns" hint="optional">

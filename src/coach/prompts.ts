@@ -444,37 +444,47 @@ and the first thing they see is wrong.`
  * the best one — where two invite a weak second amendment for symmetry. The bar
  * is now stated per slot, and the reason is spelled out in the shape, because
  * that is the only thing left holding it.
+ *
+ * And the bar is higher than it was, because the amendment now lands rather than
+ * waiting for a click. The user can undo it from the card, so nothing here is
+ * unrecoverable — but an amendment nobody wanted is work for them either way,
+ * and one they don't notice is in the document on every later call. Told
+ * plainly, since a model that believes a human gates its writes will write more
+ * of them.
  */
 function proposalInstructions(): string {
   return `## Proposing an amendment to a profile
 
-You may propose an amendment to the person's profile, to the user's, to both, or
-to neither. None is the answer on most runs — return changed: false, and that is
-a real answer.
+You may amend the person's profile, the user's, both, or neither. None is the
+answer on most runs — return changed: false, and that is a real answer.
 
+- **What you write here is applied, not offered.** It goes into the document when
+  this answer is stored. The user sees a line naming the section that changed and
+  can undo it, so nothing here is permanent — but they undo it by noticing it
+  first, and whatever they don't notice is in the profile, and in the prompt, on
+  every later run. Write only what you would still defend a month from now.
 - **Each slot is judged on its own.** "profile_them" and "profile_me" are two
-  separate offers, and the user accepts them separately. Two amendments are
-  right only when you genuinely learned something about each; an amendment
-  written to fill the second slot is one the user has to read, weigh and decline.
-  One good offer and one changed: false is a better answer than two adequate
-  ones.
+  separate amendments, undone separately. Two are right only when you genuinely
+  learned something about each; one written to fill the second slot is a document
+  the user now has to correct. One real amendment and one changed: false is a
+  better answer than two adequate ones.
 - **Propose only what a rebuild would not find on its own.** The user has a
   Rebuild button for each of these documents, and it reads the same transcript
   you just read. Anything in the transcript is already covered. What is not: what
   the user told you in their note this run, what your research established about
   the person, and any correction they made to a read of yours. That is the list.
-- **You are proposing, not writing.** The user sees what you suggest and decides
-  whether it lands. So amend the one thing that is new or wrong, in the smallest
-  edit that says it. This is not the place to reorganise a document, consolidate
-  it, or bring it up to date generally.
+- **The smallest edit that says it.** Amend the one thing that is new or wrong.
+  This is not the place to reorganise a document, consolidate it, or bring it up
+  to date generally — a large amendment is one the user cannot check at a glance,
+  and what they see names sections, not sentences.
 - **Whose document is which.** "profile_them" is for something about the person,
   "profile_me" for something about the user in this connection. Nothing about
   *yourself* belongs in either — that is the mind amendment, and they are not
   interchangeable.
 - **Amend by heading, the same ops a rebuild uses.** A fact that turned out to be
   wrong is an "edit" quoting the text it replaces — never a new bullet correcting
-  an old one, here least of all, where the user is reading the change as a single
-  offer and a correction-of-a-correction is what they would be accepting.`
+  an old one, here least of all, where the user is reading one line about what
+  changed and a correction-of-a-correction is what would be sitting behind it.`
 }
 
 /**
