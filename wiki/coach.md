@@ -393,22 +393,30 @@ slot's `edit` quotes against its own base. What the single slot was doing accide
 the bar by scarcity — now has to be said out loud, so `proposalInstructions` states it per slot: one
 good offer and one `changed: false` beats two adequate ones.
 
-The asymmetry with `mind` is the whole design:
+**Applied on the way in, undoable on the way out.** `App.tsx` runs each proposal through
+`applyProposalTo` in the same `update()` that appends the advice turn, so there is no moment where
+the turn exists and the profile hasn't caught up. `SuggestionView` renders one card per proposal at
+the foot of the advice, reading `Applied · Undo`; `undoProposal(adviceId, target)` puts the document
+back exactly. Two cards are two decisions — a single control would make keeping the useful one cost
+keeping the other.
 
-- A profile **is** a field of the record, so the merge belongs to whoever owns the record.
-- The user is the **editor** of these two documents. A rebuild is something they asked for. An
-  amendment arriving as a side effect of "what do I say next" is not, and writing it would rewrite
-  the page they were reading with no diff and no undo. `SuggestionView` renders one card per
-  proposal at the foot of the advice, each with its own Apply button; `applyProposal(adviceId,
-  target)` in `App.tsx` writes that profile and stamps `appliedAt` into that entry in the same
-  transaction, so the offer and its outcome can't disagree across a reload. Two cards are two
-  decisions — a single Apply would make taking the useful one cost accepting the other.
-- Losing a `mind` amendment costs the coach one finding. Silently dropping a profile write would
-  leave the user believing something was recorded that wasn't.
+It waited for a click for a year, and the argument for that was real: a profile is read on every
+later call, so a wrong line doesn't sit there, it steers everything the coach says next — and
+profiles have no hand editor ([`ContextView`](../src/components/ContextView.tsx) renders them
+read-only), so removing one costs a round trip through the chat. What made the click wrong anyway is
+that it wasn't buying review, it was buying **loss**: nothing carries an unapplied proposal into the
+next run, so a finding nobody clicked was gone at the end of the turn. Undo buys the review back and
+more of it — the card still says what changed, so the amendment is as visible as it ever was, and the
+work now falls on rejecting rather than on accepting.
 
-Three guards keep the offer honest, and each is asked per proposal — `proposalState(proposal)`
-answers for one target at a time, because a rebuild of the person's profile says nothing about an
-amendment to the user's. **The bar**, in `proposalInstructions`: propose only what a rebuild wouldn't
+The asymmetry with `mind` is narrower than it was, and it is about recovery, not authority: a mind
+amendment has "revert to shipped", per section. Profiles had no equivalent, which is what `before`
+is.
+
+Four states, each asked per proposal — `proposalState(proposal)` answers for one target at a time,
+because a rebuild of the person's profile says nothing about an amendment to the user's. All of them
+live in `lib/proposals.ts` for the writes and in `proposalState` for the rendering, so the button and
+the write can't disagree about what is safe. **The bar**, in `proposalInstructions`: propose only what a rebuild wouldn't
 find on its own — the user's note this run, what research established, a correction they made —
 because a rebuild reads the same transcript and would otherwise write the same fact a second time in
 a second wording. **Staleness**, in `App.tsx`: if the target profile's `generatedAt` or `amendedAt`
@@ -421,13 +429,21 @@ lands underneath is silently overwritten while the card reads "Applied" and stal
 re-applying. The `busy` half of `proposalState` gives that card a third state, "Rebuilding…", rather
 than the "Profile moved on" that would be a false statement about a document that hasn't moved yet;
 it keys on the run's *target*, since a next-move run touches neither profile — and it holds only the
-card aimed at that document, leaving the other one applicable. `applyProposal` refuses the same click
-synchronously through `runsRef` — state lands on the next render, and the frame between claiming a
-run and rendering that fact is exactly where a click gets in.
+card aimed at that document, leaving the other one applicable. `applyProposal` and `undoProposal`
+refuse the same click synchronously through `runsRef` — state lands on the next render, and the frame
+between claiming a run and rendering that fact is exactly where a click gets in.
+
+**Undoable** is the fourth, and the only one measured from `appliedAt` rather than from the run: that
+is when the snapshot was taken. So an amendment applied on the way in stays undoable through as many
+later runs as you like, and stops the moment anything else writes that profile — restoring a snapshot
+over a rebuild would delete the rebuild, which is worse than leaving the amendment in place. The
+snapshot is dropped at that point rather than kept: `applyProposalTo` clears `before` on every
+earlier proposal aimed at the same document, which bounds the stored text at one snapshot per
+document per record. A `rewrite` is why it is a whole-document copy and not a per-section one.
 
 Not in the export. `export-markdown.ts` keeps only the drafts out of a suggestion by policy; an
-applied proposal is already visible in the profile it amended, and an unapplied one is an offer that
-was declined.
+applied amendment is already visible in the profile it changed, and an undone one is one the user
+took back.
 
 ## Output contracts
 
@@ -436,7 +452,7 @@ was declined.
 | `rebuildPersonContext` | `PersonProfile` | `markdown` (amended, not regenerated) + `judgment`: `interest_read` with `signals_for` / `signals_against` / `honest_note`; `flags`; `open_questions` |
 | `rebuildSelfContext` | `SelfProfile` | `markdown` + `judgment`: `goal_read` splitting stated from revealed; `open_questions` |
 | `chatAboutProfile` | `{reply, headline, markdown, changed}` | one instruction: prose for the user, an optional `ProfileUpdate` applied to the stored markdown, and a replacement headline when the amendment made the old one wrong (`""` otherwise, the common case) |
-| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profiles` (a `ProfileProposal[]`, at most one per document, returned for the user to apply — see above) |
+| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profiles` (a `ProfileProposal[]`, at most one per document, applied by the caller when the advice is stored and undoable from the card — see above) |
 
 **An amendment moves the prose, and the headline with it.** `markdown`, `amendedAt`,
 `amendedTurnsAt` and — when the amendment made the old one wrong — `judgment.headline`. The rest of

@@ -233,8 +233,9 @@ export const SUGGESTION_SHAPE = `{
                                     // YOURSELF — see "Amending yourself" above. changed: false on
                                     // most runs. Nothing about the person in this request; that
                                     // goes in the two profile amendments below.
-  "profile_them": {                 // an amendment to the profile of the PERSON, PROPOSED — the
-                                    // user reviews it and applies it, you are not writing it.
+  "profile_them": {                 // an amendment to the profile of the PERSON. It is APPLIED when
+                                    // this answer is stored — the user sees what changed and can
+                                    // undo it, but the default is that it lands.
                                     // changed: false on most runs. See "Proposing an amendment".
     ${UPDATE_FIELDS}
   },

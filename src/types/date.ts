@@ -155,14 +155,21 @@ export interface DateRecord {
   stage: Stage
   meta: {
     /**
-     * ISO `YYYY-MM-DD`. The *age* is derived at the moment of a request — see
-     * `lib/birthday.ts`.
+     * Free text. ISO `YYYY-MM-DD` earns a derived age and a countdown; anything
+     * else is passed to the model as written — see `lib/birthday.ts`.
      *
      * This replaced `age`, a free-text number, which was wrong the moment it was
      * written: a record here is read on every call for months, so a stored "28"
      * quietly becomes a lie and nothing ever corrects it. The birthday is the
      * fact; the age is a view of it, and so is "her birthday is in nine days",
      * which the old field couldn't express at all.
+     *
+     * Free text rather than an ISO-only date because half of what anyone knows
+     * about a birthday is partial — the month but not the day, the year but not
+     * the month. A date picker rejects all of it, so the honest options were a
+     * string or an empty field, and an empty field is not the safer one. The
+     * staleness argument above doesn't apply here: unlike an age, a partial
+     * birthday is as true next year as it is today.
      */
     birthday?: string
     /**

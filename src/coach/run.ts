@@ -267,11 +267,11 @@ export async function suggestMove(
           sessionId: record.id,
         })
 
-  // Returned, not written — the whole difference between this and the mind
-  // amendment below. A profile is a field of the record, so its merge belongs to
-  // the caller that owns the record; and the user is the editor of that document,
-  // so an amendment arriving as a side effect of asking what to say next is
-  // theirs to accept rather than ours to apply.
+  // Returned, not written — still the difference between this and the mind
+  // amendment below, though no longer because it waits for a click. A profile is
+  // a field of the record, so its merge belongs to the caller that owns the
+  // record: the app applies these in the same transaction that stores the
+  // advice, keeping what an Undo would need. `lib/proposals.ts` is both halves.
   const proposals = toProposals(proposedThem, proposedMe)
 
   // The coach amending itself. Written here rather than handed back for the

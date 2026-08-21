@@ -263,10 +263,18 @@ timestamp read `45d ago` in one place and `2mo ago` in the other.
 
 ## `birthday.ts`
 
-`describeBirthday(iso, now)` → `"14 March 1997 — 29 years old, and it is in 9 days"`, or `null` if the
-string isn't a real ISO date. Replaced `meta.age`, a free-text number that was wrong the moment it
-was written: a record is read on every call for months, so a stored "28" quietly becomes a lie and
-nothing corrects it.
+`describeBirthday(text, now)` → `"14 March 1997 — 29 years old, and it is in 9 days"` for a full ISO
+date, the text itself for anything else, and `null` only for empty. Replaced `meta.age`, a free-text
+number that was wrong the moment it was written: a record is read on every call for months, so a
+stored "28" quietly becomes a lie and nothing corrects it.
+
+**The input is free text**, because what anyone knows about a birthday is often partial — a month
+with no day, a year with no month, "sometime around Easter". A date picker rejects all of it, so the
+choice was a string or an empty field, and an empty field is not the safer one. The staleness
+argument above is about an *age* and doesn't reach the date: a partial birthday is as true next year
+as today. The cost is that a partial one reaches the model as the words that were typed, and it works
+out the rest — the calendar arithmetic this module exists to keep away from it. The exact case, the
+one where a wrong answer would be confidently wrong, is still computed here.
 
 Derived in code rather than handed to the model as a date plus `<right_now>` — that is arithmetic
 across a calendar, which models get wrong in the quiet way this app can't afford, and every other
@@ -274,8 +282,32 @@ fact in the request is stated rather than inferred. Dates are built in local tim
 reads as UTC and lands a day early west of Greenwich) and round-trip-checked, so `2001-02-30` is
 rejected rather than rolling into March. Age is compared as `(month, day)` so a leap year or a
 daylight-saving hour can't shift it; 29 February falls forward to 1 March in a common year, the only
-convention that doesn't skip three years in four. The countdown appears only within 30 days — a
+convention that doesn't skip three years in four. A string shaped like a date that isn't one comes
+back verbatim rather than derived from — the caller gets nothing computed either way, and the user at
+least sees what they typed. The countdown appears only within 30 days — a
 birthday coming up is a set piece, a birthday in August is standing noise.
+
+## `proposals.ts`
+
+`applyProposalTo(record, adviceId, target, now)` and `undoProposalIn(record, adviceId, target)` —
+pure functions over a record, returning it **unchanged by identity** when they decline, so a caller
+can `===` and skip the write. Two ways in, one implementation: an amendment is applied when the
+advice is stored, and again by hand if the user undid one and changed their mind.
+
+Applying keeps `before` — the markdown and the two amendment clocks as they stood — which is what
+Undo restores. Only those three fields: the judgment and the rebuild's own timestamps aren't touched
+by an amendment, so restoring them would undo whatever else happened to them.
+
+It declines rather than half-doing it: already applied (a second click, which would land an `append`
+twice), no such document (inventing one would fabricate a judgment nothing produced), or the document
+moved since the run that wrote the amendment (`applyProfileUpdate` would drop whichever quotes
+stopped fitting and apply the rest). Undo declines on the last of those too, measured from
+`appliedAt`: a snapshot restored over a newer rebuild would silently delete it.
+
+`movedSince(profile, at)` answers all of that — one function, because a rebuild and a chat amendment
+invalidate a proposal identically. Storage is bounded by dropping snapshots that can no longer be
+used: applying to a document clears `before` on every earlier proposal aimed at it, so at most one
+live snapshot exists per document per record.
 
 ## `storage.ts`
 

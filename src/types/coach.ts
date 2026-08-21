@@ -233,31 +233,54 @@ export interface SuggestionOption {
 }
 
 /**
- * A profile amendment the coach wrote while working out what to say next, and
- * deliberately did not apply.
+ * A profile amendment the coach wrote while working out what to say next,
+ * applied when the advice was stored, and undoable until the document moves on.
  *
- * The asymmetry with the mind amendment is the design, not an oversight. The
- * mind is written by `suggestMove` itself, because it is nobody's field and
- * there is no caller to merge it. A profile is a field of the record, its merge
- * belongs to whoever owns the record, and — the part that actually decides it —
- * the user is the editor of these two documents. A rebuild is something they
- * asked for; an amendment arriving as a side effect of "what do I say next" is
- * not, and would rewrite the page they were reading with no diff and no undo.
+ * It waited for a click for a while, and the argument for that was real: a
+ * profile is read on every later call, so a wrong line doesn't sit there, it
+ * steers everything the coach says next — and profiles have no hand editor, so
+ * removing one costs a round trip through the chat. What made the click the
+ * wrong answer anyway is that it wasn't buying review, it was buying *loss*: a
+ * finding nobody clicked is gone at the end of the turn, because nothing carries
+ * an unapplied proposal into the next run.
  *
- * So it is stored, unapplied, on the suggestion that produced it, and rides the
- * advice turn into the record. `appliedAt` is what makes the offer survive a
- * reload in whichever state the user left it.
+ * Undo buys the review back, and more of it than the click did. The card still
+ * says what changed, so the amendment is as visible as it ever was; the
+ * difference is that the default is now the answer that keeps the finding, and
+ * the work falls on rejecting rather than on accepting.
+ *
+ * `appliedAt` is what makes the state survive a reload. `before` is what Undo
+ * restores, and it is dropped the moment it stops being safe to use — see
+ * `lib/proposals.ts`, which owns both halves.
  *
  * `target` is not on the wire — the model answers in two fixed slots, and this
  * is the stored form, where an offer has to say which document it aims at to be
- * applied, gone stale, or accepted independently of the other one.
+ * applied, undone, or gone stale independently of the other one.
  */
 export interface ProfileProposal {
   /** Whose document: the person, or the user in this connection. */
   target: 'them' | 'me'
   update: ProfileUpdate
-  /** When the user accepted it. Absent while the offer still stands. */
+  /** When it was applied. Absent while it hasn't been — or after an Undo. */
   appliedAt?: number
+  /**
+   * The three fields an apply overwrites, as they stood immediately before.
+   *
+   * Only these three: an amendment touches the prose and the two clocks that
+   * describe it, and nothing else in the profile — so the judgment, the
+   * headline and the rebuild's own timestamps are not snapshotted, because
+   * restoring them would undo whatever *else* happened to them since.
+   *
+   * A whole-document copy rather than a per-section one, because `rewrite`
+   * replaces everything and a section-shaped snapshot could not express it. The
+   * size is bounded by dropping it as soon as it is unusable: at most one live
+   * snapshot per document per record.
+   */
+  before?: {
+    markdown: string
+    amendedAt?: number
+    amendedTurnsAt?: number
+  }
 }
 
 /** Output of "what should I say or do". */
