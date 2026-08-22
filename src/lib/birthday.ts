@@ -1,10 +1,23 @@
 /**
- * A birthday, described as of now.
+ * A birthday, described as of now — derived when the text is a full date, and
+ * handed back verbatim when it isn't.
  *
  * The field used to be `age`, a free-text number, and it was wrong the moment it
  * was written: a record here is kept for months and read on every call, so a
  * stored "28" quietly becomes a lie and nothing in the app ever corrects it. A
- * birthday is the fact; the age is derived at the moment of the request.
+ * birthday is the fact; the age is derived at the moment of the request. That
+ * argument is about *age*, and it does not extend to the date: "August, she
+ * didn't say which day" is as true in a year as it is today.
+ *
+ * So the input is free text, because what the user knows is often partial — a
+ * month with no day, a year with no month, "sometime around Easter". A date
+ * picker cannot hold any of that, and the field it replaced could only hold a
+ * number. The cost is that a partial birthday reaches the model as the words
+ * that were typed and it works out the rest, which is the calendar arithmetic
+ * this function exists to keep away from it. That trade is the right way round:
+ * an approximate fact stated approximately beats a fact that couldn't be
+ * recorded, and the exact case — the one where a wrong answer would be
+ * confidently wrong — is still computed here.
  *
  * Deriving it in code rather than handing the model a date and `<right_now>` and
  * letting it subtract. That is arithmetic across a calendar, which models get
@@ -13,10 +26,19 @@
  *
  * The countdown is the other half, and the reason it earns its place: a birthday
  * coming up is a set piece. Only within a month, so it isn't standing noise.
+ *
+ * Null means empty, and only empty. Anything else the caller can render: the
+ * fallback is the text itself, so nothing the user typed is dropped on the way
+ * to the prompt.
  */
-export function describeBirthday(iso: string, now = new Date()): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim())
-  if (!match) return null
+export function describeBirthday(text: string, now = new Date()): string | null {
+  const written = text.trim()
+  if (!written) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(written)
+  // Not a full date — so there is no age to compute and no day to count down
+  // to. Passed through rather than dropped, and rather than guessed at: half a
+  // date parsed into a whole one is how "August" becomes "1 August".
+  if (!match) return written
   const year = Number(match[1])
   const month = Number(match[2])
   const day = Number(match[3])
@@ -30,11 +52,15 @@ export function describeBirthday(iso: string, now = new Date()): string | null {
   // from the year that was typed and the display from the year that was built.
   const born = new Date(year, month - 1, day)
   if (born.getFullYear() !== year || born.getMonth() !== month - 1 || born.getDate() !== day) {
-    return null
+    // Shaped like a date and isn't one. Handed back like any other text the
+    // function can't read, which is the same answer as before for the caller
+    // that mattered — nothing is derived from it — and a better one for the
+    // user, who at least sees what they typed rather than nothing.
+    return written
   }
 
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const written = born.toLocaleDateString('en-GB', {
+  const formatted = born.toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
@@ -48,7 +74,7 @@ export function describeBirthday(iso: string, now = new Date()): string | null {
 
   // A date in the future is a typo, not a person. Say the date and stop rather
   // than reporting a negative age as though it meant something.
-  if (age < 0) return `${written} — which is in the future, so this is probably a typo`
+  if (age < 0) return `${formatted} — which is in the future, so this is probably a typo`
 
   const next = new Date(today.getFullYear(), month - 1, day)
   if (next < today) next.setFullYear(next.getFullYear() + 1)
@@ -57,5 +83,5 @@ export function describeBirthday(iso: string, now = new Date()): string | null {
   const days = Math.round((next.getTime() - today.getTime()) / 86_400_000)
 
   const soon = days === 0 ? ', and it is today' : days <= 30 ? `, and it is in ${days} days` : ''
-  return `${written} — ${age} years old${soon}`
+  return `${formatted} — ${age} years old${soon}`
 }

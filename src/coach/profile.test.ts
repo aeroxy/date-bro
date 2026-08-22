@@ -612,7 +612,14 @@ describe('rebuild schemas', () => {
 describe('rebuild validators', () => {
   const person = {
     headline: 'x',
-    interest_read: { level: 'warm', confidence: 'low', signals_for: [], signals_against: [], honest_note: '' },
+    interest_read: {
+      level: 'warm',
+      confidence: 'low',
+      toward: ['unclear'],
+      signals_for: [],
+      signals_against: [],
+      honest_note: '',
+    },
     flags: [],
     open_questions: ['what does she study?'],
     profile: { changed: false },
@@ -637,6 +644,29 @@ describe('rebuild validators', () => {
     const { open_questions: _, ...withoutSelf } = self
     expect(validatePerson(withoutPerson)).toContain('open_questions')
     expect(validateSelf(withoutSelf)).toContain('open_questions')
+  })
+
+  // `toward` is what separates *kind* of interest from *degree*; a read without
+  // it collapses back to six gradations of one undifferentiated thing, which is
+  // the failure the field was added for. Required in the schema, so required here.
+  test('reject a rebuild whose interest read says nothing about what it points at', () => {
+    const { toward, ...read } = person.interest_read
+    expect(validatePerson({ ...person, interest_read: read })).toContain('toward')
+  })
+
+  // The schema's enum and minItems only bind providers with response_format;
+  // the Qwen path meets nothing but this validator, so it enforces them too.
+  test('reject a toward the schema would have caught', () => {
+    const withToward = (toward: string[]) => ({
+      ...person,
+      interest_read: { ...person.interest_read, toward },
+    })
+    // Empty is a skipped question, not an answer — "unclear" is the empty state.
+    expect(validatePerson(withToward([]))).toContain('toward')
+    expect(validatePerson(withToward(['unknown']))).toContain('toward')
+    // "unclear" hedged against a real destination reads as both.
+    expect(validatePerson(withToward(['unclear', 'sex']))).toContain('unclear')
+    expect(validatePerson(withToward(['sex', 'companionship']))).toBeNull()
   })
 
   test('reject a rebuild carrying no profile update at all', () => {
@@ -696,7 +726,7 @@ describe('the suggestion contract', () => {
     for (const field of required) expect(SUGGESTION_SHAPE).toContain(`"${field}"`)
   })
 
-  test('both amendments are emitted after the drafts, with the proposal last', () => {
+  test('all three amendments are emitted after the drafts, rarest last', () => {
     const { required } = SUGGESTION_SCHEMA.schema as { required: string[] }
     // This assertion used to run the other way, on the lesson `open_questions`
     // cost: a field that comes after three drafts is one the model sometimes
@@ -707,11 +737,13 @@ describe('the suggestion contract', () => {
     // drafts. Ordering can't make the nested object safe, only decide what it
     // takes down with it.
     expect(required.indexOf('mind')).toBeGreaterThan(required.indexOf('options'))
-    // The proposal sits below the mind for the same reason the mind sits below
-    // the drafts: of the two nested objects it is the rarer, so it is the
-    // cheaper one for a derailment to take with it.
-    expect(required.indexOf('profile')).toBeGreaterThan(required.indexOf('mind'))
-    expect(required.at(-1)).toBe('profile')
+    // The proposals sit below the mind for the same reason the mind sits below
+    // the drafts: of the three nested objects they are the rarer, so they are
+    // the cheaper ones for a derailment to take with it. `profile_me` is last
+    // because it is the rarest of all — most turns are about the other person.
+    expect(required.indexOf('profile_them')).toBeGreaterThan(required.indexOf('mind'))
+    expect(required.indexOf('profile_me')).toBeGreaterThan(required.indexOf('profile_them'))
+    expect(required.at(-1)).toBe('profile_me')
   })
 
   test('an absent mind amendment is allowed — it means nothing was learned', () => {
@@ -725,47 +757,55 @@ describe('the suggestion contract', () => {
 
   test('an absent profile proposal is allowed — it means nothing was learned', () => {
     expect(validateSuggestion(ok(), { them: DOC })).toBeNull()
-    expect(validateSuggestion({ ...ok(), profile: { changed: false } }, { them: DOC })).toBeNull()
+    expect(
+      validateSuggestion({ ...ok(), profile_them: { changed: false } }, { them: DOC }),
+    ).toBeNull()
   })
 
-  test('a proposal with nothing to aim needs no target', () => {
-    const idle = { ...ok(), profile: { changed: false, sections: [], rewrite: '' } }
+  test('an idle slot passes on shape alone', () => {
+    const idle = {
+      ...ok(),
+      profile_them: { changed: false, sections: [], rewrite: '' },
+      profile_me: { changed: false, sections: [], rewrite: '' },
+    }
     expect(validateSuggestion(idle, { them: DOC, me: DOC })).toBeNull()
   })
 
-  test('a proposal that changes something must say whose profile it is', () => {
-    const untargeted = {
-      ...ok(),
-      profile: change([{ heading: 'Right now', mode: 'append', content: '- Moved in' }]),
-    }
-    expect(validateSuggestion(untargeted, { them: DOC })).toContain('target')
-    expect(
-      validateSuggestion({ ...untargeted, profile: { ...untargeted.profile, target: 'us' } }, { them: DOC }),
-    ).toContain('target')
-  })
-
-  test('a well-formed proposal passes, and its quotes are checked against the target', () => {
-    const proposal = (target: string) => ({
-      ...ok(),
-      profile: {
-        target,
-        ...change([
-          {
-            heading: 'Right now',
-            mode: 'edit',
-            old: '- Between flats (medium)',
-            content: '- Moved in (high)',
-          },
-        ]),
+  // The slot is the target, so an amendment can no longer be aimed at nothing —
+  // the case the old single `profile` field needed a `target` enum to catch.
+  test('each slot is checked against its own document', () => {
+    const edit = change([
+      {
+        heading: 'Right now',
+        mode: 'edit',
+        old: '- Between flats (medium)',
+        content: '- Moved in (high)',
       },
-    })
+    ])
     // Same heading in both documents, different text under it — so the only
     // thing separating a pass from a complaint is which one the quote is
     // checked against.
     const bases = { them: DOC, me: '## Right now\n\n- Between jobs (medium)' }
 
-    expect(validateSuggestion(proposal('them'), bases)).toBeNull()
-    expect(validateSuggestion(proposal('me'), bases)).toContain('quote the text you are replacing')
+    expect(validateSuggestion({ ...ok(), profile_them: edit }, bases)).toBeNull()
+    expect(validateSuggestion({ ...ok(), profile_me: edit }, bases)).toContain(
+      'quote the text you are replacing',
+    )
+  })
+
+  test('both slots can be filled at once, and both are checked', () => {
+    const both = (meHeading: string) => ({
+      ...ok(),
+      profile_them: change([{ heading: 'Right now', mode: 'append', content: '- Moved in' }]),
+      profile_me: change([
+        { heading: meHeading, mode: 'edit', old: '- Between jobs', content: '- Started at Verde' },
+      ]),
+    })
+    const bases = { them: DOC, me: '## Where you are\n\n- Between jobs' }
+
+    expect(validateSuggestion(both('Where you are'), bases)).toBeNull()
+    // A bad quote in the second slot is not excused by a good first one.
+    expect(validateSuggestion(both('Nowhere'), bases)).toContain('profile_me')
   })
 
   // The app refuses to invent a profile no rebuild has produced, so a proposal
@@ -773,7 +813,7 @@ describe('the suggestion contract', () => {
   test('a proposal against a profile that does not exist yet is rejected', () => {
     const proposal = {
       ...ok(),
-      profile: { target: 'me', ...change([{ heading: 'Who you are', mode: 'append', content: '- x' }]) },
+      profile_me: change([{ heading: 'Who you are', mode: 'append', content: '- x' }]),
     }
     expect(validateSuggestion(proposal, { them: DOC, me: '' })).toContain("isn't one yet")
   })

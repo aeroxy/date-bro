@@ -15,13 +15,13 @@ import { Button } from '@/components/ui/Button'
 import { Chip, Eyebrow } from '@/components/ui/Card'
 import { Logo } from '@/components/ui/Logo'
 import { Spinner } from '@/components/ui/Spinner'
-import { applyProfileUpdate } from '@/coach/profile'
 import { chatAboutProfile, rebuildPersonContext, rebuildSelfContext, suggestMove } from '@/coach/run'
 import { useDates } from '@/hooks/useDates'
 import { cn } from '@/lib/cn'
+import { applyProposalTo, movedSince, undoProposalIn } from '@/lib/proposals'
 import { applyResearchNotes } from '@/lib/research-notes'
 import { adviceTurn } from '@/lib/transcript'
-import type { ThinkingSummary } from '@/types/coach'
+import type { ProfileProposal, ThinkingSummary } from '@/types/coach'
 import { STAGES, type ChatEngine, type DateRecord, type Engine, type Turn } from '@/types/date'
 
 type Tab = Engine
@@ -62,16 +62,6 @@ function isStale(record: DateRecord, basis?: number): boolean {
  * profile from them, and is then told the conversation has moved on.
  */
 type Staleness = 'fresh' | 'judgment' | 'stale'
-
-/**
- * Whether a profile has been written since `at` — by a rebuild or by an
- * amendment, which invalidate a proposal's quotes identically. One function
- * because `proposalStale` answers it for the button and `applyProposal` asks it
- * again against `current` when the click lands.
- */
-function movedSince(profile: { generatedAt: number; amendedAt?: number }, at: number): boolean {
-  return Math.max(profile.generatedAt, profile.amendedAt ?? 0) > at
-}
 
 function staleness(
   record: DateRecord,
@@ -137,6 +127,17 @@ export default function App() {
   // someone else's, it jumped you to their newest. Their selection is theirs and
   // survives switching away now.
   const [viewingAdvice, setViewingAdvice] = useState<Record<string, string>>({})
+  /**
+   * Bumped each time a next-move run lands, per record. Its only job is to
+   * appear in the footer box's key — see `nextDraftKey` — so a fresh box
+   * mounts once the old one's text has done its job. The header's "What do I
+   * say?" and the blank-slate one both trigger a run the same way the footer's
+   * own send does, but neither goes through `AskComposer.send`, so neither
+   * clears it that way — the box needs a way to hear "a run just landed"
+   * without knowing which button asked for it, and a key that changes on
+   * every landing is that regardless of who clicked.
+   */
+  const [nextRunSeq, setNextRunSeq] = useState<Record<string, number>>({})
   // The last profile amendment, shown once under the composer. Not persisted —
   // see `sendChat`. Keyed like the run maps above rather than cleared on every
   // switch path: a result about one profile means nothing under another, and a
@@ -246,17 +247,38 @@ export default function App() {
           // would immediately mark both profiles as stale.
           await update(
             id,
-            (current) => ({
-              turns: [...current.turns, adviceTurn(suggestion)],
-              researchNotes: applyResearchNotes(
-                record.researchNotes,
-                current.researchNotes,
-                suggestion.research_notes,
-              ),
-            }),
+            (current) => {
+              const now = Date.now()
+              // The amendments land with the advice, in the transaction that
+              // stores it, so there is no moment where the turn exists and the
+              // profile hasn't caught up. Each is undoable from the card, which
+              // is what pays for applying it unasked; `applyProposalTo` declines
+              // any that can't be written safely, and those keep the old
+              // behaviour — an Apply button, or a card that says the profile
+              // moved on.
+              const withAdvice: DateRecord = {
+                ...current,
+                turns: [...current.turns, adviceTurn(suggestion)],
+              }
+              const applied = (suggestion.profiles ?? []).reduce(
+                (rec, proposal) => applyProposalTo(rec, suggestion.id, proposal.target, now),
+                withAdvice,
+              )
+              return {
+                turns: applied.turns,
+                themProfile: applied.themProfile,
+                meProfile: applied.meProfile,
+                researchNotes: applyResearchNotes(
+                  record.researchNotes,
+                  current.researchNotes,
+                  suggestion.research_notes,
+                ),
+              }
+            },
             { evidence: false },
           )
           setViewingAdvice((prev) => ({ ...prev, [id]: suggestion.id }))
+          setNextRunSeq((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
         }
         return true
       } catch (e) {
@@ -382,88 +404,140 @@ export default function App() {
   )
 
   /**
-   * Accept an amendment the coach proposed while working out the next move.
+   * Save prose the user edited by hand.
+   *
+   * The prose is the only part of a profile any engine reads — the judgment
+   * beside it never reaches a prompt — so this is the one control that changes
+   * what the coach does rather than what the panel says. That is also why it is
+   * worth having: a read the user knows to be wrong was previously only arguable
+   * with through the chat, one round trip at a time, against a model that had
+   * just written the thing being argued with.
+   *
+   * Stamps `amendedAt`, the same clock a chat reply and an applied amendment
+   * write — three writers, one "the prose changed since the rebuild". A separate
+   * field for hand edits was the same number under another name; what made it
+   * look different was the UI saying "amended", and that word now says
+   * "updated", which is true of all three. `amendedTurnsAt` stays untouched,
+   * because that records the transcript an amendment was written *from* and a
+   * hand edit reads no transcript — so editing prose still won't clear a
+   * "conversation has moved on" chip, which is right.
+   *
+   * The judgment is left exactly as its last rebuild produced it, for the reason
+   * `sendChat` leaves it — and the headline with it, since nothing here
+   * re-derives one.
+   */
+  const editProfile = useCallback(
+    (which: ChatEngine, markdown: string) => {
+      if (!active) return
+      const id = active.id
+      // The rebuild would write this profile whole from the record it started
+      // with, so a save landing underneath it is silently thrown away. The Edit
+      // button is disabled for the same case; this is the synchronous half.
+      if (runsRef.current.get(id)?.tab === which) return
+      const key = which === 'them' ? 'themProfile' : 'meProfile'
+      persist(
+        update(
+          id,
+          (current) => {
+            const profile = current[key]
+            if (!profile || profile.markdown === markdown) return {}
+            return { [key]: { ...profile, markdown, amendedAt: Date.now() } }
+          },
+          // Editing the profile changes what is known, not what either person
+          // said, so it is not new evidence and must not mark both profiles
+          // stale.
+          { evidence: false },
+        ),
+        which,
+      )
+    },
+    [active, persist, update],
+  )
+
+  /**
+   * The write half of both proposal buttons: run one of the pure operations in
+   * `lib/proposals` against `current` and store what it hands back.
+   *
+   * Against `current` rather than the snapshot this closure captured, because
+   * this is a click and the user has had as long as they liked to change
+   * something else first — a rebuild could have landed in the frame the click
+   * crossed. Identity means the operation declined, and the empty patch that
+   * follows writes nothing but the clock; the buttons are already hidden in
+   * every case the UI can see, so a declined click is the rare one.
+   */
+  const writeProposal = useCallback(
+    (
+      id: string,
+      adviceId: string,
+      target: 'them' | 'me',
+      op: (record: DateRecord, adviceId: string, target: 'them' | 'me', now: number) => DateRecord,
+    ) =>
+      update(
+        id,
+        (current) => {
+          const next = op(current, adviceId, target, Date.now())
+          if (next === current) return {}
+          return { turns: next.turns, themProfile: next.themProfile, meProfile: next.meProfile }
+        },
+        // The amendment changes the profile, not what either person said, so it
+        // is not new evidence and must not mark both profiles stale.
+        { evidence: false },
+      ),
+    [update],
+  )
+
+  /**
+   * Re-apply an amendment the user undid, or apply one that couldn't be written
+   * when the advice landed.
    *
    * Local and instant: the model already wrote the amendment and it was
-   * validated against this document when it did, so accepting is an apply, not
+   * validated against this document when it did, so this is an apply, not
    * another call. The judgment is left exactly as its last rebuild produced it,
    * for the reason `sendChat` leaves it — one accepted fact is not grounds to
    * re-decide where things stand — and the headline with it, since a proposal
    * has no reply channel that could rewrite it honestly.
    *
-   * `appliedAt` is written back into the stored advice turn in the same
-   * transaction as the profile, so the offer and its outcome can't disagree
-   * across a reload.
+   * Every check lives in `applyProposalTo`, asked of `current` rather than of
+   * the snapshot this closure captured: two clicks in one frame both reach here,
+   * and the second must not apply an `append` twice.
    */
   const applyProposal = useCallback(
-    (adviceId: string) => {
+    (adviceId: string, target: 'them' | 'me') => {
       if (!active) return
       const id = active.id
-      const advice = active.turns.find((t) => t.id === adviceId)?.advice
-      const proposal = advice?.profile
-      if (!advice || !proposal || proposal.appliedAt) return
       // The rebuild this amendment would land under writes its profile whole,
       // from the record it started with — so an apply that slips in first is
       // overwritten the moment it lands, while the card still says "Applied"
-      // and `proposalStale` blocks re-applying. The button is disabled for the
-      // same case; this is the synchronous half, for the frame between claiming
-      // a run and rendering that fact.
-      if (runsRef.current.get(id)?.tab === proposal.target) return
-      const now = Date.now()
-      const key = proposal.target === 'them' ? 'themProfile' : 'meProfile'
-
-      persist(
-        // Against `current`, not the snapshot: this is a click, so the user has
-        // had as long as they liked to change something else first.
-        update(
-          id,
-          (current) => {
-            // Asked of `current`, because the guard above reads the snapshot:
-            // two clicks in one frame both pass it, and the second would apply
-            // the amendment again — duplicating every `append` it carries — on
-            // a card that already says "Applied". The first click's write has
-            // landed here by then.
-            const landed = current.turns.find((t) => t.id === adviceId)?.advice?.profile
-            if (!landed || landed.appliedAt) return {}
-            const profile = current[key]
-            // No profile on that side yet. `validateProposal` refuses to let the
-            // model aim at one, so this is only reachable if it was cleared
-            // between the run and the click — and inventing a profile here would
-            // fabricate a judgment nothing produced, the same rule `sendChat`
-            // follows.
-            if (!profile) return {}
-            // The same clock `proposalStale` disables the button on, asked of
-            // `current`. The render-time answer is about the document as it was
-            // when the card was drawn, and a rebuild landing in the frame this
-            // click crossed leaves it saying fresh about text that is already
-            // gone — whereupon `applyProfileUpdate` drops whichever quotes
-            // stopped fitting and applies the rest, which is a half-applied
-            // amendment reported as "Applied".
-            if (movedSince(profile, advice.generatedAt)) return {}
-            return {
-              [key]: {
-                ...profile,
-                markdown: applyProfileUpdate(profile.markdown, proposal.update),
-                amendedAt: now,
-                // The transcript the amendment was written from, which is the
-                // suggestion's, not this moment's.
-                amendedTurnsAt: advice.turnsAt,
-              },
-              turns: current.turns.map((t) =>
-                t.id === adviceId && t.advice
-                  ? { ...t, advice: { ...t.advice, profile: { ...proposal, appliedAt: now } } }
-                  : t,
-              ),
-            }
-          },
-          // The amendment changes the profile, not what either person said, so
-          // it is not new evidence and must not mark both profiles stale.
-          { evidence: false },
-        ),
-        'next',
-      )
+      // and staleness blocks re-applying. The button is disabled for the same
+      // case; this is the synchronous half, for the frame between claiming a run
+      // and rendering that fact. It is the one guard that can't move into
+      // `applyProposalTo`, which sees the record and not the runs in flight.
+      if (runsRef.current.get(id)?.tab === target) return
+      persist(writeProposal(id, adviceId, target, applyProposalTo), 'next')
     },
-    [active, persist, update],
+    [active, persist, writeProposal],
+  )
+
+  /**
+   * Take back an amendment that was applied for you.
+   *
+   * The other half of applying it unasked. The card says what landed and this
+   * puts the document back exactly as it was — which is what makes the default
+   * safe, and why `before` is stored at all.
+   *
+   * Guarded like the apply, and for a sharper reason: a rebuild in flight would
+   * overwrite the restored text a moment later, leaving the card saying the
+   * amendment is gone while it is in fact back in the document the rebuild
+   * wrote from.
+   */
+  const undoProposal = useCallback(
+    (adviceId: string, target: 'them' | 'me') => {
+      if (!active) return
+      const id = active.id
+      if (runsRef.current.get(id)?.tab === target) return
+      persist(writeProposal(id, adviceId, target, undoProposalIn), 'next')
+    },
+    [active, persist, writeProposal],
   )
 
   /**
@@ -530,9 +604,11 @@ export default function App() {
     adviceTurns.find((t) => t.id === viewing) ?? adviceTurns[adviceTurns.length - 1]
   const suggestion = shownAdvice?.advice
   /**
-   * Whether the document a proposal aims at has moved since the proposal was
-   * written.
+   * Whether an offer can be taken right now, asked per target because a turn can
+   * carry one for each document and they go bad independently — a rebuild of the
+   * person's profile says nothing about an amendment to the user's.
    *
+   * `stale`: the document it aims at has moved since the proposal was written.
    * One guard covering both clocks, because both invalidate it in the same way:
    * the quotes in an `edit` were checked against the profile as it stood during
    * the run, and a rebuild or a chat amendment since then means they were
@@ -540,20 +616,35 @@ export default function App() {
    * whichever ops stopped fitting and silently apply the rest — a half-applied
    * amendment reported as "Applied", which is the one outcome worth spending a
    * disabled button to avoid. Rebuild is the honest answer at that point.
+   *
+   * `busy`: a rebuild of the very document it amends is in flight, and it writes
+   * that profile whole from the record it started with. Applying underneath it
+   * is silently undone, so the card says so and waits — and once the rebuild
+   * lands, `stale` takes over with the honest answer.
+   *
+   * `undoable`: the amendment is in the document and the snapshot that would
+   * take it back is still the immediately-previous state. Measured from
+   * `appliedAt` rather than from the run, because that is when the snapshot was
+   * taken — an amendment applied on the way in stays undoable through as many
+   * later runs as you like, and stops the moment anything else writes that
+   * profile. A rebuild in flight ends it early for the same reason it blocks an
+   * apply: the restored text would be overwritten a moment later.
    */
-  // The other reason an offer can't be taken right now: a rebuild of the very
-  // document it amends is in flight, and it writes that profile whole from the
-  // record it started with. Applying underneath it is silently undone, so the
-  // card says so and waits — and once the rebuild lands, `proposalStale` takes
-  // over with the honest answer.
-  const proposalBusy = !!busyTab && busyTab === suggestion?.profile?.target
-  const proposalStale = (() => {
-    const proposal = suggestion?.profile
-    if (!active || !suggestion || !proposal || proposal.appliedAt) return false
-    const profile = proposal.target === 'them' ? active.themProfile : active.meProfile
-    if (!profile) return true
-    return movedSince(profile, suggestion.generatedAt)
-  })()
+  const proposalState = (proposal: ProfileProposal) => {
+    const profile = proposal.target === 'them' ? active?.themProfile : active?.meProfile
+    const busy = !!busyTab && busyTab === proposal.target
+    const stale =
+      !active || !suggestion || proposal.appliedAt
+        ? false
+        : !profile || movedSince(profile, suggestion.generatedAt)
+    const undoable =
+      !!proposal.appliedAt &&
+      !!proposal.before &&
+      !busy &&
+      !!profile &&
+      !movedSince(profile, proposal.appliedAt)
+    return { stale, busy, undoable }
+  }
   // Which drafts have been sent, derived rather than flagged — the same trick
   // as `answered` below. A draft is sent when a turn of the user's holds that
   // exact text, which survives a reload and can't drift out of step with the
@@ -579,8 +670,12 @@ export default function App() {
   // Whether this tab has ever produced anything, which is what decides between
   // "build" and "rebuild" wherever the distinction is visible.
   const ranThisTab = tab === 'next' ? !!suggestion : !seeding
+  // The next box's key, independent of which tab is on screen right now: the
+  // header button runs 'next' no matter what's showing, and has to read and
+  // clear the same slot the footer box would if it were the one visible.
+  const nextDraftKey = `${activeId}:next:${activeId ? nextRunSeq[activeId] ?? 0 : 0}`
   // Which footer box is showing, and so which draft it holds — see `drafts`.
-  const composerKey = `${activeId}:${tab}:${tab === 'next' ? 'next' : seeding ? 'seed' : 'amend'}`
+  const composerKey = tab === 'next' ? nextDraftKey : `${activeId}:${tab}:${seeding ? 'seed' : 'amend'}`
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -646,7 +741,12 @@ export default function App() {
               {busyTab === 'me' ? <Spinner /> : <UserRound size={13} />}
               {active.meProfile ? 'Rebuild you' : 'Build you'}
             </Button>
-            <Button variant="accent" size="sm" disabled={!!busyTab} onClick={() => run('next')}>
+            <Button
+              variant="accent"
+              size="sm"
+              disabled={!!busyTab}
+              onClick={() => run('next', draftsRef.current[nextDraftKey] ?? '')}
+            >
               {busyTab === 'next' ? <Spinner /> : <Sparkles size={13} />}
               What do I say?
             </Button>
@@ -802,7 +902,13 @@ export default function App() {
                           }
                         }}
                       />
-                      <PersonContextView ctx={active.themProfile} name={active.name} answer={answerProps} />
+                      <PersonContextView
+                        ctx={active.themProfile}
+                        name={active.name}
+                        answer={answerProps}
+                        onEdit={(markdown) => editProfile('them', markdown)}
+                        editDisabled={busyTab === 'them'}
+                      />
                     </>
                   ) : (
                     <BlankSlate
@@ -832,7 +938,12 @@ export default function App() {
                           }
                         }}
                       />
-                      <SelfContextView ctx={active.meProfile} answer={answerProps} />
+                      <SelfContextView
+                        ctx={active.meProfile}
+                        answer={answerProps}
+                        onEdit={(markdown) => editProfile('me', markdown)}
+                        editDisabled={busyTab === 'me'}
+                      />
                     </>
                   ) : (
                     <BlankSlate
@@ -877,9 +988,9 @@ export default function App() {
                     <SuggestionView
                       suggestion={suggestion}
                       sent={sentDrafts}
-                      proposalStale={proposalStale}
-                      proposalBusy={proposalBusy}
-                      onApplyProposal={() => applyProposal(shownAdvice!.id)}
+                      proposalState={proposalState}
+                      onApplyProposal={(target) => applyProposal(shownAdvice!.id, target)}
+                      onUndoProposal={(target) => undoProposal(shownAdvice!.id, target)}
                       onSend={(draft) => {
                         const turn: Turn = {
                           id: crypto.randomUUID(),
@@ -898,7 +1009,7 @@ export default function App() {
                     title="Nothing suggested yet"
                     body="You'll get two or three genuinely different options — with the actual text to send, why it works, and how to read what comes back."
                     cta="What do I say?"
-                    onRun={() => run('next')}
+                    onRun={() => run('next', draftsRef.current[nextDraftKey] ?? '')}
                   />
                 )}
               </div>

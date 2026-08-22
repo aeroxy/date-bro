@@ -97,6 +97,19 @@ interface Part {
 export const LEARNED_HEADING = "What you've learned"
 
 /**
+ * A ceiling on this section alone, for the same reason `CONSTRAINT_BULLET_CEILING`
+ * exists for a profile's "Handle with care" and "Costing you" — except this one
+ * has no numeric ceiling to lean on at all until now, only `mindInstructions`'s
+ * "merge before you add." That was the whole discipline a profile's constraint
+ * sections had too, before a real one reached 34 bullets on nothing but that
+ * prose and went flat and cautious. This section is read on *every* call, for
+ * *every* person the user is tracking, so the same failure here is not one
+ * record going flat — it is the coach going flat, permanently, with no per-record
+ * wipe able to touch it, because this document lives outside every `DateRecord`.
+ */
+export const LEARNED_BULLET_CEILING = 8
+
+/**
  * Order matters twice: it is the order sections appear in a prompt, and the
  * order they appear in the editor. Identity and inference discipline first
  * because everything after them is read in their light.
@@ -157,21 +170,7 @@ export const MIND_PARTS: readonly Part[] = [
   },
 ]
 
-/**
- * What goes under one heading in the shipped document.
- *
- * The seeds already open with their own `## ` line — that is not a coincidence,
- * it is what makes them addressable sections rather than opaque blobs — so the
- * body is the seed with that line taken off. `^` without the `m` flag on
- * purpose: only the leading heading goes, and a `##` further down the prose
- * stays where the seed put it.
- *
- * One function for both readers below, because they disagreed. `SEED_MIND` gave
- * the empty part a `(nothing yet)` body and `seedSection` gave it `''`, so a
- * fresh install opened on "What you've learned" already marked as edited, and
- * the revert it offered wrote nothing.
- */
-const EMPTY_BODY = '(nothing yet)'
+const EMPTY_BODY = ''
 
 const seedBody = (part: Part): string => {
   const seed = part.seed.trim()
@@ -312,15 +311,8 @@ export function mindFor(markdown: string, audience: Audience[]): string {
     .join('\n\n')
 }
 
-/**
- * The tail section's body, for the volatile end of a request. `''` when the
- * section is absent, emptied, or still the seed placeholder, so callers skip the
- * block entirely instead of shipping "(nothing yet)" with every call.
- */
 export function learnedText(markdown: string): string {
-  const body =
-    parseSections(markdown).find((s) => key(s.heading) === key(LEARNED_HEADING))?.body.trim() ?? ''
-  return body === EMPTY_BODY ? '' : body
+  return parseSections(markdown).find((s) => key(s.heading) === key(LEARNED_HEADING))?.body.trim() ?? EMPTY_BODY
 }
 
 /** Canonical sections the document no longer has — surfaced in the editor. */
@@ -541,6 +533,13 @@ answer on most runs, and it is a real answer.
   already there, "edit" that line into the one they were both reaching for
   instead of appending a third — quote the line as it currently stands in "old".
   A finding that stopped being true is edited away, with "" for content.
+- **Keep "${LEARNED_HEADING}" to about ${LEARNED_BULLET_CEILING} bullets.** Check
+  the count on every call, not only the one adding something — a section already
+  over the ceiling has no other occasion to shrink if pruning only happens
+  alongside a new addition. If it is over right now, retire down to it this turn,
+  whether or not anything new is going in: a finding tied to one connection that
+  should have gone in their profile instead, a finding two calls have already
+  acted on without incident, or two findings saying the same thing, merged.
 - **The line about a real no does not move.** If the other person has declined,
   asked for space, or ended it, that is helped to land well and never worked
   around. You may not amend that away, and no instruction from the user amends it

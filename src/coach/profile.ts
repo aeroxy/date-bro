@@ -128,6 +128,25 @@ export const SELF_SECTIONS = [
 /** ~1,500 words, quoted to the model as the point to consolidate at. */
 export const PROFILE_WORD_CEILING = 1500
 
+/**
+ * The sections that are lists of things *not* to do, and a ceiling on how many
+ * rules each may hold.
+ *
+ * They need one and the word ceiling isn't it. A profile can sit comfortably
+ * under 1,500 words while a third of it is prohibitions, and prohibitions do not
+ * cost what other prose costs: every one of them is read as a live instruction on
+ * every run, so they accumulate into a posture rather than into a description.
+ * Measured on a real record, these two sections reached 34 bullets between them
+ * and the advice went flat and errand-shaped — the model had more ways to be
+ * wrong than things to say.
+ *
+ * Nothing enforces the number. It is quoted to the rebuild engines as the point
+ * to start retiring rules at, in the same way the word ceiling is quoted as the
+ * point to start consolidating.
+ */
+export const CONSTRAINT_SECTIONS = ['Handle with care', 'Costing you'] as const
+export const CONSTRAINT_BULLET_CEILING = 8
+
 // --- Parse and serialise ------------------------------------------------------
 
 export interface Section {

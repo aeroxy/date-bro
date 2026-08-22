@@ -15,6 +15,9 @@ import { validateProfileUpdate } from './profile'
 const confidence = { type: 'string', enum: ['high', 'medium', 'low'] } as const
 const stringArray = { type: 'array', items: { type: 'string' } } as const
 
+/** One list for the schema's enum and the runtime check — they must not drift. */
+const INTEREST_TOWARD = ['partnership', 'sex', 'companionship', 'unclear'] as const
+
 // --- The profile update, shared by both rebuild engines -----------------------
 
 /**
@@ -87,6 +90,15 @@ export const PERSON_SHAPE = `{
                                     // prefer it to "ambiguous"/"cooling" when there simply isn't
                                     // enough yet. A slow reply is not a cooling signal.
     "confidence": "high" | "medium" | "low",
+    "toward": ("partnership" | "sex" | "companionship" | "unclear")[],
+                                    // What their interest points *at*. A different
+                                    // question from "level", which only grades how
+                                    // much: the three are separable and routinely
+                                    // mismatched, so list every one the evidence
+                                    // carries — usually one or two. "unclear" is the
+                                    // honest early answer and goes on its own. This
+                                    // is about them. Where it differs from what the
+                                    // user says they want, that gap is the finding.
     "signals_for": string[],
     "signals_against": string[],
     "honest_note": string           // the thing the user may not want to hear, IF there is one. Say it
@@ -113,13 +125,21 @@ export const PERSON_SCHEMA: JsonSchemaSpec = {
       interest_read: {
         type: 'object',
         additionalProperties: false,
-        required: ['level', 'confidence', 'signals_for', 'signals_against', 'honest_note'],
+        required: ['level', 'confidence', 'toward', 'signals_for', 'signals_against', 'honest_note'],
         properties: {
           level: {
             type: 'string',
             enum: ['strong', 'warm', 'too-early', 'ambiguous', 'cooling', 'not-interested'],
           },
           confidence,
+          toward: {
+            type: 'array',
+            // "unclear" is the schema's own empty state, so a bare [] is never a
+            // legitimate answer — it would be indistinguishable from the model
+            // having skipped the question.
+            minItems: 1,
+            items: { type: 'string', enum: [...INTEREST_TOWARD] },
+          },
           signals_for: stringArray,
           signals_against: stringArray,
           honest_note: { type: 'string' },
@@ -232,44 +252,32 @@ export const SUGGESTION_SHAPE = `{
   ${updateShape('mind')}                                // what to change about
                                     // YOURSELF — see "Amending yourself" above. changed: false on
                                     // most runs. Nothing about the person in this request; that
-                                    // goes in "profile" below.
-  "profile": {                      // ONE amendment to ONE of the two profiles above, PROPOSED —
-                                    // the user reviews it and applies it, you are not writing it.
+                                    // goes in the two profile amendments below.
+  "profile_them": {                 // an amendment to the profile of the PERSON. It is APPLIED when
+                                    // this answer is stored — the user sees what changed and can
+                                    // undo it, but the default is that it lands.
                                     // changed: false on most runs. See "Proposing an amendment".
-    "target": "them" | "me",        // whose document. Ignored when changed is false.
+    ${UPDATE_FIELDS}
+  },
+  "profile_me": {                   // the same, for the profile of the USER in this connection.
+                                    // Its own offer, judged on its own — filling it because you
+                                    // filled "profile_them" is how a run produces an amendment
+                                    // nobody needed.
     ${UPDATE_FIELDS}
   }
 }`
-
-/**
- * The proposal is `profileUpdate` plus the one thing an update aimed at two
- * possible documents needs: which one.
- *
- * Nullable was the other option and lost to consistency. `mind` already spells
- * "nothing to say" as `changed: false`, the strict schemas here allow no
- * optional properties, and an `anyOf` against `null` is exactly the construct
- * `ProfileUpdate` was flattened to avoid. One convention, expressed once.
- */
-const profileProposal = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['target', ...profileUpdate.required],
-  properties: {
-    target: { type: 'string', enum: ['them', 'me'] },
-    ...profileUpdate.properties,
-  },
-} as const
 
 export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
   name: 'suggestion',
   schema: {
     type: 'object',
     additionalProperties: false,
-    // The two nested update objects go last, and the order is load-bearing
+    // The three nested update objects go last, and the order is load-bearing
     // rather than cosmetic — see the note in SUGGESTION_SHAPE. A model that
     // derails on one of them should lose only it and whatever is below, never
-    // the drafts above. `profile` is below `mind` because it is the newer and
-    // rarer of the two, so it is the cheaper one to lose.
+    // the drafts above. They are ordered cheapest-to-lose last: `mind` is the
+    // oldest and most often filled, `profile_them` next, and `profile_me` is
+    // the rarest of the three.
     required: [
       'read',
       'priority',
@@ -279,7 +287,8 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       'honest_note',
       'research_notes',
       'mind',
-      'profile',
+      'profile_them',
+      'profile_me',
     ],
     properties: {
       read: { type: 'string' },
@@ -305,7 +314,8 @@ export const SUGGESTION_SCHEMA: JsonSchemaSpec = {
       honest_note: { type: 'string' },
       research_notes: stringArray,
       mind: profileUpdate,
-      profile: profileProposal,
+      profile_them: profileUpdate,
+      profile_me: profileUpdate,
     },
   },
 }
@@ -368,6 +378,23 @@ function needsArrays(obj: object, fields: string[]): string | null {
   return null
 }
 
+/**
+ * The one enum the runtime path has to enforce itself: providers without
+ * response_format (the Qwen bridge) only ever meet this validator, so the
+ * schema's enum and minItems mean nothing there. Membership, and "unclear" on
+ * its own — next to a real destination it is not an answer, it is a hedge that
+ * reads as both.
+ */
+function needsToward(interest: object): string | null {
+  const toward = (interest as Record<string, unknown>).toward as unknown[]
+  const bad = toward.filter((t) => !(INTEREST_TOWARD as readonly unknown[]).includes(t))
+  if (bad.length)
+    return `"toward" may only hold ${INTEREST_TOWARD.map((t) => `"${t}"`).join(', ')}`
+  if (toward.includes('unclear') && toward.length > 1)
+    return '"unclear" goes on its own in "toward" — keep it or the destinations, not both'
+  return null
+}
+
 /** Prose the UI renders as a React child: a non-string there throws on render. */
 function needsString(obj: object, field: string): string | null {
   return typeof (obj as Record<string, unknown>)[field] === 'string'
@@ -392,7 +419,17 @@ export function validatePerson(r: object, base?: string): string | null {
 
   const interest = (r as { interest_read: object }).interest_read
   return (
-    missing(interest, ['level', 'confidence', 'signals_for', 'signals_against', 'honest_note']) ??
+    missing(interest, [
+      'level',
+      'confidence',
+      'toward',
+      'signals_for',
+      'signals_against',
+      'honest_note',
+    ]) ??
+    // min 1, unlike the signal lists: "unclear" is toward's own empty state.
+    needsArray(interest, 'toward') ??
+    needsToward(interest) ??
     needsArrays(interest, ['signals_for', 'signals_against'])
   )
 }
@@ -439,35 +476,34 @@ export interface SuggestionBases {
 }
 
 /**
- * The proposal is checked in the order its fields become meaningful. `changed:
- * false` says nothing about a target, so a target is only required once there is
- * an amendment to aim, and a shape check still runs on the rest.
+ * One of the two proposal slots. Which document it aims at is the slot it
+ * arrived in, so there is no target to check and no way to aim one at a document
+ * that doesn't exist — the failure the old single `profile` field, with its
+ * `target` alongside, had to validate its way out of.
  *
  * The empty-document case is a complaint rather than a shrug because the app
  * cannot apply it: `applyProposal` refuses to invent a profile that no rebuild
  * has produced, so a proposal against one would render an offer that does
  * nothing when clicked.
  */
-function validateProposal(value: unknown, bases: SuggestionBases): string | null {
+function validateProposal(value: unknown, target: 'them' | 'me', base?: string): string | null {
+  const field = target === 'them' ? 'profile_them' : 'profile_me'
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return '"profile" must be an object'
+    return `"${field}" must be an object`
   }
-  const { target, changed } = value as { target?: unknown; changed?: unknown }
-  if (changed !== true) return validateProfileUpdate(value, 'profile')
-
-  if (target !== 'them' && target !== 'me') {
-    return '"profile.target" must be "them" or "me" — whose profile this amendment is for'
+  if ((value as { changed?: unknown }).changed !== true) {
+    return validateProfileUpdate(value, field)
   }
-  const base = bases[target]
   if (base !== undefined && !base.trim()) {
-    return `"profile" amends the ${target === 'them' ? "person's" : "user's"} profile, and there isn't one yet — it has to be built before it can be amended, so return changed: false`
+    return `"${field}" amends the ${target === 'them' ? "person's" : "user's"} profile, and there isn't one yet — it has to be built before it can be amended, so return changed: false`
   }
-  return validateProfileUpdate(value, 'profile', base)
+  return validateProfileUpdate(value, field, base)
 }
 
 export function validateSuggestion(r: object, bases: SuggestionBases = {}): string | null {
   const mind = (r as { mind?: unknown }).mind
-  const proposal = (r as { profile?: unknown }).profile
+  const them = (r as { profile_them?: unknown }).profile_them
+  const me = (r as { profile_me?: unknown }).profile_me
   const structural =
     missing(r, ['read', 'priority', 'options', 'avoid', 'timing', 'honest_note', 'research_notes']) ??
     needsString(r, 'read') ??
@@ -483,10 +519,13 @@ export function validateSuggestion(r: object, bases: SuggestionBases = {}): stri
     // answer written differently, and gets the same pass. Present and malformed
     // still fails: a half-formed update would be applied to the coach itself.
     (mind == null ? null : validateProfileUpdate(mind, 'mind', bases.mind)) ??
-    // Absent passes for the same reason `mind` does: it is empty on most runs,
+    // Absent passes for the same reason `mind` does: each is empty on most runs,
     // and the backend with no schema enforcement shouldn't spend its one retry
-    // on the field whose correct value is usually nothing.
-    (proposal == null ? null : validateProposal(proposal, bases))
+    // on a field whose correct value is usually nothing. Two slots make that
+    // likelier, not less — a run with something to say about the person and
+    // nothing to say about the user is the ordinary shape of a filled proposal.
+    (them == null ? null : validateProposal(them, 'them', bases.them)) ??
+    (me == null ? null : validateProposal(me, 'me', bases.me))
   if (structural) return structural
 
   const options = (r as { options: Array<Record<string, unknown>> }).options

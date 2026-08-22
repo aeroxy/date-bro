@@ -173,11 +173,21 @@ function proposalSummary(proposal: ProfileProposal): string {
  */
 function ProposalCard({
   proposal,
+  label,
   stale,
   busy,
+  undoable,
   onApply,
+  onUndo,
 }: {
   proposal: ProfileProposal
+  /**
+   * Whether this card carries the group's eyebrow. A turn can offer one card per
+   * document, and "Also learned" over each of two stacked cards reads as two
+   * findings that happen to share a name rather than as one thing the run
+   * noticed. The first card wears it for the pair.
+   */
+  label?: boolean
   /** The target document moved on after this was written — see `applyProposal`. */
   stale?: boolean
   /**
@@ -186,21 +196,45 @@ function ProposalCard({
    * overwritten a moment later while this card still reads "Applied".
    */
   busy?: boolean
+  /**
+   * The amendment is in the document and can still be taken back cleanly — see
+   * `proposalState`. False once anything else has written that profile, because
+   * the snapshot would then be restored over work it never saw.
+   */
+  undoable?: boolean
   onApply?: () => void
+  onUndo?: () => void
 }) {
   const applied = !!proposal.appliedAt
   return (
     <div className="flex items-start gap-2.5 rounded-md border border-dashed border-border-strong bg-surface-sunken px-3.5 py-2.5">
       <FilePen size={13} className="mt-[3px] shrink-0 text-fg-3" />
       <div className="min-w-0 flex-1">
-        <Eyebrow className="block">Also learned</Eyebrow>
+        {label ? <Eyebrow className="block">Also learned</Eyebrow> : null}
         <p className="mt-0.5 text-pretty text-[12.5px] leading-relaxed text-fg-2">
           {proposalSummary(proposal)}
         </p>
       </div>
       {applied ? (
-        <span className="inline-flex shrink-0 items-center gap-1 px-2 py-1 text-[11px] font-semibold text-yes">
-          <Check size={12} /> Applied
+        // Stated, not asked. The amendment is already in the document — this
+        // says so and offers the way back, which is what the click used to buy
+        // and this buys without costing the finding when nobody clicks.
+        <span className="inline-flex shrink-0 items-center gap-1 py-1 text-[11px] font-semibold">
+          <span className="inline-flex items-center gap-1 px-1 text-yes">
+            <Check size={12} /> Applied
+          </span>
+          {undoable && onUndo ? (
+            <>
+              <span className="text-fg-3 opacity-50">·</span>
+              <button
+                onClick={onUndo}
+                title="Puts the profile back exactly as it was. The offer stays here if you change your mind."
+                className="rounded-md px-1.5 py-0.5 font-semibold text-fg-3 transition hover:bg-surface-muted hover:text-fg"
+              >
+                Undo
+              </button>
+            </>
+          ) : null}
         </span>
       ) : busy && !stale ? (
         // Waiting, not refused: the rebuild finishing is what decides which of
@@ -237,17 +271,22 @@ export function SuggestionView({
   suggestion,
   sent,
   onSend,
-  proposalStale,
-  proposalBusy,
+  proposalState,
   onApplyProposal,
+  onUndoProposal,
 }: {
   suggestion: Suggestion
   /** Draft texts already in the conversation as turns of the user's. */
   sent?: Set<string>
   onSend?: (draft: string) => void
-  proposalStale?: boolean
-  proposalBusy?: boolean
-  onApplyProposal?: () => void
+  /** Whether each offer can be taken right now — see `proposalState` in the app. */
+  proposalState?: (proposal: ProfileProposal) => {
+    stale: boolean
+    busy: boolean
+    undoable: boolean
+  }
+  onApplyProposal?: (target: 'them' | 'me') => void
+  onUndoProposal?: (target: 'them' | 'me') => void
 }) {
   return (
     <div className="space-y-6">
@@ -310,13 +349,33 @@ export function SuggestionView({
         </div>
       ) : null}
 
-      {suggestion.profile ? (
-        <ProposalCard
-          proposal={suggestion.profile}
-          stale={proposalStale}
-          busy={proposalBusy}
-          onApply={onApplyProposal}
-        />
+      {/* One card each, in the order the run wrote them — the person first,
+          because that is the one a turn is usually about. Stacked close, and
+          stacked rather than merged: they are two decisions, and a single Apply
+          would make taking the useful one cost accepting the other. */}
+      {suggestion.profiles?.length ? (
+        <div className="space-y-2">
+          {suggestion.profiles.map((proposal, i) => {
+            // Asked once. The two answers are decided together — a rebuild in
+            // flight is the reason a card is busy *and* the reason it is about
+            // to be stale — so calling per prop would ask the same question
+            // twice and could, if the two calls ever straddled a state change,
+            // get answers from different moments.
+            const state = proposalState?.(proposal)
+            return (
+              <ProposalCard
+                key={proposal.target}
+                proposal={proposal}
+                label={i === 0}
+                stale={state?.stale}
+                busy={state?.busy}
+                undoable={state?.undoable}
+                onApply={onApplyProposal && (() => onApplyProposal(proposal.target))}
+                onUndo={onUndoProposal && (() => onUndoProposal(proposal.target))}
+              />
+            )
+          })}
+        </div>
       ) : null}
     </div>
   )

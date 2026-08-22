@@ -54,18 +54,31 @@ describe('describeBirthday', () => {
     )
   })
 
-  test('rejects anything that is not a real ISO date', () => {
-    for (const bad of ['', '   ', '28', 'March 14', '14/03/1997', '1997-3-14', '1997-02-30']) {
-      expect(describeBirthday(bad, on(2026, 8, 10))).toBeNull()
+  test('nothing is only nothing — empty and blank are the whole of null', () => {
+    for (const empty of ['', '   ', '\n']) {
+      expect(describeBirthday(empty, on(2026, 8, 10))).toBeNull()
     }
   })
 
-  test('rejects a two-digit year rather than reporting two different ones', () => {
-    // `new Date(50, 0, 1)` is 1950, so the display and the age disagreed: the
-    // written date came from the constructed year and the age from the typed
-    // one. A date input will hand over 0050-01-01 if someone types it.
-    for (const bad of ['0050-01-01', '0000-01-01', '0099-12-31']) {
-      expect(describeBirthday(bad, on(2026, 8, 10))).toBeNull()
+  // The field is free text because what the user knows is often partial. None of
+  // this can be derived from, and none of it is dropped: it reaches the model as
+  // the words that were typed, trimmed.
+  test('hands back what it cannot read, rather than nothing', () => {
+    for (const partial of ['August', 'late March', '1997', 'March 14', '14/03/1997', '1997-3-14']) {
+      expect(describeBirthday(partial, on(2026, 8, 10))).toBe(partial)
+    }
+    expect(describeBirthday('  August  ', on(2026, 8, 10))).toBe('August')
+  })
+
+  test('derives nothing from a date that only looks like one', () => {
+    // 1997-02-30 rolls forward to March, so a derived answer would be a date
+    // nobody typed. `new Date(50, 0, 1)` is 1950, so the display and the age
+    // disagreed: the written date came from the constructed year and the age
+    // from the typed one.
+    for (const fake of ['1997-02-30', '0050-01-01', '0000-01-01', '0099-12-31']) {
+      const out = describeBirthday(fake, on(2026, 8, 10))
+      expect(out).toBe(fake)
+      expect(out).not.toContain('years old')
     }
     // Still a real four-digit year, and still a real date.
     expect(describeBirthday('0100-01-01', on(2026, 8, 10))).toContain('1926 years old')

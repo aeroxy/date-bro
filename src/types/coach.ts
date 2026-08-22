@@ -43,6 +43,21 @@ export type InterestLevel =
   | 'cooling'
   | 'not-interested'
 
+/**
+ * What their interest points *at*, which `level` cannot say — it grades how much
+ * of one undifferentiated thing there is, so someone who wants to sleep with the
+ * user and not date them could only come out as "warm", and the next-move engine
+ * read that as fuel for the next stage. The three are separable and routinely
+ * mismatched, which is why this is a list rather than one value: collapsing a
+ * mismatch into a single token rebuilds the problem one level down.
+ *
+ * `unclear` is the honest early answer, the counterpart of `too-early` on
+ * `level`, and it is meant to stand alone. Nothing enforces that — the prompt
+ * says it, and a model pairing it with a guess is expressing something real
+ * enough that a retry would cost more than it is worth.
+ */
+export type InterestToward = 'partnership' | 'sex' | 'companionship' | 'unclear'
+
 export interface Flag {
   kind: 'green' | 'amber' | 'red'
   label: string
@@ -79,6 +94,13 @@ export interface PersonJudgment {
   interest_read: {
     level: InterestLevel
     confidence: Confidence
+    /**
+     * Optional because judgments written before the field existed are stored,
+     * not migrated — a judgment is regenerated whole on the next rebuild, so
+     * the gap closes itself and a migration would only race it. Required in
+     * `PERSON_SCHEMA`, so anything rebuilt from here on has it.
+     */
+    toward?: InterestToward[]
     signals_for: string[]
     signals_against: string[]
     honest_note: string
@@ -102,10 +124,18 @@ interface ProfileBase extends TurnBasis {
   /** When the last full rebuild ran — which is what `judgment` reflects. */
   generatedAt: number
   /**
-   * When the prose was last amended by a chat reply, if it has been. Kept apart
-   * from `generatedAt` rather than folded into it because the two halves age
-   * separately: a chat turn amends `markdown` and leaves `judgment` alone, so
-   * one clock would have to lie about one of them. The UI shows both.
+   * When the prose last changed without a rebuild — a chat reply, an applied
+   * amendment, or the user editing it by hand. Kept apart from `generatedAt`
+   * rather than folded into it because the two halves age separately: all three
+   * of those touch `markdown` and leave `judgment` alone, so one clock would
+   * have to lie about one of them. The UI shows both.
+   *
+   * One clock for all three writers, not one each. A second field for hand edits
+   * was the same number under a different name: `movedSince` takes the maximum
+   * and cannot tell them apart, and the only thing that could was the word
+   * "amended" in the UI — so the word changed to "updated" instead, which is
+   * true of all three. Splitting it also meant a `ProfileProposal.before`
+   * snapshot restoring one clock and not the other.
    */
   amendedAt?: number
   /**
@@ -123,6 +153,10 @@ interface ProfileBase extends TurnBasis {
    * `coach/profile.ts`. Never persisted into any message history: injected
    * fresh from storage on every call, so nothing that happens in a prompt can
    * corrupt what's stored.
+   *
+   * The user can edit it by hand: it is the only part of a profile any engine
+   * reads, so it is the only part where a correction changes what the coach
+   * does rather than only what the panel says.
    */
   markdown: string
 }
@@ -233,27 +267,54 @@ export interface SuggestionOption {
 }
 
 /**
- * A profile amendment the coach wrote while working out what to say next, and
- * deliberately did not apply.
+ * A profile amendment the coach wrote while working out what to say next,
+ * applied when the advice was stored, and undoable until the document moves on.
  *
- * The asymmetry with the mind amendment is the design, not an oversight. The
- * mind is written by `suggestMove` itself, because it is nobody's field and
- * there is no caller to merge it. A profile is a field of the record, its merge
- * belongs to whoever owns the record, and — the part that actually decides it —
- * the user is the editor of these two documents. A rebuild is something they
- * asked for; an amendment arriving as a side effect of "what do I say next" is
- * not, and would rewrite the page they were reading with no diff and no undo.
+ * It waited for a click for a while, and the argument for that was real: a
+ * profile is read on every later call, so a wrong line doesn't sit there, it
+ * steers everything the coach says next — and profiles have no hand editor, so
+ * removing one costs a round trip through the chat. What made the click the
+ * wrong answer anyway is that it wasn't buying review, it was buying *loss*: a
+ * finding nobody clicked is gone at the end of the turn, because nothing carries
+ * an unapplied proposal into the next run.
  *
- * So it is stored, unapplied, on the suggestion that produced it, and rides the
- * advice turn into the record. `appliedAt` is what makes the offer survive a
- * reload in whichever state the user left it.
+ * Undo buys the review back, and more of it than the click did. The card still
+ * says what changed, so the amendment is as visible as it ever was; the
+ * difference is that the default is now the answer that keeps the finding, and
+ * the work falls on rejecting rather than on accepting.
+ *
+ * `appliedAt` is what makes the state survive a reload. `before` is what Undo
+ * restores, and it is dropped the moment it stops being safe to use — see
+ * `lib/proposals.ts`, which owns both halves.
+ *
+ * `target` is not on the wire — the model answers in two fixed slots, and this
+ * is the stored form, where an offer has to say which document it aims at to be
+ * applied, undone, or gone stale independently of the other one.
  */
 export interface ProfileProposal {
   /** Whose document: the person, or the user in this connection. */
   target: 'them' | 'me'
   update: ProfileUpdate
-  /** When the user accepted it. Absent while the offer still stands. */
+  /** When it was applied. Absent while it hasn't been — or after an Undo. */
   appliedAt?: number
+  /**
+   * The three fields an apply overwrites, as they stood immediately before.
+   *
+   * Only these three: an amendment touches the prose and the two clocks that
+   * describe it, and nothing else in the profile — so the judgment, the
+   * headline and the rebuild's own timestamps are not snapshotted, because
+   * restoring them would undo whatever *else* happened to them since.
+   *
+   * A whole-document copy rather than a per-section one, because `rewrite`
+   * replaces everything and a section-shaped snapshot could not express it. The
+   * size is bounded by dropping it as soon as it is unusable: at most one live
+   * snapshot per document per record.
+   */
+  before?: {
+    markdown: string
+    amendedAt?: number
+    amendedTurnsAt?: number
+  }
 }
 
 /** Output of "what should I say or do". */
@@ -277,8 +338,10 @@ export interface Suggestion extends TurnBasis {
    */
   research_notes: string[]
   /**
-   * An amendment to one of the two profiles, offered rather than applied.
-   * Absent on most runs, which is the correct answer on most runs.
+   * Amendments to the two profiles, offered rather than applied — at most one
+   * per document, so at most two. Empty on most runs, which is the correct
+   * answer on most runs, and each is accepted on its own: a turn that learns
+   * something about both people should not make the user take both or neither.
    */
-  profile?: ProfileProposal
+  profiles?: ProfileProposal[]
 }

@@ -129,13 +129,20 @@ function facts(record: DateRecord, now: Date): string {
 }
 
 /**
- * Both halves of a profile's age, for the same reason the panel shows both: a
- * chat amendment rewrites the prose and leaves the judgment alone, so one date
- * would have to misdate one of them.
+ * Both halves of a profile's age, for the same reason the panel shows both: the
+ * prose changes without the judgment — a chat amendment, one applied off a
+ * next-move run, or the user editing it by hand — so one date would have to
+ * misdate one of them.
+ *
+ * "updated", not "amended". All three of those writers stamp `amendedAt` and the
+ * clock cannot tell them apart, so the word has to be true of the user's own
+ * typing as well as the coach's. It was "amended", which read as a machine
+ * having done it — and the export is the copy that outlives the app, so it is
+ * the one place that claim would be believed later.
  */
 const freshness = (profile: { generatedAt: number; amendedAt?: number }) =>
   `_Rebuilt ${at(profile.generatedAt)}${
-    profile.amendedAt ? ` · prose amended ${at(profile.amendedAt)}` : ''
+    profile.amendedAt ? ` · prose updated ${at(profile.amendedAt)}` : ''
   }_`
 
 function personSection(name: string, profile: PersonProfile): string {
@@ -144,7 +151,9 @@ function personSection(name: string, profile: PersonProfile): string {
     `## ${name}`,
     freshness(profile),
     headline.trim() ? quote(headline) : null,
-    `**Where they stand:** ${read.level.replace('-', ' ')} (confidence: ${read.confidence})`,
+    `**Where they stand:** ${read.level.replace('-', ' ')}${
+      read.toward?.length ? ` · toward ${read.toward.join(', ')}` : ''
+    } (confidence: ${read.confidence})`,
     labelled('Pointing yes', read.signals_for),
     labelled('Pointing no', read.signals_against),
     read.honest_note.trim() ? `**Straight with you:** ${read.honest_note.trim()}` : null,

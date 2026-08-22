@@ -38,7 +38,13 @@ import { describeBirthday } from '@/lib/birthday'
 import { formatTurn, numberTurns } from '@/lib/transcript'
 import type { ChatEngine, DateRecord } from '@/types/date'
 import { LEARNED_HEADING, learnedText, mindFor, mindInstructions, type Audience } from './mind'
-import { PERSON_SECTIONS, PROFILE_WORD_CEILING, SELF_SECTIONS } from './profile'
+import {
+  CONSTRAINT_BULLET_CEILING,
+  CONSTRAINT_SECTIONS,
+  PERSON_SECTIONS,
+  PROFILE_WORD_CEILING,
+  SELF_SECTIONS,
+} from './profile'
 import { CHAT_SHAPE, PERSON_SHAPE, SELF_SHAPE, SUGGESTION_SHAPE } from './schemas'
 
 const OUTPUT_RULES = `Output rules:
@@ -436,29 +442,55 @@ and the first thing they see is wrong.`
  * two engines, in two wordings. What a rebuild genuinely cannot see is what the
  * user typed into their note this run and what research turned up — so that is
  * what the bar is set to, and everything else is told to stay a `changed: false`.
+ *
+ * One slot per document, where there used to be one slot and a target. The old
+ * shape made "I learned something about both of them" unrepresentable, and the
+ * user reported hitting that often. Two slots cost one thing back: the single
+ * slot enforced the bar by scarcity — a model with one offer to make spends it on
+ * the best one — where two invite a weak second amendment for symmetry. The bar
+ * is now stated per slot, and the reason is spelled out in the shape, because
+ * that is the only thing left holding it.
+ *
+ * And the bar is higher than it was, because the amendment now lands rather than
+ * waiting for a click. The user can undo it from the card, so nothing here is
+ * unrecoverable — but an amendment nobody wanted is work for them either way,
+ * and one they don't notice is in the document on every later call. Told
+ * plainly, since a model that believes a human gates its writes will write more
+ * of them.
  */
 function proposalInstructions(): string {
   return `## Proposing an amendment to a profile
 
-You may propose ONE amendment to ONE of the two profiles above, or none. None is
-the answer on most runs — return changed: false, and that is a real answer.
+You may amend the person's profile, the user's, both, or neither. None is the
+answer on most runs — return changed: false, and that is a real answer.
 
+- **What you write here is applied, not offered.** It goes into the document when
+  this answer is stored. The user sees a line naming the section that changed and
+  can undo it, so nothing here is permanent — but they undo it by noticing it
+  first, and whatever they don't notice is in the profile, and in the prompt, on
+  every later run. Write only what you would still defend a month from now.
+- **Each slot is judged on its own.** "profile_them" and "profile_me" are two
+  separate amendments, undone separately. Two are right only when you genuinely
+  learned something about each; one written to fill the second slot is a document
+  the user now has to correct. One real amendment and one changed: false is a
+  better answer than two adequate ones.
 - **Propose only what a rebuild would not find on its own.** The user has a
   Rebuild button for each of these documents, and it reads the same transcript
   you just read. Anything in the transcript is already covered. What is not: what
   the user told you in their note this run, what your research established about
   the person, and any correction they made to a read of yours. That is the list.
-- **You are proposing, not writing.** The user sees what you suggest and decides
-  whether it lands. So amend the one thing that is new or wrong, in the smallest
-  edit that says it. This is not the place to reorganise a document, consolidate
-  it, or bring it up to date generally.
-- **"target"** is "them" for something about the person and "me" for something
-  about the user in this connection. Nothing about *yourself* belongs here — that
-  is the mind amendment, and the two are not interchangeable.
+- **The smallest edit that says it.** Amend the one thing that is new or wrong.
+  This is not the place to reorganise a document, consolidate it, or bring it up
+  to date generally — a large amendment is one the user cannot check at a glance,
+  and what they see names sections, not sentences.
+- **Whose document is which.** "profile_them" is for something about the person,
+  "profile_me" for something about the user in this connection. Nothing about
+  *yourself* belongs in either — that is the mind amendment, and they are not
+  interchangeable.
 - **Amend by heading, the same ops a rebuild uses.** A fact that turned out to be
   wrong is an "edit" quoting the text it replaces — never a new bullet correcting
-  an old one, here least of all, where the user is reading the change as a single
-  offer and a correction-of-a-correction is what they would be accepting.`
+  an old one, here least of all, where the user is reading one line about what
+  changed and a correction-of-a-correction is what would be sitting behind it.`
 }
 
 /**
@@ -517,6 +549,25 @@ ${sections.map((s) => `  - ${s}`).join('\n')}
 - Keep it under about ${PROFILE_WORD_CEILING} words. Past that, spend a rebuild
   consolidating — merge duplicates, drop what stopped mattering, delete a section
   that has emptied out.
+- **${CONSTRAINT_SECTIONS.map((s) => `"${s}"`).join(' and ')} are live rules, not an
+  archive.** Everything in them is read as an instruction on every run, so they do
+  not cost what the descriptive sections cost: a long list of things not to do
+  produces cautious, flat advice, and that price is paid on every answer rather
+  than only on the one the rule was written for. Keep each to about
+  ${CONSTRAINT_BULLET_CEILING} bullets. Check the count on **every** rebuild, not
+  only the one adding something new — a section that is over the ceiling because
+  of how it was written before stays over it forever if the only occasion for
+  pruning is the next addition, and a rebuild with nothing new to add is still a
+  rebuild. If either section is over the ceiling right now, bring it back under
+  this turn, whether or not anything new is going in. There is almost always one
+  to retire:
+  - a rule about a specific moment that has passed — it happened, it was handled,
+    it is history and belongs in the descriptive sections if it belongs anywhere
+  - a rule that has been followed for several exchanges without incident, which is
+    no longer telling anyone anything they are not already doing
+  - two rules that say the same thing in different words, which merge
+  What stays is what would change the next message: a standing fact about how this
+  person reacts, and the one or two things that would actually do harm.
 - "rewrite" replaces the whole document and is almost never right. Reach for it
   only when the structure itself has gone wrong and section edits can't fix it.`
 }
@@ -838,10 +889,21 @@ Standards for the drafts:
   three rewordings of the same message.
 - Options differ in direction, not only in risk. When the last exchange is resolved,
   or the thread has run on one subject for a while, at least one option opens
-  something new instead of replying to the last message — drawn from the profile's
-  open threads or from what the user is actually into, never invented. If it could
-  have been the next instalment of the conversation they are already in, it is not
-  the new one. A subject the profile records as spent stays spent.
+  something new instead of replying to the last message. Never invented — but the
+  places to find one are wider than the thread queue, and the queue is the last of
+  them rather than the first:
+  - what they care about, and what the user is into. Those two sections exist for
+    exactly this and are the only source that works on a thread with no history.
+  - something they said once that nobody picked up.
+  - something true about the user they have not been told yet — the profile records
+    what they know, so what is missing from it is the list.
+  - and only then "Threads to pick back up". It is a queue of errands, favours and
+    logistics; when it supplies the new subject several runs running, the advice
+    reads like a to-do list, because it is one.
+  If it could have been the next instalment of the conversation they are already in,
+  it is not the new one. A subject the profile records as spent stays spent — and so
+  is one you can see yourself offering in a COACH turn above that the user did not
+  send. They passed on it once; offering it again is not a new option.
 - Say what to avoid, and why, in terms of this specific conversation.
 - Backing off or letting go is an option only when the evidence in front of you
   actually supports it — a sustained pattern over a meaningful window, not a slow

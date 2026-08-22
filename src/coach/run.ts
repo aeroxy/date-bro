@@ -61,20 +61,23 @@ function resolveSuggestionOutput(config: LLMConfig): { tools: ToolDefinition[]; 
 }
 
 /**
- * The wire shape into the stored one: flat on the way in, nested on the way out,
- * so `update` can go straight to `applyProfileUpdate` with nothing to strip.
+ * The wire shape into the stored one. Two fixed slots in, an array of nought to
+ * two proposals out — the slot is what says which document each aims at, so
+ * nothing here has to be dropped for being unaimable.
  *
- * `changed: false` is the usual answer and becomes nothing at all, which is what
- * keeps the field off the stored suggestion — and off the advice turn — on every
- * run that had nothing to say. A target the model didn't set, or set to
- * something that isn't one of the two documents, is dropped for the same reason:
- * an amendment nobody can aim is not an offer worth showing.
+ * `changed: false` is the usual answer for a slot and becomes nothing at all,
+ * which is what keeps the field off the stored suggestion — and off the advice
+ * turn — on every run that had nothing to say. An empty array is stored as
+ * absent for the same reason.
  */
-function toProposal(raw: (ProfileUpdate & { target?: string }) | undefined): ProfileProposal | undefined {
-  if (!raw?.changed) return undefined
-  const { target, ...update } = raw
-  if (target !== 'them' && target !== 'me') return undefined
-  return { target, update }
+function toProposals(
+  them: ProfileUpdate | undefined,
+  me: ProfileUpdate | undefined,
+): ProfileProposal[] | undefined {
+  const proposals: ProfileProposal[] = []
+  if (them?.changed) proposals.push({ target: 'them', update: them })
+  if (me?.changed) proposals.push({ target: 'me', update: me })
+  return proposals.length ? proposals : undefined
 }
 
 /** A human-readable line for the UI while research is in flight. */
@@ -224,13 +227,14 @@ export async function suggestMove(
     needsConsolidation(record.researchNotes),
   )
 
-  // Both amendments arrive flat on the wire — the proposal is a `ProfileUpdate`
-  // with a `target` alongside it, because a nested object inside a nested object
-  // is one more level for a model to lose its place in.
-  type RawProposal = ProfileUpdate & { target?: string }
-  type Raw = Omit<Suggestion, 'id' | 'generatedAt' | 'question' | 'profile'> & {
+  // All three amendments arrive as sibling `ProfileUpdate`s, one per document.
+  // A slot each rather than a target field: the model never has to name the
+  // document it means, so it cannot name it wrongly, and the two profiles stop
+  // competing for one slot when a run has something to say about both.
+  type Raw = Omit<Suggestion, 'id' | 'generatedAt' | 'question' | 'profiles'> & {
     mind?: ProfileUpdate
-    profile?: RawProposal
+    profile_them?: ProfileUpdate
+    profile_me?: ProfileUpdate
   }
 
   // Every document this response could amend, as this run was built from it, so
@@ -244,7 +248,7 @@ export async function suggestMove(
       them: record.themProfile?.markdown ?? '',
       me: record.meProfile?.markdown ?? '',
     })
-  const { mind: amendment, profile: proposed, ...result } =
+  const { mind: amendment, profile_them: proposedThem, profile_me: proposedMe, ...result } =
     tools.length > 0
       ? await runAgentWithValidation<Raw>(config, messages, {
           tools,
@@ -263,12 +267,12 @@ export async function suggestMove(
           sessionId: record.id,
         })
 
-  // Returned, not written — the whole difference between this and the mind
-  // amendment below. A profile is a field of the record, so its merge belongs to
-  // the caller that owns the record; and the user is the editor of that document,
-  // so an amendment arriving as a side effect of asking what to say next is
-  // theirs to accept rather than ours to apply.
-  const proposal = toProposal(proposed)
+  // Returned, not written — still the difference between this and the mind
+  // amendment below, though no longer because it waits for a click. A profile is
+  // a field of the record, so its merge belongs to the caller that owns the
+  // record: the app applies these in the same transaction that stores the
+  // advice, keeping what an Undo would need. `lib/proposals.ts` is both halves.
+  const proposals = toProposals(proposedThem, proposedMe)
 
   // The coach amending itself. Written here rather than handed back for the
   // caller to store, unlike the profile amendments: the mind isn't a field of any
@@ -303,6 +307,6 @@ export async function suggestMove(
     generatedAt: Date.now(),
     turnsAt: record.turnsUpdatedAt,
     question: message.trim() || undefined,
-    ...(proposal ? { profile: proposal } : {}),
+    ...(proposals ? { profiles: proposals } : {}),
   }
 }

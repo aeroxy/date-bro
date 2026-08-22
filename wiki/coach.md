@@ -21,12 +21,12 @@ are — they're the addresses an amendment aims at. Split so each engine only pa
 
 | Module | Used by | Contents |
 |---|---|---|
-| `KB_IDENTITY` | every engine | Who the coach is: voice, nerve, who the advice is for, and the one line that never bends |
+| `KB_IDENTITY` | every engine | Who the coach is: voice, nerve, who the advice is for, no assumption about where a connection is going (partnership is one destination among several, not the grown-up end of a ladder — the user's stated goal decides, and the evidence decides where it is silent), and the one line that never bends, now bounded to what was actually refused and to the moment it was said in |
 | `KB_EVIDENCE` | both rebuilders | Inference discipline: separate observation from inference, confidence is part of the claim, one message is never a pattern, prefer the boring explanation, unknowns are output, and politeness is not uptake — an ironic thank-you or a wall of laughing is a receipt, so read the two messages after it, which bites hardest when the coach is grading its own advice |
-| `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), Big Five over MBTI/love-languages, bids for connection — including the ones that reach into something of the user's, since stepping over one is how a live subject dies — who is supplying the conversation (who opens, which subjects they feed versus close politely, what they raised that nobody picked up, what is spent, whether the thread has narrowed to one loop), honest interest signals ranked by diagnostic value, red/amber/green flags |
+| `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), Big Five over MBTI/love-languages, what the thread is *for* — read before temperature and carried structurally in `interest_read.toward`, since "how warm" is meaningless until you know warm toward what, and interest in sex, partnership and companionship are separable and routinely mismatched — and pace is part of the destination: a long text-phase of romantic charge before in-person feels safe is a road, not a stall, told apart by charge that deepens and a declined plan arriving with the warmth intact. A stated frame ("just friends", "nothing serious") names a pace or a shape more often than a category — friends-first, friends-plus-sex, label-as-shield — and conduct since is its live edit; stated process preferences ("I hate guessing") get the same behaviour check, since being hurt by an unknown is proof of investment, not a request to end it; after a no, deniable re-openings (a charged photo, a wistful line) are the expected shape of continuation — the register continuing, neither reversal nor nothing, and post-no conduct is never scored against the no; bids for connection — including the ones that reach into something of the user's, since stepping over one is how a live subject dies — who is supplying the conversation (who opens, which subjects they feed versus close politely, what they raised that nobody picked up, what is spent, whether the thread has narrowed to one loop), honest interest signals ranked by diagnostic value, red/amber/green flags |
 | `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, voice, stated vs revealed goals, who brings the subjects (answering well is the comfortable half and invisible as a gap), and what the user is actually into this month — the one conversational supply that works before a thread has any history, and the only material here that cannot be researched |
-| `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder, cheap well-evidenced wins, texting pragmatics (now carrying density, one-subject-per-burst, their-line-first, and don't-explain-a-tease), set pieces (asking out, opening cold, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means |
-| `KB_WORTH_REPLYING` | suggest | The half `KB_MOVES` lacked: not whether a reply is right, but what the other person gains by reading it. Announce-do-report and its boundary (it yields the next *beat* of a thread, never a new one); the reply owes them something new; guess-don't-survey as two moves — an unmissable description plus a reframe that admires where sympathy was expected, aimed at a self-concept rather than a habit, and never at an insecurity; open-don't-only-answer with a test for "new" and the running loop ruled off its own supply list; a read inflating as fast as a compliment does; take the bid; status as a ticket that needs a seat in it; land it and leave; drafting for voice once the channel changes, which the playbook pushed toward for a year without saying what to do on arrival; don't become the channel for their bad week. Derived from a real 930-turn record rather than from research — see the module comment, which also says what was deliberately left out and why the examples in the prose are load-bearing |
+| `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate *toward what this one is for* rather than up a ladder — with the more cautious person setting the pace of anything in person, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder; building charge as its own axis (notch-by-notch, reciprocation-gated, scene over vocabulary, never in the same burst as logistics — added after a real record showed every charge line coming from the user while the coach only capped, cooled, or converted); naming-it as a move with a trigger rather than a duty (the unnamed stretch is often the living part, definition is the biggest escalation on the menu, and the paying/playing tell — what they do after it stings — decides when the plain conversation is due; after an overshoot what retires is the ask, not the warmth — the retreat register is read off what they still feed, and deniable bids get deniable answers); cheap well-evidenced wins, texting pragmatics (now carrying density, one-subject-per-burst, their-line-first, and don't-explain-a-tease), set pieces (asking out, opening cold, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means |
+| `KB_WORTH_REPLYING` | suggest | The half `KB_MOVES` lacked: not whether a reply is right, but what the other person gains by reading it. Announce-do-report and its boundary (it yields the next *beat* of a thread, never a new one); the reply owes them something new; guess-don't-survey as two moves — an unmissable description plus a reframe that admires where sympathy was expected, aimed at a self-concept rather than a habit, and never at an insecurity; open-don't-only-answer with a test for "new" and the running loop ruled off its own supply list; a read inflating as fast as a compliment does; take the bid — with stockpiled material (the looked-up kit, the saved errand) named as the strongest pull against it, riding underneath the answer to their line or waiting; status as a ticket that needs a seat in it; land it and leave; drafting for voice once the channel changes, which the playbook pushed toward for a year without saying what to do on arrival; don't become the channel for their bad week. Derived from a real 930-turn record rather than from research — see the module comment, which also says what was deliberately left out and why the examples in the prose are load-bearing |
 | `KB_RESEARCH` | suggest, only when tools are attached | Three lanes: what they've said about themselves, whether it holds up, and the logistics of the move. Search what would change the advice, as many times as that needs — but not for its own sake, and with the query built from the thread's current state, or it looks up a venue in the city they left four turns ago. Bounded by where it starts — outward from what the person disclosed, not a sweep for everything findable about them, which is the one scope limit any section carries. Check `<research_notes>` before searching again, and write back only what's new — the block is kept for you, so restating it is how it fills with the same fact in six wordings |
 
 **Who the advice is for**, because it decides what a good answer is. The user almost always already
@@ -38,8 +38,15 @@ slot for a young thread all fired at once on a four-message transcript. The defa
 making the connection work, `too-early` exists as a first-class read, and the low-interest call has
 to be earned by a sustained pattern over a meaningful window. That isn't a house style of optimism —
 short, slow and non-initiating replies are the base rate for ordinary early texting, so reading them
-as decline is a false positive far more often than it is insight. The floor that doesn't move: an
-actual no, a request for space, or an ending is helped to land well and never worked around.
+as decline is a false positive far more often than it is insight. The floor that doesn't move, narrowed since so that it stops being a blindfold: an explicit no, a
+request for space or an ending is helped to land well and never re-read as something else — but it
+attaches to *what was refused* rather than to the whole connection, and it is a reading of the moment
+it was said in, so the person who set a frame reopening it themselves is evidence the coach is
+expected to notice and name. Soft nos, softeners, and every gap between stated and revealed stay
+readable as behaviour; the only thing ruled out is deciding an explicit no meant something else. That
+holds on practical grounds as much as decent ones — visibly taking it is the only version that leaves
+a door open — and on the observation that the inference would only ever run one way, since the coach
+has one client.
 
 **Register**, corrected for the same reason. The module leaned on couples research — responsiveness,
 validation, the depth ladder — which is about sustaining an established bond, and applied it to week
@@ -370,53 +377,91 @@ minute and the user may have edited it by hand in the meantime — and `mindText
 an amendment lands on the full document rather than on an empty one, forking only the section it
 actually rewrote.
 
-### The profile proposal
+### The profile proposals
 
-`suggestMove` can also amend **a profile** — and this one it returns rather than writes. The
-`profile` field of its response is a `ProfileUpdate` with a `target` (`"them"` / `"me"`) alongside
-it; `toProposal` nests it into the `ProfileProposal` stored on the `Suggestion`, which rides the
-advice turn into the record. `changed: false` — the answer on most runs — becomes no field at all.
+`suggestMove` can also amend **the profiles** — and these it returns rather than writes. The response
+carries one `ProfileUpdate` per document, in two fixed slots: `profile_them` and `profile_me`.
+`toProposals` turns whichever of them says `changed: true` into the `ProfileProposal[]` stored on the
+`Suggestion`, which rides the advice turn into the record. Two idle slots — the answer on most runs —
+become no field at all.
 
-The asymmetry with `mind` is the whole design:
+It was one slot with a `target` field until turns that learned something about both people turned out
+to be common; the amendment that didn't fit had nowhere to wait, since nothing carries an unproposed
+finding into the next run. A slot per document also deletes a failure mode: the model can no longer
+name the document it means, so it can no longer name it wrongly, and `validateProposal` checks each
+slot's `edit` quotes against its own base. What the single slot was doing accidentally — enforcing
+the bar by scarcity — now has to be said out loud, so `proposalInstructions` states it per slot: one
+good offer and one `changed: false` beats two adequate ones.
 
-- A profile **is** a field of the record, so the merge belongs to whoever owns the record.
-- The user is the **editor** of these two documents. A rebuild is something they asked for. An
-  amendment arriving as a side effect of "what do I say next" is not, and writing it would rewrite
-  the page they were reading with no diff and no undo. `SuggestionView` renders it as a card at the
-  foot of the advice with an Apply button; `applyProposal` in `App.tsx` writes the profile and
-  stamps `appliedAt` back into the stored turn in the same transaction, so the offer and its outcome
-  can't disagree across a reload.
-- Losing a `mind` amendment costs the coach one finding. Silently dropping a profile write would
-  leave the user believing something was recorded that wasn't.
+**Applied on the way in, undoable on the way out.** `App.tsx` runs each proposal through
+`applyProposalTo` in the same `update()` that appends the advice turn, so there is no moment where
+the turn exists and the profile hasn't caught up. `SuggestionView` renders one card per proposal at
+the foot of the advice, reading `Applied · Undo`; `undoProposal(adviceId, target)` puts the document
+back exactly. Two cards are two decisions — a single control would make keeping the useful one cost
+keeping the other.
 
-Three guards keep the offer honest. **The bar**, in `proposalInstructions`: propose only what a
-rebuild wouldn't find on its own — the user's note this run, what research established, a correction
-they made — because a rebuild reads the same transcript and would otherwise write the same fact a
-second time in a second wording. **Staleness**, in `App.tsx`: if the target profile's `generatedAt`
-or `amendedAt` moved past the suggestion's `generatedAt`, the button is replaced by "Profile moved
-on". The `edit` quotes were validated against the document as it stood during the run, so a document
-that has changed since could take some ops and drop others — a half-applied amendment reported as
-"Applied" is the one outcome worth a disabled button to avoid. **A rebuild in flight**, which is that
-same failure one moment earlier: it writes the target profile whole from the record it started with,
-so an apply that lands underneath is silently overwritten while the card reads "Applied" and
-staleness then blocks re-applying. `proposalBusy` gives the card a third state, "Rebuilding…", rather
+It waited for a click for a year, and the argument for that was real: a profile is read on every
+later call, so a wrong line doesn't sit there, it steers everything the coach says next — and
+profiles have no hand editor ([`ContextView`](../src/components/ContextView.tsx) renders them
+read-only), so removing one costs a round trip through the chat. What made the click wrong anyway is
+that it wasn't buying review, it was buying **loss**: nothing carries an unapplied proposal into the
+next run, so a finding nobody clicked was gone at the end of the turn. Undo buys the review back and
+more of it — the card still says what changed, so the amendment is as visible as it ever was, and the
+work now falls on rejecting rather than on accepting.
+
+The asymmetry with `mind` is narrower than it was, and it is about recovery, not authority: a mind
+amendment has "revert to shipped", per section. Profiles had no equivalent, which is what `before`
+is.
+
+Four states, each asked per proposal — `proposalState(proposal)` answers for one target at a time,
+because a rebuild of the person's profile says nothing about an amendment to the user's. All of them
+live in `lib/proposals.ts` for the writes and in `proposalState` for the rendering, so the button and
+the write can't disagree about what is safe. **The bar**, in `proposalInstructions`: propose only what a rebuild wouldn't
+find on its own — the user's note this run, what research established, a correction they made —
+because a rebuild reads the same transcript and would otherwise write the same fact a second time in
+a second wording. **Staleness**, in `App.tsx`: if the target profile's `generatedAt` or `amendedAt`
+moved past the suggestion's `generatedAt`, the button is replaced by "Profile moved on". The `edit`
+quotes were validated against the document as it stood during the run, so a document that has changed
+since could take some ops and drop others — a half-applied amendment reported as "Applied" is the one
+outcome worth a disabled button to avoid. **A rebuild in flight**, which is that same failure one
+moment earlier: it writes the target profile whole from the record it started with, so an apply that
+lands underneath is silently overwritten while the card reads "Applied" and staleness then blocks
+re-applying. The `busy` half of `proposalState` gives that card a third state, "Rebuilding…", rather
 than the "Profile moved on" that would be a false statement about a document that hasn't moved yet;
-it keys on the run's *target*, since a next-move run touches neither profile. `applyProposal` refuses
-the same click synchronously through `runsRef` — state lands on the next render, and the frame
+it keys on the run's *target*, since a next-move run touches neither profile — and it holds only the
+card aimed at that document, leaving the other one applicable. `applyProposal` and `undoProposal`
+refuse the same click synchronously through `runsRef` — state lands on the next render, and the frame
 between claiming a run and rendering that fact is exactly where a click gets in.
 
+**Undoable** is the fourth, and the only one measured from `appliedAt` rather than from the run: that
+is when the snapshot was taken. So an amendment applied on the way in stays undoable through as many
+later runs as you like, and stops the moment anything else writes that profile — restoring a snapshot
+over a rebuild would delete the rebuild, which is worse than leaving the amendment in place. The
+snapshot is dropped at that point rather than kept: `applyProposalTo` clears `before` on every
+earlier proposal aimed at the same document, which bounds the stored text at one snapshot per
+document per record. A `rewrite` is why it is a whole-document copy and not a per-section one.
+
 Not in the export. `export-markdown.ts` keeps only the drafts out of a suggestion by policy; an
-applied proposal is already visible in the profile it amended, and an unapplied one is an offer that
-was declined.
+applied amendment is already visible in the profile it changed, and an undone one is one the user
+took back.
 
 ## Output contracts
 
 | Engine | Returns | Notable fields |
 |---|---|---|
-| `rebuildPersonContext` | `PersonProfile` | `markdown` (amended, not regenerated) + `judgment`: `interest_read` with `signals_for` / `signals_against` / `honest_note`; `flags`; `open_questions` |
+| `rebuildPersonContext` | `PersonProfile` | `markdown` (amended, not regenerated) + `judgment`: `interest_read` with `level` (degree), `toward` (kind — `partnership` / `sex` / `companionship` / `unclear`, a list because the three are separable and routinely mismatched), `signals_for` / `signals_against` / `honest_note`; `flags`; `open_questions` |
 | `rebuildSelfContext` | `SelfProfile` | `markdown` + `judgment`: `goal_read` splitting stated from revealed; `open_questions` |
 | `chatAboutProfile` | `{reply, headline, markdown, changed}` | one instruction: prose for the user, an optional `ProfileUpdate` applied to the stored markdown, and a replacement headline when the amendment made the old one wrong (`""` otherwise, the common case) |
-| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profile` (a `ProfileProposal` it returns for the user to apply — see above) |
+| `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profiles` (a `ProfileProposal[]`, at most one per document, applied by the caller when the advice is stored and undoable from the card — see above) |
+
+**Constraint sections have their own ceiling.** `Handle with care` and `Costing you` are lists of
+things *not* to do, and they don't cost what descriptive prose costs — every bullet is read as a live
+instruction on every run, so they accumulate into a posture rather than a description. Measured on a
+real record they reached 34 bullets between them and the advice went flat and errand-shaped: the model
+had more ways to be wrong than things to say. `CONSTRAINT_BULLET_CEILING` (8) is quoted to the rebuild
+engines as the point to start retiring rules, with three kinds named as the ones to drop — a rule about
+a moment that has passed, one that has been followed for several exchanges without incident, and two
+that say the same thing. Nothing enforces the number, exactly like `PROFILE_WORD_CEILING`.
 
 **An amendment moves the prose, and the headline with it.** `markdown`, `amendedAt`,
 `amendedTurnsAt` and — when the amendment made the old one wrong — `judgment.headline`. The rest of
@@ -465,6 +510,11 @@ in a few words whose answer becomes a `context` turn carrying its question — w
 questions arrive as a list. The judgment is regenerated whole every rebuild, which is the right
 lifecycle for it: a call about where things stand *should* be recomputed from current evidence, and
 unlike the prose there is nothing to accumulate.
+
+`toward` is the case that proves the rule. The KB gained a section telling the coach to read what a
+thread is *for* before reading how warm it is, and on the next rebuild nothing came out: the prose
+asked a question the output shape had no slot for, so the answer evaporated between the two. Adding
+the field was what made the instruction land.
 
 Confidence survives into the prose. A rebuild writes it into the bullet — `- Landscape architect
 (high) [2]` — and `Markdown.tsx` lifts a trailing `(high|medium|low)` back out into the same

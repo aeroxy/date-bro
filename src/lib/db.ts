@@ -8,7 +8,7 @@ import {
   selfToMarkdown,
 } from '@/coach/profile'
 import { adviceTurn, numberTurns } from '@/lib/transcript'
-import type { PersonContext, SelfContext } from '@/types/coach'
+import type { PersonContext, ProfileProposal, SelfContext, Suggestion } from '@/types/coach'
 import type { DateRecord } from '@/types/date'
 
 interface DateBroDB extends DBSchema {
@@ -169,16 +169,53 @@ function migrateSuggestions(record: DateRecord): DateRecord {
   return placeable ? { ...rest, turns: [...rest.turns, adviceTurn(latest)] } : rest
 }
 
+/**
+ * A suggestion used to carry at most one proposal, in a `profile` field. It
+ * carries a list now, one entry per document, because a run that learns
+ * something about both people had to throw one of them away.
+ *
+ * The old field is already a `ProfileProposal`, `target` and `appliedAt` and
+ * all, so this is a move rather than a conversion — and moving it preserves an
+ * offer the user accepted, or left standing, before the upgrade.
+ *
+ * Exported for its test, alone among the migrations here. The others move data
+ * that a wrong answer only mis-renders; this one carries `appliedAt`, and losing
+ * it re-offers an amendment the user already took — which applies it twice, and
+ * an `append` twice is a duplicated line in their profile.
+ */
+export function migrateProposals(record: DateRecord): DateRecord {
+  type Legacy = Suggestion & { profile?: ProfileProposal }
+  if (!record.turns.some((t) => (t.advice as Legacy | undefined)?.profile)) return record
+  return {
+    ...record,
+    turns: record.turns.map((turn) => {
+      const legacy = turn.advice as Legacy | undefined
+      if (!legacy?.profile) return turn
+      const { profile, ...advice } = legacy
+      // Appended, not prepended, and only when it isn't already there: a record
+      // written back mid-upgrade could hold both shapes, and the list is what
+      // the app reads.
+      const profiles = advice.profiles?.some((p) => p.target === profile.target)
+        ? advice.profiles
+        : [...(advice.profiles ?? []), profile]
+      return { ...turn, advice: { ...advice, profiles } }
+    }),
+  }
+}
+
 // Every default below reads from `migrated`, never from `record`. Reading the
 // original would quietly undo whatever a migration just did — a default built
 // from the untouched record restores exactly what a migration was there to
 // move, leaving the same content in two places forever.
 //
-// The order of the five is not arbitrary in two places. `migrateSectionNames`
+// The order of the six is not arbitrary in three places. `migrateSectionNames`
 // rewrites headings inside `themProfile` / `meProfile`, and for a legacy record
 // `migrateContexts` is what creates those — run the rename first and it finds
-// nothing to rename in exactly the documents it exists for. And `numberTurns`
-// runs last, after both of the ones that add turns; see below.
+// nothing to rename in exactly the documents it exists for. `migrateProposals`
+// runs after `migrateSuggestions`, which is what turns a retired suggestion into
+// an advice turn — and a suggestion old enough to be in that array is old enough
+// to carry the single-`profile` shape. And `numberTurns` runs last, after both
+// of the ones that add turns; see below.
 function normalize(record: DateRecord): DateRecord {
   // `numberTurns` last of the turn-touching migrations, and that order is
   // load-bearing. `migrateSeed` *prepends* the old seed blobs as notes, and the
@@ -188,7 +225,7 @@ function normalize(record: DateRecord): DateRecord {
   // reproduces exactly that. Numbering first and letting the notes arrive
   // afterwards would number the same prose two turns off.
   const migrated = numberTurns(
-    migrateSuggestions(migrateSectionNames(migrateContexts(migrateSeed(record)))),
+    migrateProposals(migrateSuggestions(migrateSectionNames(migrateContexts(migrateSeed(record))))),
   )
   return {
     ...migrated,

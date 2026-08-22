@@ -124,7 +124,7 @@ describe('recordToMarkdown', () => {
       NOW,
     )
     expect(md).toContain('Rebuilt 2 August 2026')
-    expect(md).toContain('prose amended 4 August 2026')
+    expect(md).toContain('prose updated 4 August 2026')
     // Never a relative stamp: it is only true the moment it is rendered.
     expect(md).not.toContain('ago')
   })
@@ -137,6 +137,29 @@ describe('recordToMarkdown', () => {
     expect(md).toContain('**Straight with you:** Three days of texting')
     expect(md).toContain('- **green · Direct about her ex** — Raised it unprompted [7]')
     expect(md).toContain("### What you still don't know about Mira")
+  })
+
+  // The assertion above doubles as the back-compat case: that fixture has no
+  // `toward`, because judgments written before the field are stored rather than
+  // migrated, and the line has to read cleanly without it.
+  test('says what the interest points at, when the read carries it', () => {
+    const md = recordToMarkdown(
+      record({
+        themProfile: themProfile({
+          judgment: {
+            ...themProfile().judgment,
+            interest_read: {
+              ...themProfile().judgment.interest_read,
+              toward: ['sex', 'companionship'],
+            },
+          },
+        }),
+      }),
+      NOW,
+    )
+    expect(md).toContain(
+      '**Where they stand:** too early · toward sex, companionship (confidence: medium)',
+    )
   })
 
   test("nests the profile's own headings under the section holding them", () => {
