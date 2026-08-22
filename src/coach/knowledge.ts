@@ -187,6 +187,58 @@ tone, timing, and everything that happened in person. Act accordingly.
  * someone toward a label they have not agreed to and pushing them away from one
  * they want are the same defect, and naming only the first would have smuggled the
  * ladder back in through the flags.
+ *
+ * The destination/road split under "sexual register with no plans" is newer. The
+ * four-threads list could say a thread was hot and planless, but not which kind of
+ * thread that is — and the rest of this file reads that shape one way only ("a
+ * thread that stays a thread is the most common way this dies"), so a person who
+ * needs the charge to live over text for a long stretch before anything in person
+ * feels safe had no honest description. The mechanism is well supported: desire
+ * that arrives after safety rather than before it is common and ordinary (the
+ * responsive-desire literature — Basson's model, Nagoski's popularisation), and
+ * text-borne intimacy is real intimacy-building that can legitimately run ahead of
+ * in-person comfort (the hyperpersonal findings — Walther; Jiang & Hancock on
+ * long-distance disclosure). Seen on a real record, too: weeks of mutual,
+ * deepening charge, and the one time it was converted into concrete travel
+ * logistics it was declined as too fast — with the warmth intact the next
+ * morning. A coach that can only read that as a stall keeps prescribing the exact
+ * overshoot that got declined. No researcher names or figures in the shipped
+ * prose, per the header note; the tells (charge deepening vs holding level, a no
+ * that arrives next to warmth) are what make the split readable rather than a
+ * licence to call every planless thread a pace.
+ *
+ * The frame bullets are the companion correction, and the failure they fix was
+ * also measured rather than guessed. On the same record, a stay-friends answer
+ * followed by weeks of mutual escalation had no honest description here: the
+ * coach could read the label/conduct gap only as a contradiction, so its last
+ * several suggestions in the record all pushed the same define-the-relationship
+ * move — reading the other person's stated hatred of guessing literally, as a
+ * mandate for clarity, while her conduct (declining a plan warmly and re-entering
+ * the same register the next morning, hearting a suspended "one day" bit) showed
+ * someone choosing the unnamed state and playing in it. Two things were missing.
+ * First, frame vocabulary: "friends" and its cousins commonly name a pace or a
+ * shape rather than a category — friends-first-then-more, friends-plus-sex,
+ * label-as-shield — which is ordinary real life, not an edge case. Second, the
+ * rule this file already applies everywhere else — behaviour outranks stated
+ * preference — applied to *process* statements too: "I hate guessing" is a true
+ * feeling and a weak predictor, and being hurt by an unknown is evidence of
+ * investment in it, not a request to end it. None of this touches the decline
+ * floor: a stated no still stands as said; these bullets are about what the
+ * label meant and what the conduct since has made of it, which the floor's own
+ * bounds (a no attaches to what was refused, read at the moment it was said)
+ * already leave open.
+ *
+ * The deniable-re-openings bullet closes the loop the first corrections opened.
+ * Once the coach learned not to push naming, it needed the complementary read:
+ * the person who set a pace does keep the thing alive, just never in words —
+ * on the record, hours after declining a travel plan, a symbolic photo arrived
+ * that could be read either way, and the coach both dismissed the user's warm
+ * reading of it as "re-reading her declines" (scoring post-no conduct against a
+ * no that only covered a flight) and answered it with stockpiled logistics.
+ * Sideways, deniable, plausibly-innocent gestures are the *expected* form of
+ * continuation after a pace was set; a reader without that category either
+ * over-reads them as reversal or flattens them to nothing, and both misread the
+ * same thread.
  */
 export const KB_READ_THEM = `
 ## Reading the other person
@@ -251,6 +303,40 @@ nothing until you know warm *toward what*.
 - Read it off what both people do. Recurring logistics with no forward talk; an
   escalating sexual register with no plans; plans with no sexual register; "when are
   you free" with neither — those are four different threads, not four temperatures.
+- An escalating sexual register with no plans splits further, and the split is the
+  read that matters: for some people it is the destination; for many others a long
+  stretch of romantic charge over text is the road — comfort built at a distance
+  that feels safe, for as long as it needs, before sex in person is thinkable.
+  Desire that arrives once safety is established rather than in advance is common
+  and ordinary. The tells that it is a pace rather than a stall: the charge deepens
+  instead of holding level, and a declined plan comes with the warmth intact — a no
+  that arrives next to "good morning" is about speed, not interest.
+- A stated frame is a word from one moment; conduct since is its live edit. "Just
+  friends", "nothing serious", "not looking for anything" name a pace or a shape
+  more often than a category: friends-first is a speed (comfort now, more when it
+  has been earned), friends-plus-sex excludes the partnership, not the bed, and
+  sometimes the label is a shield both people hold so the charge can keep its
+  deniability. Which one this is gets read off what both people have done since
+  the frame was set — a person who named it and then keeps escalating past it
+  themselves is editing it in conduct, and the conduct is the stronger evidence.
+  The gap between the label and the behaviour is not automatically a problem to
+  fix: often it is the arrangement itself, maintained from both sides on purpose.
+- Stated preferences about process get the same behaviour check as everything
+  else. "I hate guessing", "I can't stand mixed signals" are true feelings and
+  weak predictors: what someone keeps choosing outranks what they say they hate,
+  and a person can hate the hurt of the unknown while wanting the unknown — being
+  hurt by it is proof of investment, not a request to end it. The check is what
+  they do after it stings: leave, or come back warm the next morning to the same
+  game. (This is not the hot/cold amber flag — that is warmth itself going
+  unpredictable as leverage; here the warmth is steady and it is the label that
+  stays open.)
+- After a no, deniable re-openings are the expected shape. The person who set a
+  pace rarely reopens it in words; they reopen it sideways, with something that
+  could also be innocent — a charged photo, a wistful line, a callback to a scene
+  that was left suspended. Read those as the register continuing: not a reversal
+  of the no, and not nothing. And never score conduct that came after a no
+  against the no — it covered what it covered, at the moment it was said, and
+  what happens next is new evidence, not defiance of the old.
 - Existing partners are context, not an obstacle. If the other person has one, the
   live questions are what is agreed between them and what the user wants, not
   whether this connection is allowed to exist.
@@ -410,6 +496,62 @@ Look for, in what they actually wrote:
  * been collapsing into stopping *reading* — the coach would treat the thread as
  * closed and stop scoring anything in it, including the other person reopening the
  * subject themselves. Stop asking, keep reading.
+ *
+ * "Escalate on purpose" then gained a pace clause, because direction and pace are
+ * separate reads and this section only carried the first. For many people the
+ * charge has to live over text for a long time before anything in person feels
+ * safe (the mechanism and evidence are with the destination/road split in the
+ * reading section above), and without the clause "move it to the thing itself"
+ * prescribes the exact overshoot that pattern declines: a hot register read as an
+ * invitation to logistics, a healthy paced thread read as dying. The same scoping
+ * landed on "move to voice or in person early" so the two rules read as one
+ * position — stall and pace are different states with different fixes.
+ *
+ * "Building charge" is a new subsection, and the gap it fills was measured rather
+ * than guessed. On a real record with sixty-odd of this app's suggestions inside
+ * it, every line that built romantic or sexual charge came from the user — a
+ * low-stakes physical question, sensory togetherness imagery, conditional scenes,
+ * a patient future-tense promise — and the coach's register around those moments
+ * was to cap the escalation, cool it, or convert it into a name-the-relationship
+ * move. All three are sometimes right, but they were the *only* moves: "flirt" was
+ * a one-line instruction with no mechanism, so the suggest engine's actual supply
+ * was errands and plans. Combined with the pace finding, that is disabling — if
+ * text charge is the medium where comfort gets built, a coach with no charge
+ * repertoire is useless for exactly that stretch. Deliberately not imported: a
+ * line bank (same reason there is no joke bank — a line that lands identically on
+ * anyone carries no information about either person; the examples in the prose are
+ * archetypes of a shape, not material), and anything that reads reciprocation as a
+ * technicality — the gate is the point, and a stated no to the register itself is
+ * the decline floor, not a calibration problem.
+ *
+ * "Naming it" exists because the coach had confrontation as its only exit from a
+ * warm unnamed thread. On the same record, its last several suggestions in a row
+ * pushed a define-the-relationship move — justified each time by the other
+ * person's stated hatred of mixed signals, read literally — while her conduct
+ * showed someone maintaining the unnamed charged state on purpose and staying in
+ * it even after it stung. The KB fed that: the depth ladder called the last rung
+ * "where most connections stall", and the calibration line said ambiguity should
+ * be resolved by asking, with nothing anywhere saying that for many people the
+ * unnamed stretch is the living part — that anticipation and the unresolved
+ * question are what the charge runs on, and that definition settles the feeling
+ * along with the fact. So naming is now a move with a trigger, not a duty: coach
+ * it when something real needs the answer or when someone is paying for the
+ * ambiguity rather than playing in it, and read which is which off conduct, not
+ * off a stated preference for clarity. The paying/playing tell is deliberately
+ * restated here rather than referenced, because this section and the reading
+ * sections feed different engines.
+ *
+ * Two clauses were then added after watching the overshoot-retreat rule misfire
+ * on its first live outing. Told to retreat to "the register that was working",
+ * the coach read that as the platonic one — cats, jokes, looked-up logistics —
+ * and prescribed a warmth freeze, while the other person was visibly still
+ * feeding the charged register herself (a heart on a suspended "one day" bit, a
+ * symbolic photo hours after the declined plan). Hence: the register is read off
+ * what they are still feeding, what retires is the ask and not the warmth, and a
+ * swing to all-business is a sulk they can feel. The deniable-bids bullet in
+ * "Building charge" is the same fix on the supply side — a bid that reads two
+ * ways gets an answer that reads two ways, not an adjudication and not an
+ * airport shower guide.
  */
 export const KB_MOVES = `
 ## Choosing what to say or do
@@ -440,6 +582,14 @@ What actually moves early attraction:
   automatically the right move here. And when a connection has arrived where both
   people wanted it, say so — pushing for a further stage nobody asked for is how an
   arrived thread gets broken.
+  Direction is one read and pace is another. For many people the charge has to
+  live over text for a long time before meeting — or sex in person — feels safe,
+  and a hot register over text is never by itself an invitation to logistics: the
+  more cautious person sets the pace of anything in person. When a concrete plan
+  gets declined as too fast while the warmth holds, the pace was refused, not the
+  destination — keep feeding the register that is working, drop the itinerary, and
+  let them reopen in-person themselves; the lighter rungs (a call, a voice note)
+  come before a calendar.
 - **Be specific about what you like, and aim it.** Being liked causes liking — but
   the version that lands is particular to them. "You're gorgeous" is what anyone
   would say; naming the exact thing they said that stuck with you is not. Aim at
@@ -450,7 +600,9 @@ What actually moves early attraction:
   registering and starts reading as weather. Scarce and aimed is the whole
   difference.
 - **Flirt.** Warmth plus directness beats warmth alone. If the honest draft is the
-  bolder one, it is the one to send.
+  bolder one, it is the one to send. This is an instruction to have the nerve; the
+  craft of it — how charge actually gets built, notch by notch — is its own
+  subsection below ("Building charge").
 
 None of this requires making anything up, and the version that requires making
 something up is the version that collapses on contact.
@@ -491,11 +643,80 @@ hopes, needs → feelings about *this* relationship.
   most common failure mode there is.
 - Deliberate, escalating, *mutual* disclosure is the one intervention with real
   evidence that closeness can be generated on purpose.
-- The last rung is where most connections stall: plenty of talking, never a word
+- The last rung is where many connections stall: plenty of talking, never a word
   about what this is. Naming the relationship is a disclosure like any other — go
-  first, low drama, no ultimatum.
+  first, low drama, no ultimatum. Whether this rung is due at all is its own
+  question — see "Naming it".
 - Avoid: trauma dumping, ex post-mortems, grievance narratives early. Not because
   the content is bad, but because it breaks reciprocity and reads as low calibration.
+
+### Building charge
+Charge is its own axis, not a rung of the depth ladder — a thread can be
+emotionally deep and completely flat, or hot on very little disclosure. It is
+built in notches, each one deniable, each gated on the last being reciprocated —
+and it is a thing to *supply*, not only to referee: when the register is what both
+people are feeding, the next notch of it is a legitimate suggestion, not a risk to
+be managed.
+- The instruments, in roughly ascending order: a low-stakes physical question
+  ("are you a hugger"); sensory imagery of togetherness — warmth, holding, falling
+  asleep — rather than anatomy; the conditional scene ("if you were here…",
+  "you'd have to…"), which is the workhorse because it puts both people inside a
+  moment while either can still step out of it; the patient future tense ("one
+  day — no rush"), which turns distance from an obstacle into tension. These are
+  shapes, not lines — build each one out of this thread's own material.
+- The gate is their reciprocation, not the user's nerve. One notch, then read:
+  matched or extended means the next notch is available later; a laugh, a sticker,
+  or a subject change means step back without apology or explanation — the retreat
+  being graceful is what keeps the register open.
+- Escalate the scene, not the vocabulary. Explicitness grows only as fast as
+  theirs does; the charge lives in specificity and anticipation, not in franker
+  words.
+- Charge inflates exactly as praise and reads do. A constant hot register becomes
+  ambient and stops registering; land a peak and leave it unresolved — tension is
+  anticipation, and the open loop is the point (see "Land it and leave").
+- Never in the same burst as logistics. A charge line with a plan attached
+  converts the scene into an ask, and gets answered as the ask.
+- Deniable bids get deniable answers. A charged thing that could also be
+  innocent — a symbolic photo, a wistful line, a callback to a scene left
+  suspended — does not need adjudicating before it can be answered. Answer it in
+  kind, one notch, still deniable: warmth that reads two ways is the correct
+  reply to a bid that reads two ways. Answering it with business, or with a joke
+  that steps around the charge, closes it — and so does demanding it declare
+  itself.
+- It is co-built or it is nothing: reciprocation is the licence, and a stated no
+  to the register itself ends it — that is the decline floor, not a calibration
+  problem.
+
+### Naming it — a move, not a duty
+An unnamed thread is not a problem to fix. For many people the unnamed stretch is
+the living part: anticipation, deniability, the unresolved question are what the
+charge runs on, and some of the ache in it is the price of a game both people are
+still choosing to play. A label and conduct that disagree are not automatically a
+defect either — often the label is the shield that lets the conduct keep its
+deniability, held from both sides on purpose.
+- Definition is an escalation — usually the biggest one available — not
+  housekeeping. It converts a live tension into a settled fact, and the feeling
+  often settles with it. Offered when nobody needs it, clarity is not a gift;
+  it is how the game ends.
+- Name it when something real needs the answer: a decision that cannot be made
+  ambiguous (exclusivity, moving, meeting each other's people), or one person
+  visibly paying for the ambiguity rather than playing in it.
+- The tell between paying and playing is what they do after it stings. Hurt and
+  back warm the next morning, feeding the same register, is playing; going quiet,
+  asking what this is, withdrawing, is paying. A stated hatred of guessing or of
+  mixed signals does not settle this — read the re-entry, not the statement.
+  Coach the plain conversation for someone paying; never prescribe it as the
+  default exit from a thread that is merely unlabelled and warm.
+- After an overshoot — a plan declined, a line that landed too heavy — the fix is
+  a retreat to the register that was working, not a define-the-relationship talk.
+  That talk is the biggest escalation on the menu, and stacking it on top of the
+  escalation that just got declined compounds the overshoot.
+- And "the register that was working" is read off what they are still feeding,
+  not off what feels safest. What retires after a declined plan is the ask, not
+  the warmth — and the person who set the pace usually goes on feeding the
+  charged register themselves, deniably. If they do, keep supplying it. Swinging
+  to all-business or all-jokes is not a retreat, it is a sulk they can feel, and
+  it punishes a no they gave gracefully.
 
 ### Cheap, well-evidenced wins
 - **Follow-up questions.** The one intervention with direct speed-dating evidence:
@@ -557,7 +778,10 @@ Text strips prosody, so ambiguity resolves negative. Therefore:
   data, not an emergency.
 - Move to voice or in person early. Text is a scheduling tool pretending to be a
   relationship; chemistry doesn't verify over it. Never resolve conflict by text
-  if a call is possible. Which channel, though, is theirs to pick — asynchronous
+  if a call is possible. Early is about escaping text's ambiguity, not about
+  forcing bodies onto a calendar: where someone is visibly pacing the
+  in-person side, the upgrades to reach for are voice and video, and the meeting
+  waits for their invitation. Which channel, though, is theirs to pick — asynchronous
   voice and a live call are not the same ask, and someone who sends voice notes all
   day may still hate the phone. For what to actually say once the channel changes,
   see "Being worth replying to".
@@ -590,7 +814,9 @@ Text strips prosody, so ambiguity resolves negative. Therefore:
 ### Calibration
 - If the transcript is net-negative in tone, fix the temperature before doing
   anything clever. Thriving interactions run heavily positive.
-- Ambiguity that a single question would resolve should be resolved by asking it.
+- Ambiguity that a single question would resolve should be resolved by asking it —
+  logistics, availability, facts. What the relationship *is* is not that kind of
+  ambiguity: see "Naming it".
 `.trim()
 
 /**
@@ -651,6 +877,14 @@ Text strips prosody, so ambiguity resolves negative. Therefore:
  * kept and the example dropped. So the boundary travels with the rule, and an
  * amendment that compresses these into cleaner instructions will reintroduce the
  * failures they were written to stop.
+ *
+ * "Take the bid" gained its stockpile paragraph after a live miss: with a
+ * researched logistics kit sitting in its notes, the coach offered it as a
+ * standalone reply to a pair of freshly arrived photos — useful, correct, and an
+ * answer to a message nobody sent. Saved material has exactly that pull (it is
+ * safe, it is "value", it is already written), which is why the rule names it as
+ * the strongest force against taking the bid rather than trusting the general
+ * instruction to cover it.
  */
 export const KB_WORTH_REPLYING = `
 ## Being worth replying to
@@ -742,6 +976,13 @@ feels warm.
 ### Take the bid
 When they reach into something of yours, that is where they want in. Go there
 instead of finishing your own thread.
+
+The strongest pull against this is stockpiled material — the looked-up fact, the
+saved errand, the useful kit. It feels like generosity, but offered over a live
+bid it is a subject change: it answers a message they did not send. Whatever they
+just sent — a photo, a line, a joke — gets answered first, in its own register;
+the stockpile rides underneath that answer or waits for a resolved exchange. An
+option that does not answer the thing in front of it is not an option.
 
 ### Status is the ticket, and it needs a seat in it
 Most people check, and a thread where they cannot place you stays shallow — so it
