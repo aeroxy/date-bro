@@ -124,10 +124,18 @@ interface ProfileBase extends TurnBasis {
   /** When the last full rebuild ran — which is what `judgment` reflects. */
   generatedAt: number
   /**
-   * When the prose was last amended by a chat reply, if it has been. Kept apart
-   * from `generatedAt` rather than folded into it because the two halves age
-   * separately: a chat turn amends `markdown` and leaves `judgment` alone, so
-   * one clock would have to lie about one of them. The UI shows both.
+   * When the prose last changed without a rebuild — a chat reply, an applied
+   * amendment, or the user editing it by hand. Kept apart from `generatedAt`
+   * rather than folded into it because the two halves age separately: all three
+   * of those touch `markdown` and leave `judgment` alone, so one clock would
+   * have to lie about one of them. The UI shows both.
+   *
+   * One clock for all three writers, not one each. A second field for hand edits
+   * was the same number under a different name: `movedSince` takes the maximum
+   * and cannot tell them apart, and the only thing that could was the word
+   * "amended" in the UI — so the word changed to "updated" instead, which is
+   * true of all three. Splitting it also meant a `ProfileProposal.before`
+   * snapshot restoring one clock and not the other.
    */
   amendedAt?: number
   /**
@@ -145,6 +153,10 @@ interface ProfileBase extends TurnBasis {
    * `coach/profile.ts`. Never persisted into any message history: injected
    * fresh from storage on every call, so nothing that happens in a prompt can
    * corrupt what's stored.
+   *
+   * The user can edit it by hand: it is the only part of a profile any engine
+   * reads, so it is the only part where a correction changes what the coach
+   * does rather than only what the panel says.
    */
   markdown: string
 }

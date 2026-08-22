@@ -127,6 +127,17 @@ export default function App() {
   // someone else's, it jumped you to their newest. Their selection is theirs and
   // survives switching away now.
   const [viewingAdvice, setViewingAdvice] = useState<Record<string, string>>({})
+  /**
+   * Bumped each time a next-move run lands, per record. Its only job is to
+   * appear in the footer box's key — see `nextDraftKey` — so a fresh box
+   * mounts once the old one's text has done its job. The header's "What do I
+   * say?" and the blank-slate one both trigger a run the same way the footer's
+   * own send does, but neither goes through `AskComposer.send`, so neither
+   * clears it that way — the box needs a way to hear "a run just landed"
+   * without knowing which button asked for it, and a key that changes on
+   * every landing is that regardless of who clicked.
+   */
+  const [nextRunSeq, setNextRunSeq] = useState<Record<string, number>>({})
   // The last profile amendment, shown once under the composer. Not persisted —
   // see `sendChat`. Keyed like the run maps above rather than cleared on every
   // switch path: a result about one profile means nothing under another, and a
@@ -267,6 +278,7 @@ export default function App() {
             { evidence: false },
           )
           setViewingAdvice((prev) => ({ ...prev, [id]: suggestion.id }))
+          setNextRunSeq((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
         }
         return true
       } catch (e) {
@@ -389,6 +401,57 @@ export default function App() {
       })
     },
     [activeId],
+  )
+
+  /**
+   * Save prose the user edited by hand.
+   *
+   * The prose is the only part of a profile any engine reads — the judgment
+   * beside it never reaches a prompt — so this is the one control that changes
+   * what the coach does rather than what the panel says. That is also why it is
+   * worth having: a read the user knows to be wrong was previously only arguable
+   * with through the chat, one round trip at a time, against a model that had
+   * just written the thing being argued with.
+   *
+   * Stamps `amendedAt`, the same clock a chat reply and an applied amendment
+   * write — three writers, one "the prose changed since the rebuild". A separate
+   * field for hand edits was the same number under another name; what made it
+   * look different was the UI saying "amended", and that word now says
+   * "updated", which is true of all three. `amendedTurnsAt` stays untouched,
+   * because that records the transcript an amendment was written *from* and a
+   * hand edit reads no transcript — so editing prose still won't clear a
+   * "conversation has moved on" chip, which is right.
+   *
+   * The judgment is left exactly as its last rebuild produced it, for the reason
+   * `sendChat` leaves it — and the headline with it, since nothing here
+   * re-derives one.
+   */
+  const editProfile = useCallback(
+    (which: ChatEngine, markdown: string) => {
+      if (!active) return
+      const id = active.id
+      // The rebuild would write this profile whole from the record it started
+      // with, so a save landing underneath it is silently thrown away. The Edit
+      // button is disabled for the same case; this is the synchronous half.
+      if (runsRef.current.get(id)?.tab === which) return
+      const key = which === 'them' ? 'themProfile' : 'meProfile'
+      persist(
+        update(
+          id,
+          (current) => {
+            const profile = current[key]
+            if (!profile || profile.markdown === markdown) return {}
+            return { [key]: { ...profile, markdown, amendedAt: Date.now() } }
+          },
+          // Editing the profile changes what is known, not what either person
+          // said, so it is not new evidence and must not mark both profiles
+          // stale.
+          { evidence: false },
+        ),
+        which,
+      )
+    },
+    [active, persist, update],
   )
 
   /**
@@ -607,8 +670,12 @@ export default function App() {
   // Whether this tab has ever produced anything, which is what decides between
   // "build" and "rebuild" wherever the distinction is visible.
   const ranThisTab = tab === 'next' ? !!suggestion : !seeding
+  // The next box's key, independent of which tab is on screen right now: the
+  // header button runs 'next' no matter what's showing, and has to read and
+  // clear the same slot the footer box would if it were the one visible.
+  const nextDraftKey = `${activeId}:next:${activeId ? nextRunSeq[activeId] ?? 0 : 0}`
   // Which footer box is showing, and so which draft it holds — see `drafts`.
-  const composerKey = `${activeId}:${tab}:${tab === 'next' ? 'next' : seeding ? 'seed' : 'amend'}`
+  const composerKey = tab === 'next' ? nextDraftKey : `${activeId}:${tab}:${seeding ? 'seed' : 'amend'}`
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -674,7 +741,12 @@ export default function App() {
               {busyTab === 'me' ? <Spinner /> : <UserRound size={13} />}
               {active.meProfile ? 'Rebuild you' : 'Build you'}
             </Button>
-            <Button variant="accent" size="sm" disabled={!!busyTab} onClick={() => run('next')}>
+            <Button
+              variant="accent"
+              size="sm"
+              disabled={!!busyTab}
+              onClick={() => run('next', draftsRef.current[nextDraftKey] ?? '')}
+            >
               {busyTab === 'next' ? <Spinner /> : <Sparkles size={13} />}
               What do I say?
             </Button>
@@ -830,7 +902,13 @@ export default function App() {
                           }
                         }}
                       />
-                      <PersonContextView ctx={active.themProfile} name={active.name} answer={answerProps} />
+                      <PersonContextView
+                        ctx={active.themProfile}
+                        name={active.name}
+                        answer={answerProps}
+                        onEdit={(markdown) => editProfile('them', markdown)}
+                        editDisabled={busyTab === 'them'}
+                      />
                     </>
                   ) : (
                     <BlankSlate
@@ -860,7 +938,12 @@ export default function App() {
                           }
                         }}
                       />
-                      <SelfContextView ctx={active.meProfile} answer={answerProps} />
+                      <SelfContextView
+                        ctx={active.meProfile}
+                        answer={answerProps}
+                        onEdit={(markdown) => editProfile('me', markdown)}
+                        editDisabled={busyTab === 'me'}
+                      />
                     </>
                   ) : (
                     <BlankSlate
@@ -926,7 +1009,7 @@ export default function App() {
                     title="Nothing suggested yet"
                     body="You'll get two or three genuinely different options — with the actual text to send, why it works, and how to read what comes back."
                     cta="What do I say?"
-                    onRun={() => run('next')}
+                    onRun={() => run('next', draftsRef.current[nextDraftKey] ?? '')}
                   />
                 )}
               </div>

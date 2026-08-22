@@ -115,6 +115,8 @@ describe('applyProposalTo', () => {
     // A chat amendment since, which invalidates it identically.
     const amended = record({ profiles: [proposal('them')], themAmendedAt: 1500 })
     expect(applyProposalTo(amended, 'sug-1', 'them', 2000)).toBe(amended)
+    // A hand edit is the third writer and stamps the same clock, so it is the
+    // same refusal — `themAmendedAt` above already covers the mechanism.
   })
 
   // Only one snapshot per document can be restored — the moment a second
@@ -190,6 +192,23 @@ describe('undoProposalIn', () => {
     // Applied, but the snapshot has been dropped as unusable.
     const dropped = record({ profiles: [proposal('them', { appliedAt: 2000 })] })
     expect(undoProposalIn(dropped, 'sug-1', 'them')).toBe(dropped)
+  })
+
+  // The hand-edit case, and the reason `editedAt` exists at all. Without a clock
+  // on it, this undo restores the snapshot over the user's own typing and the
+  // edit is gone with no way back — the one loss in here that isn't recoverable
+  // by rebuilding.
+  test('refuses once the user has edited the prose by hand', () => {
+    const applied = applyProposalTo(record({ profiles: [proposal('them')] }), 'sug-1', 'them', 2000)
+    const edited: DateRecord = {
+      ...applied,
+      themProfile: {
+        ...applied.themProfile!,
+        amendedAt: 2500,
+        markdown: '## Who they are\n\n- Corrected by hand',
+      },
+    }
+    expect(undoProposalIn(edited, 'sug-1', 'them')).toBe(edited)
   })
 
   // The whole reason the snapshot expires: restoring it over a rebuild would
