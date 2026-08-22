@@ -121,6 +121,26 @@ describe('applyProposalTo', () => {
     expect(twice.themProfile!.markdown).toBe(`${THEM}\n- At Studio Verde`)
   })
 
+  // Advice migrated from before turn tracking carries no `turnsAt`. Writing
+  // that absence over a profile's own stamp would claim the prose has read
+  // less than it has, and `staleness` would show "moved on" for a document
+  // that had read every turn.
+  test('legacy advice without turnsAt keeps the profile’s own stamp', () => {
+    const base = record({ profiles: [proposal('them')] })
+    const legacy = {
+      ...base,
+      turns: base.turns.map((t) =>
+        t.id === 'sug-1' ? { ...t, advice: { ...t.advice!, turnsAt: undefined } } : t,
+      ),
+      themProfile: { ...base.themProfile!, amendedTurnsAt: 800 },
+    } as DateRecord
+
+    const out = applyProposalTo(legacy, 'sug-1', 'them', 2000)
+    expect(out.themProfile!.amendedTurnsAt).toBe(800)
+    // The snapshot still records what stood before, so Undo restores it.
+    expect(at(out, 'them').before!.amendedTurnsAt).toBe(800)
+  })
+
   test('refuses a document that moved after the run that wrote the amendment', () => {
     // A rebuild since: its quotes were checked against text that is now gone.
     const rebuilt = record({ profiles: [proposal('them')], themAt: 1500 })

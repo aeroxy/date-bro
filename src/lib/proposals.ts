@@ -120,8 +120,10 @@ export function applyProposalTo(
       markdown: applyProfileUpdate(profile.markdown, proposal.update),
       amendedAt: now,
       // The transcript the amendment was written from, which is the
-      // suggestion's, not this moment's.
-      amendedTurnsAt: advice.turnsAt,
+      // suggestion's, not this moment's. Advice migrated from before turn
+      // tracking carries none — keep the profile's own stamp then, since
+      // clearing it would claim the prose has read less than it has.
+      amendedTurnsAt: advice.turnsAt ?? profile.amendedTurnsAt,
     },
   }
 }
