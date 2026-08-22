@@ -84,6 +84,19 @@ describe('applyProposalTo', () => {
     expect(at(out, 'me').appliedAt).toBeUndefined()
   })
 
+  // One run can propose to both documents. Applying the first stamps only its
+  // own profile's clock, so the second must still be applicable — the refusal
+  // in `movedSince` is per-document, not per-run.
+  test('both proposals from one run apply independently', () => {
+    const both = record({ profiles: [proposal('them'), proposal('me')] })
+    const out = applyProposalTo(applyProposalTo(both, 'sug-1', 'them', 2000), 'sug-1', 'me', 2500)
+
+    expect(out.themProfile!.markdown).toBe(`${THEM}\n- At Studio Verde`)
+    expect(out.meProfile!.markdown).toBe(`${ME}\n- Something serious`)
+    expect(at(out, 'them').appliedAt).toBe(2000)
+    expect(at(out, 'me').appliedAt).toBe(2500)
+  })
+
   // The same identity check every caller uses to skip the write entirely.
   test('declines by identity rather than writing something half-right', () => {
     const applied = record({ profiles: [proposal('them', { appliedAt: 1500 })] })

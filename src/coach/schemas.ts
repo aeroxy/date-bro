@@ -131,6 +131,10 @@ export const PERSON_SCHEMA: JsonSchemaSpec = {
           confidence,
           toward: {
             type: 'array',
+            // "unclear" is the schema's own empty state, so a bare [] is never a
+            // legitimate answer — it would be indistinguishable from the model
+            // having skipped the question.
+            minItems: 1,
             items: { type: 'string', enum: ['partnership', 'sex', 'companionship', 'unclear'] },
           },
           signals_for: stringArray,
@@ -402,7 +406,10 @@ export function validatePerson(r: object, base?: string): string | null {
       'signals_for',
       'signals_against',
       'honest_note',
-    ]) ?? needsArrays(interest, ['toward', 'signals_for', 'signals_against'])
+    ]) ??
+    // min 1, unlike the signal lists: "unclear" is toward's own empty state.
+    needsArray(interest, 'toward') ??
+    needsArrays(interest, ['signals_for', 'signals_against'])
   )
 }
 
