@@ -19,14 +19,16 @@ const key = (target: 'them' | 'me'): 'themProfile' | 'meProfile' =>
   target === 'them' ? 'themProfile' : 'meProfile'
 
 /**
- * Whether a profile has been written since `at` — by a rebuild or by an
- * amendment, which invalidate a proposal identically.
+ * Whether a profile has been written since `at` — by a rebuild, by an amendment,
+ * or by the user editing the prose by hand. All three invalidate a proposal
+ * identically, so all three are one clock here.
  *
  * Two questions, one answer. Before applying: the quotes in an `edit` were
  * checked against the document as it stood during the run, so a document that
  * has moved since was checked against text that no longer exists. Before
- * undoing: a snapshot restored over a newer rebuild would silently delete it,
- * which is a worse outcome than not undoing at all.
+ * undoing: a snapshot restored over a newer write would silently delete it,
+ * which is a worse outcome than not undoing at all — and the hand edit is the
+ * version of that which would lose the user's own typing.
  */
 export function movedSince(profile: { generatedAt: number; amendedAt?: number }, at: number): boolean {
   return Math.max(profile.generatedAt, profile.amendedAt ?? 0) > at
@@ -156,7 +158,7 @@ export function undoProposalIn(
       markdown,
       // Assigned even when undefined, which is the point: a profile that had
       // never been amended has no clocks, and leaving the ones this apply set
-      // in place would show "prose amended" on a document with no amendment.
+      // in place would show the prose as updated on a document nothing touched.
       amendedAt,
       amendedTurnsAt,
     },

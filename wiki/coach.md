@@ -454,6 +454,15 @@ took back.
 | `chatAboutProfile` | `{reply, headline, markdown, changed}` | one instruction: prose for the user, an optional `ProfileUpdate` applied to the stored markdown, and a replacement headline when the amendment made the old one wrong (`""` otherwise, the common case) |
 | `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profiles` (a `ProfileProposal[]`, at most one per document, applied by the caller when the advice is stored and undoable from the card — see above) |
 
+**Constraint sections have their own ceiling.** `Handle with care` and `Costing you` are lists of
+things *not* to do, and they don't cost what descriptive prose costs — every bullet is read as a live
+instruction on every run, so they accumulate into a posture rather than a description. Measured on a
+real record they reached 34 bullets between them and the advice went flat and errand-shaped: the model
+had more ways to be wrong than things to say. `CONSTRAINT_BULLET_CEILING` (8) is quoted to the rebuild
+engines as the point to start retiring rules, with three kinds named as the ones to drop — a rule about
+a moment that has passed, one that has been followed for several exchanges without incident, and two
+that say the same thing. Nothing enforces the number, exactly like `PROFILE_WORD_CEILING`.
+
 **An amendment moves the prose, and the headline with it.** `markdown`, `amendedAt`,
 `amendedTurnsAt` and — when the amendment made the old one wrong — `judgment.headline`. The rest of
 the judgment is left exactly as the last full rebuild produced it. Re-deciding where things *stand*

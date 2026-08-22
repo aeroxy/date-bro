@@ -124,7 +124,7 @@ describe('recordToMarkdown', () => {
       NOW,
     )
     expect(md).toContain('Rebuilt 2 August 2026')
-    expect(md).toContain('prose amended 4 August 2026')
+    expect(md).toContain('prose updated 4 August 2026')
     // Never a relative stamp: it is only true the moment it is rendered.
     expect(md).not.toContain('ago')
   })

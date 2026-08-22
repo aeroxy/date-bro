@@ -104,6 +104,20 @@ State worth knowing about:
   to their newest by a run you weren't watching. Switching people no longer resets it either — the
   selection is theirs. The advice history *is* the conversation — no parallel list, no cap, no pills.
 - `sentDrafts` is derived per render from the turns, like `answered`. See `SuggestionView`.
+- **The profile prose is hand-editable.** `ProfileBody` carries an Edit affordance that swaps the
+  rendered markdown for a raw textarea. It is the prose and only the prose, because the prose is the
+  only part of a profile any engine reads — the verdict above it (level, toward, flags, signals)
+  never reaches a prompt and is regenerated wholesale by the next rebuild, so editing it would change
+  the panel and nothing the coach does. Saving stamps `amendedAt` — the same clock a chat reply and an
+  applied amendment write, because `movedSince` takes the maximum and cannot tell three writers apart
+  anyway. That matters: a hand edit has to retire the Undo on any amendment standing against that
+  document, or the undo restores its snapshot over the edit and loses it with no way back. A separate
+  `editedAt` existed briefly and was the same number under another name; what made it look different
+  was the export saying "prose amended", so that reads "prose updated" instead, which is true of all
+  three writers. `amendedTurnsAt` stays coach-only — it records the transcript an amendment was
+  written *from*, and a hand edit reads no transcript, so editing prose correctly leaves a
+  "conversation has moved on" chip alone. Saving unchanged text is a cancel, and the button is
+  disabled while a rebuild of that profile is in flight.
 - **Profile amendments apply themselves, and the card offers the way back.** A next-move run writes
   its amendments in the same transaction that stores the advice; the card reads `Applied · Undo`, and
   `undoProposal` restores the document from the `before` snapshot on the proposal. Undo disappears

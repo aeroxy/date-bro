@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Check, Copy, CornerDownLeft } from 'lucide-react'
+import { Check, Copy, CornerDownLeft, Pencil } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
 import type { Flag, PersonProfile, SelfProfile } from '@/types/coach'
@@ -156,12 +156,94 @@ function Block({ title, n, children }: { title: string; n: string; children: Rea
  * the structure, so the view renders whatever headings it finds. A section added
  * because this particular connection needed one appears without any code change,
  * which was the whole reason for leaving the schema behind.
+ *
+ * Editable, because this prose is the only part of a profile any engine reads —
+ * the verdict above it never reaches a prompt. So this is the one place a
+ * correction changes what the coach *does* rather than only what the panel says,
+ * and a read the user knows to be wrong was previously only arguable with, via
+ * the chat, one round trip at a time.
+ *
+ * Raw markdown in a textarea rather than a rich editor. The document is amended
+ * by heading, so the headings are the structure and hiding them behind rendered
+ * type would hide the thing being edited; and the model writes plain bullets, so
+ * there is nothing here that needs more than a monospace box.
  */
-function ProfileBody({ markdown }: { markdown: string }) {
-  if (!markdown.trim()) {
-    return <Empty>Nothing written down yet — rebuild once there's some conversation.</Empty>
+function ProfileBody({
+  markdown,
+  onSave,
+  disabled,
+}: {
+  markdown: string
+  onSave?: (markdown: string) => void
+  /** A rebuild of this profile is running and would overwrite anything saved now. */
+  disabled?: boolean
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const editing = draft !== null
+
+  if (editing) {
+    return (
+      <div className="space-y-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          spellCheck={false}
+          rows={Math.min(40, Math.max(12, draft.split('\n').length + 2))}
+          className="w-full resize-y rounded-md border border-border-strong bg-surface px-3 py-2.5 font-mono text-[12px] leading-relaxed text-fg outline-none focus:border-action-300"
+        />
+        <div className="flex items-center justify-end gap-1.5">
+          <span className="mr-auto text-[11px] text-fg-3">
+            Markdown. <code>## </code> starts a section — the coach amends by heading, so keep
+            the ones you want it to keep finding.
+          </span>
+          <button
+            onClick={() => setDraft(null)}
+            className="rounded-md px-2 py-1 text-[11px] font-semibold text-fg-3 transition hover:bg-surface-muted hover:text-fg"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              // Unchanged text is a cancel. Saving it would stamp `amendedAt`,
+              // which is a claim that the document moved — and that retires the
+              // Undo on any amendment still standing against it.
+              if (draft !== markdown) onSave?.(draft)
+              setDraft(null)
+            }}
+            className="rounded-md bg-ink px-2.5 py-1 text-[11px] font-semibold text-white transition hover:opacity-90"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    )
   }
-  return <Markdown>{markdown}</Markdown>
+
+  return (
+    <div className="group/prose relative">
+      {markdown.trim() ? (
+        <Markdown>{markdown}</Markdown>
+      ) : (
+        <Empty>Nothing written down yet — rebuild once there's some conversation.</Empty>
+      )}
+      {onSave ? (
+        <button
+          onClick={() => setDraft(markdown)}
+          disabled={disabled}
+          title={
+            disabled
+              ? 'A rebuild of this profile is running — it would overwrite anything saved now.'
+              : 'Edit this prose by hand. It is the part the coach actually reads.'
+          }
+          className="absolute right-0 top-0 rounded-md px-2 py-1 text-[11px] font-semibold text-fg-3 opacity-0 transition hover:bg-surface-muted hover:text-fg focus-visible:opacity-100 disabled:pointer-events-none group-hover/prose:opacity-100"
+        >
+          <span className="inline-flex items-center gap-1">
+            <Pencil size={11} /> Edit
+          </span>
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 function Bullets({ items, tone }: { items: string[]; tone?: 'yes' | 'no' | 'plain' }) {
@@ -230,10 +312,15 @@ export function PersonContextView({
   ctx,
   name,
   answer,
+  onEdit,
+  editDisabled,
 }: {
   ctx: PersonProfile
   name: string
   answer?: AnswerProps
+  /** Save hand-edited prose. Absent leaves the document read-only. */
+  onEdit?: (markdown: string) => void
+  editDisabled?: boolean
 }) {
   const { interest_read, flags, open_questions } = ctx.judgment
 
@@ -289,7 +376,7 @@ export function PersonContextView({
       ) : null}
 
       <Block n="003" title={`What you know about ${name}`}>
-        <ProfileBody markdown={ctx.markdown} />
+        <ProfileBody markdown={ctx.markdown} onSave={onEdit} disabled={editDisabled} />
       </Block>
 
       <Block n="004" title={`What you still don't know about ${name}`}>
@@ -299,7 +386,17 @@ export function PersonContextView({
   )
 }
 
-export function SelfContextView({ ctx, answer }: { ctx: SelfProfile; answer?: AnswerProps }) {
+export function SelfContextView({
+  ctx,
+  answer,
+  onEdit,
+  editDisabled,
+}: {
+  ctx: SelfProfile
+  answer?: AnswerProps
+  onEdit?: (markdown: string) => void
+  editDisabled?: boolean
+}) {
   const { goal_read, open_questions } = ctx.judgment
 
   return (
@@ -307,7 +404,7 @@ export function SelfContextView({ ctx, answer }: { ctx: SelfProfile; answer?: An
       <p className="text-[14px] leading-relaxed text-fg">{ctx.judgment.headline}</p>
 
       <Block n="001" title="You, in this one">
-        <ProfileBody markdown={ctx.markdown} />
+        <ProfileBody markdown={ctx.markdown} onSave={onEdit} disabled={editDisabled} />
       </Block>
 
       <Block n="002" title="What you're actually after">

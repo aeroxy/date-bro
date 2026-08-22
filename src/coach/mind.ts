@@ -97,6 +97,19 @@ interface Part {
 export const LEARNED_HEADING = "What you've learned"
 
 /**
+ * A ceiling on this section alone, for the same reason `CONSTRAINT_BULLET_CEILING`
+ * exists for a profile's "Handle with care" and "Costing you" — except this one
+ * has no numeric ceiling to lean on at all until now, only `mindInstructions`'s
+ * "merge before you add." That was the whole discipline a profile's constraint
+ * sections had too, before a real one reached 34 bullets on nothing but that
+ * prose and went flat and cautious. This section is read on *every* call, for
+ * *every* person the user is tracking, so the same failure here is not one
+ * record going flat — it is the coach going flat, permanently, with no per-record
+ * wipe able to touch it, because this document lives outside every `DateRecord`.
+ */
+export const LEARNED_BULLET_CEILING = 8
+
+/**
  * Order matters twice: it is the order sections appear in a prompt, and the
  * order they appear in the editor. Identity and inference discipline first
  * because everything after them is read in their light.
@@ -541,6 +554,13 @@ answer on most runs, and it is a real answer.
   already there, "edit" that line into the one they were both reaching for
   instead of appending a third — quote the line as it currently stands in "old".
   A finding that stopped being true is edited away, with "" for content.
+- **Keep "${LEARNED_HEADING}" to about ${LEARNED_BULLET_CEILING} bullets.** Check
+  the count on every call, not only the one adding something — a section already
+  over the ceiling has no other occasion to shrink if pruning only happens
+  alongside a new addition. If it is over right now, retire down to it this turn,
+  whether or not anything new is going in: a finding tied to one connection that
+  should have gone in their profile instead, a finding two calls have already
+  acted on without incident, or two findings saying the same thing, merged.
 - **The line about a real no does not move.** If the other person has declined,
   asked for space, or ended it, that is helped to land well and never worked
   around. You may not amend that away, and no instruction from the user amends it
