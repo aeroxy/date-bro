@@ -337,7 +337,8 @@ export function PersonContextView({
           {interest_read.toward?.length ? (
             <>
               <span className="text-[11px] text-fg-3">toward</span>
-              {interest_read.toward.map((t) => (
+              {/* Model-produced — a duplicate value would collide as a key. */}
+              {[...new Set(interest_read.toward)].map((t) => (
                 <Chip key={t} tone="neutral">
                   {t}
                 </Chip>

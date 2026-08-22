@@ -15,6 +15,9 @@ import { validateProfileUpdate } from './profile'
 const confidence = { type: 'string', enum: ['high', 'medium', 'low'] } as const
 const stringArray = { type: 'array', items: { type: 'string' } } as const
 
+/** One list for the schema's enum and the runtime check — they must not drift. */
+const INTEREST_TOWARD = ['partnership', 'sex', 'companionship', 'unclear'] as const
+
 // --- The profile update, shared by both rebuild engines -----------------------
 
 /**
@@ -135,7 +138,7 @@ export const PERSON_SCHEMA: JsonSchemaSpec = {
             // legitimate answer — it would be indistinguishable from the model
             // having skipped the question.
             minItems: 1,
-            items: { type: 'string', enum: ['partnership', 'sex', 'companionship', 'unclear'] },
+            items: { type: 'string', enum: [...INTEREST_TOWARD] },
           },
           signals_for: stringArray,
           signals_against: stringArray,
@@ -375,6 +378,23 @@ function needsArrays(obj: object, fields: string[]): string | null {
   return null
 }
 
+/**
+ * The one enum the runtime path has to enforce itself: providers without
+ * response_format (the Qwen bridge) only ever meet this validator, so the
+ * schema's enum and minItems mean nothing there. Membership, and "unclear" on
+ * its own — next to a real destination it is not an answer, it is a hedge that
+ * reads as both.
+ */
+function needsToward(interest: object): string | null {
+  const toward = (interest as Record<string, unknown>).toward as unknown[]
+  const bad = toward.filter((t) => !(INTEREST_TOWARD as readonly unknown[]).includes(t))
+  if (bad.length)
+    return `"toward" may only hold ${INTEREST_TOWARD.map((t) => `"${t}"`).join(', ')}`
+  if (toward.includes('unclear') && toward.length > 1)
+    return '"unclear" goes on its own in "toward" — keep it or the destinations, not both'
+  return null
+}
+
 /** Prose the UI renders as a React child: a non-string there throws on render. */
 function needsString(obj: object, field: string): string | null {
   return typeof (obj as Record<string, unknown>)[field] === 'string'
@@ -409,6 +429,7 @@ export function validatePerson(r: object, base?: string): string | null {
     ]) ??
     // min 1, unlike the signal lists: "unclear" is toward's own empty state.
     needsArray(interest, 'toward') ??
+    needsToward(interest) ??
     needsArrays(interest, ['signals_for', 'signals_against'])
   )
 }

@@ -654,6 +654,21 @@ describe('rebuild validators', () => {
     expect(validatePerson({ ...person, interest_read: read })).toContain('toward')
   })
 
+  // The schema's enum and minItems only bind providers with response_format;
+  // the Qwen path meets nothing but this validator, so it enforces them too.
+  test('reject a toward the schema would have caught', () => {
+    const withToward = (toward: string[]) => ({
+      ...person,
+      interest_read: { ...person.interest_read, toward },
+    })
+    // Empty is a skipped question, not an answer — "unclear" is the empty state.
+    expect(validatePerson(withToward([]))).toContain('toward')
+    expect(validatePerson(withToward(['unknown']))).toContain('toward')
+    // "unclear" hedged against a real destination reads as both.
+    expect(validatePerson(withToward(['unclear', 'sex']))).toContain('unclear')
+    expect(validatePerson(withToward(['sex', 'companionship']))).toBeNull()
+  })
+
   test('reject a rebuild carrying no profile update at all', () => {
     const { profile, ...rest } = person
     expect(validatePerson(rest)).toContain('profile')
