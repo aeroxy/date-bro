@@ -170,21 +170,7 @@ export const MIND_PARTS: readonly Part[] = [
   },
 ]
 
-/**
- * What goes under one heading in the shipped document.
- *
- * The seeds already open with their own `## ` line — that is not a coincidence,
- * it is what makes them addressable sections rather than opaque blobs — so the
- * body is the seed with that line taken off. `^` without the `m` flag on
- * purpose: only the leading heading goes, and a `##` further down the prose
- * stays where the seed put it.
- *
- * One function for both readers below, because they disagreed. `SEED_MIND` gave
- * the empty part a `(nothing yet)` body and `seedSection` gave it `''`, so a
- * fresh install opened on "What you've learned" already marked as edited, and
- * the revert it offered wrote nothing.
- */
-const EMPTY_BODY = '(nothing yet)'
+const EMPTY_BODY = ''
 
 const seedBody = (part: Part): string => {
   const seed = part.seed.trim()
@@ -325,15 +311,8 @@ export function mindFor(markdown: string, audience: Audience[]): string {
     .join('\n\n')
 }
 
-/**
- * The tail section's body, for the volatile end of a request. `''` when the
- * section is absent, emptied, or still the seed placeholder, so callers skip the
- * block entirely instead of shipping "(nothing yet)" with every call.
- */
 export function learnedText(markdown: string): string {
-  const body =
-    parseSections(markdown).find((s) => key(s.heading) === key(LEARNED_HEADING))?.body.trim() ?? ''
-  return body === EMPTY_BODY ? '' : body
+  return parseSections(markdown).find((s) => key(s.heading) === key(LEARNED_HEADING))?.body.trim() ?? EMPTY_BODY
 }
 
 /** Canonical sections the document no longer has — surfaced in the editor. */
