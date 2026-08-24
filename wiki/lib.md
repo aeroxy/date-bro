@@ -29,7 +29,7 @@ naming a field the model never had trouble with. Every path now throws on `finis
 `stop_reason: 'max_tokens'` whether or not content arrived, and says which setting to raise. Latent
 rather than observed — found while chasing a *different* missing-field bug (see
 [coach.md](coach.md#profilets)) that had nothing to do with truncation.
-| `stripThinkBlock(content)` | Strips a leading `<think>…</think>`. An unclosed block returns `''` rather than half-written reasoning — otherwise `parseJSON`'s brace regex latches onto a brace *inside* the reasoning and yields garbage that parses cleanly. |
+| `splitThinkBlock(content)` | In `provider-dialect.ts`. Splits a leading `<think>…</think>` into `{answer, thinking}` — the reasoning is *kept* now rather than dropped, since it is the only reasoning some models emit. An unclosed block yields an empty answer rather than half-written reasoning, otherwise `parseJSON`'s brace regex latches onto a brace *inside* the reasoning and yields garbage that parses cleanly; the thoughts still come back. `stripThinkBlock` remains as the one-line answer-only form. |
 | `layeredUser(segments)` | A user turn built from strata (see [coach.md](coach.md)). Derives `content` by joining the segments rather than taking it as an argument, so the flat string and the segmented one can't drift. |
 
 **Message strata.** `ChatMessage.content` is still the flat string every backend sends; `segments` is
@@ -54,6 +54,65 @@ the first event (including a non-2xx, whose body arrives whole) retries normally
 is `json_schema` when the user enabled structured output and a schema was passed, `json_object`
 otherwise. `temperature` is omitted entirely when unset so the provider's own default applies —
 some reasoning models reject an explicit one.
+
+**It streams now** (`stream: true`, on by default, `stream: false` on the profile to opt out). It
+never did before, and that cost two things that have nothing to do with watching text appear — the
+response is still accumulated and parsed whole, so nothing downstream ever sees a partial JSON
+object. What it buys is `postSSE`'s **idle** timeout instead of `postJSON`'s total one, so a model
+that thinks for five minutes is fine while a dead socket still fails; and reasoning that reaches the
+waiting panel *while* the model is thinking rather than after the answer lands.
+
+Both callers now go through one `sendOpenAI`, which owns the streamed/buffered choice so the two
+paths can't drift. `stream` is also on `withExtraBody`'s dropped list — the flag decides how the
+response is *read*, and a body that disagrees with the reader is a hang rather than a setting.
+
+`openai-stream.ts` is the accumulator, pure like `anthropic-messages.ts`: `applyOpenAIChunk` returns
+whether the visible reasoning grew (the same contract `applyAnthropicStreamEvent` has, so the caller
+pushes without diffing) and `finishOpenAIStream` returns the non-streaming shape. Three details worth
+knowing. Tool-call fragments reassemble **by index** — `id` and `name` arrive once, `arguments` in
+pieces — and a fragment with *no* index is taken as the one call being streamed, since treating it as
+new would shred the arguments into one call per token. An id is synthesised when a provider never
+sends one, because the agent loop needs it to match a result to its call. And `finish_reason` is kept
+from whichever chunk carried it, so a trailing `null` can't erase it.
+
+A server that ignores the flag and answers with an ordinary JSON body produces no SSE chunks at all;
+that's detected (`sawChunk`) and reported as *turn off "Stream responses"* rather than as an empty
+answer, which would blame the model for a setting.
+
+### provider-dialect.ts — where "OpenAI-compatible" isn't
+
+Two things every provider does differently, and neither is in the spec: how you turn thinking **on**,
+and where the thinking comes **back**. Hard-coding a table of both would be wrong within a month, so
+the request half is handed to the user and the response half tries every shape anyone uses.
+
+**`extra_body`** (per profile, Settings → *Extra request body*) is a JSON object merged into the body
+we built, **the user's values winning** — a setting that lost to our defaults could not fix a default
+that is wrong for their provider. `mergeJSON` is deep: nested objects merge, arrays and scalars
+replace, since a field that *is* a list (`stop`, `tools`) always means the whole list. `model`,
+`messages` and `stream` are stripped: those *are* the request, and overriding one makes the call a
+different call, which fails as a silently wrong answer rather than an error. Malformed JSON is ignored
+rather than thrown — the same bargain `withCustomHeaders` strikes, with Settings showing the parse
+error while it is being typed. It applies to both the OpenAI and Anthropic bodies (`buildAnthropicBody`
+merges last, so it can override even `thinking` on a proxy that spells it differently); the Qwen
+backend has no body of its own to merge into.
+
+The recipes worth knowing: `{"reasoning":{"effort":"high"}}` on OpenRouter,
+`{"chat_template_kwargs":{"enable_thinking":true}}` on vLLM, `{"enable_thinking":true}` on some
+Qwen-compatible servers.
+
+**`reasoningFrom(message, inline)`** reads it back, trying in order: `reasoning_content` (DeepSeek,
+vLLM, most Qwen-compatible servers), `reasoning` as a plain string (OpenRouter), `reasoning_details[]`
+as blocks (OpenRouter's newer shape and anything proxying it), then a leading `<think>` block for a
+model whose server never had a field to put this in. `reportReasoning` fires `onThinking` with it as
+`{titles: [], thoughts: [text]}` — the same `ThinkingSummary` the Anthropic path emits, so the waiting
+panel needs to know nothing about which provider produced it — and stays silent when there was none,
+because an empty panel is worse than the last one. In `toolCompletionRequest` it fires before the
+return, so a turn that ends in tool calls still shows *why* it searched.
+
+When the profile streams, `reasoningSoFar` reads the same shapes off the *deltas* instead, so the
+panel fills as the model thinks — including the inside of an unclosed `<think>` block, which is where
+a model with no reasoning field puts it. `reasoningFrom` still runs on the buffered path (`stream:
+false`), where it is one late summary after the answer.
 
 **Anthropic path.** POSTs `{base_url}/messages` with `x-api-key` + `anthropic-version` +
 `anthropic-dangerous-direct-browser-access` (api.anthropic.com refuses browser-origin requests

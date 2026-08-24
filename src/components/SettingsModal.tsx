@@ -44,6 +44,31 @@ function headersProblem(raw?: string): string | null {
   return bad ? `"${bad[0]}" must be a string. Ignored as written.` : null
 }
 
+/**
+ * Mirrors what `withExtraBody` will accept. Looser than `headersProblem` on
+ * purpose — a value here can be any JSON, since the whole point is sending a
+ * shape we don't know about — so the only structural rule is that the top level
+ * is an object. The three dropped fields get a warning rather than an error:
+ * the merge strips them and the rest of the object still applies, so "ignored as
+ * written" would be a lie about the other keys.
+ */
+function extraBodyProblem(raw?: string): string | null {
+  if (!raw?.trim()) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return 'Not valid JSON — keys need double quotes. Ignored as written.'
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return 'Needs to be a JSON object of fields to merge into the request. Ignored as written.'
+  }
+  const reserved = ['model', 'messages', 'stream'].filter((f) => f in parsed)
+  return reserved.length
+    ? `"${reserved.join('", "')}" can't be set here — that's the request itself. Dropped; the rest still applies.`
+    : null
+}
+
 /** Blank, zero, or negative all mean the same thing here: leave it unset. */
 function positiveOrDefault(raw: string): number | undefined {
   const n = Number(raw)
@@ -100,6 +125,7 @@ export function SettingsModal({
   const current = profiles.find((p) => p.id === activeId)
   const isAnthropic = current?.config.backend === 'anthropic'
   const headersError = headersProblem(current?.config.custom_headers)
+  const extraBodyError = extraBodyProblem(current?.config.extra_body)
 
   const patch = (change: Partial<LLMConfig>) =>
     setProfiles((prev) =>
@@ -340,6 +366,29 @@ export function SettingsModal({
                   <p className="mt-1 text-[11.5px] leading-snug text-no">{headersError}</p>
                 ) : null}
               </Field>
+              {/* How you turn thinking on is in no spec, so every provider spells
+                  it differently and there is no list worth hard-coding — it would
+                  be out of date within a month. This is the escape hatch: send the
+                  field your provider actually wants. */}
+              <Field label="Extra request body" hint="JSON, optional — merged in, yours wins">
+                <Input
+                  value={current.config.extra_body ?? ''}
+                  onChange={(e) => patch({ extra_body: e.target.value })}
+                  placeholder='{"reasoning": {"effort": "high"}}'
+                />
+                {extraBodyError ? (
+                  <p className="mt-1 text-[11.5px] leading-snug text-no">{extraBodyError}</p>
+                ) : (
+                  <p className="mt-1 text-[11.5px] leading-snug text-fg-3">
+                    Merged into every request from this profile. Mostly for turning thinking on, which
+                    each provider does its own way:{' '}
+                    <code>{'{"reasoning":{"effort":"high"}}'}</code> on OpenRouter,{' '}
+                    <code>{'{"chat_template_kwargs":{"enable_thinking":true}}'}</code> on vLLM. Once
+                    the provider returns reasoning, it shows in the waiting panel — after the answer
+                    lands rather than during, since this path isn't streamed.
+                  </p>
+                )}
+              </Field>
               <label className="flex cursor-pointer items-start gap-2.5">
                 <input
                   type="checkbox"
@@ -360,6 +409,26 @@ export function SettingsModal({
                   models, llama.cpp, older Ollama).
                 </span>
               </label>
+              {isAnthropic ? null : (
+                <label className="flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={current.config.stream ?? true}
+                    onChange={(e) => patch({ stream: e.target.checked })}
+                    className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-action)]"
+                  />
+                  <span className="text-[12.5px] leading-relaxed text-fg-2">
+                    <span className="font-semibold text-fg">Stream responses</span> — asks for{' '}
+                    <code>stream: true</code> and reads the reply as it arrives. The answer is still
+                    assembled and checked whole, so this isn't about watching text appear: it makes the
+                    timeout mean <em>two minutes of silence</em> rather than two minutes total, so a
+                    model that thinks for five is fine, and it puts the model's reasoning in the
+                    waiting panel while it's still thinking instead of after. Turn off for a server or
+                    proxy that doesn't support streaming, or that breaks it alongside strict structured
+                    output. The Anthropic backend always streams.
+                  </span>
+                </label>
+              )}
               <label className="flex cursor-pointer items-start gap-2.5">
                 <input
                   type="checkbox"
