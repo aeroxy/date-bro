@@ -229,7 +229,7 @@ export function MindModal({ open, onClose }: { open: boolean; onClose: () => voi
               defaultValue={current}
               onChange={(e) => writeSection(e.target.value)}
               className="font-mono text-[12px] leading-relaxed"
-              placeholder={'Deleted. The calls that used this section now run without it — type here to bring it back, or revert to shipped.'}
+              placeholder={'Nothing yet.'}
             />
           </div>
         </div>
