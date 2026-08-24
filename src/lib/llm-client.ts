@@ -10,6 +10,14 @@ import {
   type AnthropicBodyOptions,
   type AnthropicStreamEvent,
 } from './anthropic-messages'
+import {
+  applyOpenAIChunk,
+  finishOpenAIStream,
+  newOpenAIStreamState,
+  reasoningSoFar,
+  type OpenAIStreamChunk,
+} from './openai-stream'
+import { reasoningFrom, splitThinkBlock, stripThinkBlock, withExtraBody } from './provider-dialect'
 import { normalizeQwenModel } from './qwen/qwen-service'
 import type { ThinkingSummary } from '@/types/coach'
 import type { LLMConfig } from '@/types/settings'
@@ -59,7 +67,16 @@ function toOpenAIMessages(messages: ChatMessage[]): Record<string, unknown>[] {
 
 interface ChatCompletionResponse {
   choices: Array<{
-    message: { content: string; tool_calls?: ToolCall[] }
+    // The three reasoning fields are all `unknown`: none is in the OpenAI spec,
+    // so a provider is free to put anything under any of them, and
+    // `reasoningFrom` is what decides which of them this response actually used.
+    message: {
+      content: string
+      tool_calls?: ToolCall[]
+      reasoning_content?: unknown
+      reasoning?: unknown
+      reasoning_details?: unknown
+    }
     finish_reason: string
   }>
 }
@@ -77,10 +94,18 @@ export interface CompletionOptions {
   /** Strict server-side structured output. Ignored by the Qwen backend. */
   jsonSchema?: JsonSchemaSpec
   /**
-   * The model's reasoning summary as it streams, so the UI has something to show
-   * during a long think. Each call replaces the last. Fired by Qwen, and by the
-   * Anthropic backend when the profile opts into `anthropic_thinking`; never by
-   * the OpenAI backend, which we don't stream.
+   * The model's reasoning, so the UI has something to show for a long think. Each
+   * call replaces the last.
+   *
+   * Streamed by Qwen, and by the Anthropic backend when the profile opts into
+   * `anthropic_thinking`. On the OpenAI-compatible path it fires once, after the
+   * response lands, because that path is a single POST — whichever field the
+   * provider returned its reasoning in (see `reasoningFrom`), or a leading
+   * `<think>` block if that is where the model put it. Late is worth having: it
+   * is the difference between reading why the answer says what it says and taking
+   * it on faith. Nothing fires when the provider sent no reasoning at all, which
+   * includes every provider until the user turns thinking on for it — usually via
+   * `extra_body`, since how you do that is not in any spec.
    */
   onThinking?: (thinking: ThinkingSummary) => void
   /**
@@ -126,21 +151,6 @@ function truncatedMessage(maxTokens: number, partial = false): string {
   return partial
     ? `Response was cut off at max_tokens (${maxTokens}) partway through, so only part of the JSON arrived. Raise "Max tokens" in settings.`
     : `Response was cut off at max_tokens (${maxTokens}) before any output — reasoning models spend this budget thinking first. Raise "Max tokens" in settings.`
-}
-
-/**
- * Some reasoning models emit chain-of-thought inline as a leading <think> block
- * instead of a separate field. Strip it so JSON parsing sees only the answer.
- * A block with no closing tag means the response was cut off mid-reasoning —
- * return '' rather than the half-written thoughts, or parseJSON's `{…}` regex
- * latches onto a brace inside the reasoning and yields garbage that parses.
- */
-export function stripThinkBlock(content: string): string {
-  const trimmed = content.trimStart()
-  if (!trimmed.startsWith('<think>')) return content
-  const close = trimmed.indexOf('</think>')
-  if (close === -1) return ''
-  return trimmed.slice(close + '</think>'.length).trimStart()
 }
 
 export async function chatCompletion(
@@ -232,6 +242,106 @@ function unwrapQwen(resp: { ok?: boolean; result?: string; error?: string; isAbo
   throw new Error(resp?.error || 'Qwen request failed — is the background worker alive?')
 }
 
+/**
+ * One late reasoning summary from a non-streaming response, if it carried any.
+ *
+ * Shaped as `thoughts: [text]` with no titles, which is the same `ThinkingSummary`
+ * the Anthropic path emits — the waiting UI already renders it and needs to know
+ * nothing about which provider produced it. Silent when there was no reasoning,
+ * so a provider that never returns any leaves the panel exactly as it was rather
+ * than flashing an empty one.
+ */
+function reportReasoning(
+  onThinking: ((thinking: ThinkingSummary) => void) | undefined,
+  message: { reasoning_content?: unknown; reasoning?: unknown; reasoning_details?: unknown },
+  inline?: string,
+): void {
+  if (!onThinking) return
+  const reasoning = reasoningFrom(message, inline)
+  if (reasoning) onThinking({ titles: [], thoughts: [reasoning] })
+}
+
+/**
+ * One OpenAI-compatible request, streamed or not, in the shape both callers want.
+ *
+ * `stream: true` was simply never sent before this — the path was a single POST,
+ * which cost two things. A 120s *total* timeout killed long thinky calls that
+ * were working fine, and reasoning could only ever be reported after the answer
+ * had already landed. Streaming fixes both: `postSSE` rearms its timeout on every
+ * chunk, so the limit becomes 120s of silence, and the reasoning arrives while
+ * the user is waiting on it.
+ *
+ * What it deliberately does not change is parsing. The stream is accumulated and
+ * then handed on whole, so nothing downstream ever sees a partial JSON object —
+ * a streamed response and a buffered one are the same value.
+ *
+ * Off is still supported (`stream: false` on the profile) because some
+ * OpenAI-shaped servers and proxies don't implement it, or break it in
+ * combination with strict `response_format`. A server that ignores the flag and
+ * answers with an ordinary JSON body is the failure worth naming: the SSE parser
+ * finds no chunks, and the error says which setting to turn off rather than
+ * reporting an empty answer.
+ */
+async function sendOpenAI(
+  config: LLMConfig,
+  body: Record<string, unknown>,
+  options: { signal?: AbortSignal; onThinking?: (thinking: ThinkingSummary) => void },
+): Promise<{ content: string; tool_calls?: ToolCall[]; finish_reason?: string }> {
+  const url = `${resolveEndpoint(config)}/chat/completions`
+  const headers = withCustomHeaders(bearerHeaders(config), config.custom_headers)
+  const timeoutMs = resolveTimeout(config)
+
+  if (config.stream === false) {
+    const data = await postJSON<ChatCompletionResponse>(url, {
+      headers,
+      body: withExtraBody(body, config.extra_body),
+      timeoutMs,
+      signal: options.signal,
+    })
+    const choice = data.choices?.[0]
+    const message = choice?.message
+    if (!message) throw new Error('LLM returned an empty response')
+    const { answer, thinking } = splitThinkBlock(message.content ?? '')
+    reportReasoning(options.onThinking, message, thinking)
+    return {
+      content: answer,
+      ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}),
+      ...(choice.finish_reason ? { finish_reason: choice.finish_reason } : {}),
+    }
+  }
+
+  const state = newOpenAIStreamState()
+  await postSSE<OpenAIStreamChunk>(
+    url,
+    {
+      headers,
+      // `stream` is merged in below the user's extra body only in the sense that
+      // `withExtraBody` drops it from theirs — the client owns this one, because
+      // the flag decides how the response is *read* and a body that disagrees
+      // with the reader is a hang, not a setting.
+      body: { ...withExtraBody(body, config.extra_body), stream: true },
+      timeoutMs,
+      signal: options.signal,
+    },
+    (chunk) => {
+      if (applyOpenAIChunk(state, chunk) && options.onThinking) {
+        options.onThinking({ titles: [], thoughts: [reasoningSoFar(state)] })
+      }
+    },
+  )
+
+  if (!state.sawChunk) {
+    throw new Error(
+      'The provider answered without streaming — no SSE chunks arrived. Turn off "Stream responses" in Settings for this profile.',
+    )
+  }
+  const { content, tool_calls, reasoning, finish_reason } = finishOpenAIStream(state)
+  // Fired here as well as per chunk: a provider that sends its reasoning in one
+  // final block, rather than as deltas, never grew it mid-stream.
+  if (reasoning && options.onThinking) options.onThinking({ titles: [], thoughts: [reasoning] })
+  return { content, ...(tool_calls ? { tool_calls } : {}), ...(finish_reason ? { finish_reason } : {}) }
+}
+
 async function openAICompletion(
   config: LLMConfig,
   messages: ChatMessage[],
@@ -258,23 +368,16 @@ async function openAICompletion(
     body.response_format = { type: 'json_object' }
   }
 
-  const data = await postJSON<ChatCompletionResponse>(`${resolveEndpoint(config)}/chat/completions`, {
-    headers: withCustomHeaders(bearerHeaders(config), config.custom_headers),
-    body,
-    timeoutMs: resolveTimeout(config),
-    signal: options.signal,
-  })
+  const { content, finish_reason } = await sendOpenAI(config, body, options)
 
-  const choice = data.choices?.[0]
-  const content = choice?.message?.content
   if (!content) {
-    if (choice?.finish_reason === 'length') throw new Error(truncatedMessage(max_tokens))
+    if (finish_reason === 'length') throw new Error(truncatedMessage(max_tokens))
     throw new Error('LLM returned an empty response')
   }
   // Cut off with content already emitted. Half a JSON object is not a cheaper
   // version of the answer — it's a broken one that parses.
-  if (choice?.finish_reason === 'length') throw new Error(truncatedMessage(max_tokens, true))
-  return stripThinkBlock(content)
+  if (finish_reason === 'length') throw new Error(truncatedMessage(max_tokens, true))
+  return content
 }
 
 async function anthropicCompletion(
@@ -333,7 +436,7 @@ async function anthropicRequest(
   const wantsThinking = !!onThinking && config.anthropic_thinking === true
 
   const state = newAnthropicStreamState()
-  await postSSE(
+  await postSSE<AnthropicStreamEvent>(
     `${resolveEndpoint(config)}/messages`,
     {
       headers: withCustomHeaders(headers, config.custom_headers),
@@ -497,10 +600,10 @@ async function postJSON<T>(url: string, options: PostJSONOptions): Promise<T> {
  * nothing has been delivered yet: once events are out, the caller has already
  * shown reasoning and appended state, so replaying from scratch would double it.
  */
-async function postSSE(
+async function postSSE<T>(
   url: string,
   options: PostJSONOptions,
-  onEvent: (event: AnthropicStreamEvent) => void,
+  onEvent: (event: T) => void,
 ): Promise<void> {
   const { headers, body, timeoutMs, signal } = options
   let lastError: Error | null = null
@@ -544,7 +647,7 @@ async function postSSE(
       let buffer = ''
 
       const emit = (block: string) => {
-        const event = parseSSEBlock(block)
+        const event = parseSSEBlock<T>(block)
         if (!event) return
         // `delivered` is set after the handler returns, so an `error` event
         // arriving first still throws from a retryable position.
@@ -600,10 +703,11 @@ async function postSSE(
 
 /**
  * One `data:`-carrying SSE block → the event object. The `event:` line is
- * redundant (the JSON repeats the type), so only `data:` is read. Returns null
- * for keep-alive comments and anything unparseable.
+ * redundant on both dialects (Anthropic repeats the type in the JSON, OpenAI
+ * never sends one), so only `data:` is read. Returns null for keep-alive
+ * comments, for OpenAI's `[DONE]` sentinel, and for anything unparseable.
  */
-function parseSSEBlock(block: string): AnthropicStreamEvent | null {
+function parseSSEBlock<T>(block: string): T | null {
   const data = block
     .split(/\r?\n/)
     .filter((line) => line.startsWith('data:'))
@@ -611,7 +715,7 @@ function parseSSEBlock(block: string): AnthropicStreamEvent | null {
     .join('')
   if (!data || data === '[DONE]') return null
   try {
-    return JSON.parse(data) as AnthropicStreamEvent
+    return JSON.parse(data) as T
   } catch {
     return null
   }
@@ -688,7 +792,7 @@ async function toolCompletionRequest(
   messages: ChatMessage[],
   options: ToolCompletionOptions,
 ): Promise<ChatCompletionWithToolsResult> {
-  const { tools, tool_choice = 'auto', signal, jsonSchema } = options
+  const { tools, tool_choice = 'auto', jsonSchema } = options
   const temperature = options.temperature ?? config.temperature
   const max_tokens = resolveMaxTokens(config, options.max_tokens)
 
@@ -716,25 +820,14 @@ async function toolCompletionRequest(
     }
   }
 
-  const data = await postJSON<ChatCompletionResponse>(`${resolveEndpoint(config)}/chat/completions`, {
-    headers: withCustomHeaders(bearerHeaders(config), config.custom_headers),
-    body,
-    timeoutMs: resolveTimeout(config),
-    signal,
-  })
+  const { content, tool_calls, finish_reason } = await sendOpenAI(config, body, options)
 
-  const choice = data.choices?.[0]
-  const message = choice?.message
-  if (!message) throw new Error('LLM returned an empty response')
-
-  const tool_calls = message.tool_calls
-  const hasToolCalls = Array.isArray(tool_calls) && tool_calls.length > 0
-  if (choice.finish_reason === 'length') {
+  if (finish_reason === 'length') {
     // Partial tool-call arguments are the same trap as partial content: they
     // parse into something shaped right and missing whatever came last.
-    throw new Error(truncatedMessage(max_tokens, !!message.content || hasToolCalls))
+    throw new Error(truncatedMessage(max_tokens, !!content || !!tool_calls?.length))
   }
-  return { content: stripThinkBlock(message.content ?? ''), tool_calls: hasToolCalls ? tool_calls : undefined }
+  return { content, tool_calls }
 }
 
 /** Robust JSON extraction: fence → outermost object → jsonrepair → give up. */

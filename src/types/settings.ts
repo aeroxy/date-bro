@@ -19,6 +19,22 @@ export interface LLMConfig {
   api_key?: string
   /** JSON object of extra headers, e.g. '{"X-Api-Key":"…"}'. */
   custom_headers?: string
+  /**
+   * JSON object merged into the request body, the user's values winning.
+   *
+   * For the fields no spec covers, which in practice means turning thinking on:
+   * every provider invented its own way, and there are too many to enumerate in
+   * code that would then be wrong within a month — `{"reasoning":{"effort":
+   * "high"}}` on OpenRouter, `{"chat_template_kwargs":{"enable_thinking":true}}`
+   * on vLLM, `{"enable_thinking":true}` on some Qwen-compatible servers. Applies
+   * to the 'openai' and 'anthropic' paths, both of which build a JSON body we
+   * control; the Qwen backend has no body of its own to merge into.
+   *
+   * `model`, `messages` and `stream` are dropped from it — those *are* the
+   * request, and overriding them makes the call something other than the one the
+   * caller asked for, which fails as a wrong answer rather than as an error.
+   */
+  extra_body?: string
   /** Strict server-side JSON: `response_format.json_schema` on the 'openai'
    * backend, `output_config.format` on 'anthropic'. Needs a provider (and, on
    * Anthropic, a model) that supports it. */
@@ -35,6 +51,21 @@ export interface LLMConfig {
    * 4.7) and is rejected outright by models that never had it (Haiku 4.5) and by
    * proxies that don't understand the field. */
   anthropic_thinking?: boolean
+  /**
+   * Default true: request `stream: true` and read the response as SSE.
+   *
+   * Worth having on for two reasons that have nothing to do with showing text as
+   * it arrives — the answer is still assembled and parsed whole. The request
+   * timeout becomes *idle* rather than total, so a model that thinks for five
+   * minutes is fine while a dead socket still fails; and the model's reasoning
+   * reaches the waiting panel while it is still thinking instead of after the
+   * answer lands.
+   *
+   * Turn off for a server or proxy that doesn't implement streaming, or breaks it
+   * alongside strict `response_format`. One that silently ignores the flag and
+   * replies with an ordinary JSON body is detected and says so.
+   */
+  stream?: boolean
   temperature?: number
   /** Default 8192 — reasoning models spend this budget on reasoning first. */
   max_tokens?: number

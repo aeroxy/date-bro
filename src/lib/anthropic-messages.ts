@@ -3,6 +3,8 @@
 // the fetch, retry, and error handling stay in llm-client.ts, so all three
 // backends share one policy.
 
+import { withExtraBody } from './provider-dialect'
+
 import type { ChatMessage, JsonSchemaSpec } from './llm-client'
 import type { ToolCall, ToolDefinition } from './tools/types'
 import type { LLMConfig } from '@/types/settings'
@@ -181,7 +183,10 @@ export function buildAnthropicBody(
     body.tool_choice = { type: TOOL_CHOICE[options.tool_choice ?? 'auto'] }
   }
 
-  return body
+  // Last, so the user's own fields win over every default above — including
+  // `thinking`, which is the one this exists for on a proxy that spells it
+  // differently. See `LLMConfig.extra_body`.
+  return withExtraBody(body, config.extra_body)
 }
 
 const TOOL_CHOICE = { auto: 'auto', required: 'any', none: 'none' } as const
