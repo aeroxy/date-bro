@@ -67,11 +67,9 @@ const UPDATE_FIELDS = `"changed": boolean,             // false when nothing you
     }],
     "rewrite": string               // "" almost always — see the note above about when a rewrite is warranted`
 
-const updateShape = (field: string) => `"${field}": {
+const PROFILE_UPDATE_SHAPE = `"profile": {
     ${UPDATE_FIELDS}
   },`
-
-const PROFILE_UPDATE_SHAPE = updateShape('profile')
 
 // --- Their context -----------------------------------------------------------
 
@@ -249,10 +247,11 @@ export const SUGGESTION_SHAPE = `{
                                     // answer, or everything you found is already in the block.
                                     // Unless <research_notes> asks you to consolidate: then it is
                                     // the complete replacement list, and what you omit is dropped.
-  ${updateShape('mind')}                                // what to change about
-                                    // YOURSELF — see "Amending yourself" above. changed: false on
-                                    // most runs. Nothing about the person in this request; that
-                                    // goes in the two profile amendments below.
+  "mind": {                         // what to change about YOURSELF — see "Amending yourself"
+                                    // above. changed: false on most runs. Nothing about the person
+                                    // in this request; that goes in the two profile amendments below.
+    ${UPDATE_FIELDS}
+  },
   "profile_them": {                 // an amendment to the profile of the PERSON. It is APPLIED when
                                     // this answer is stored — the user sees what changed and can
                                     // undo it, but the default is that it lands.
@@ -331,7 +330,14 @@ export const CHAT_SHAPE = `{
                                     // it sits directly above the prose you just changed, so a stale
                                     // one is the first thing the user reads and it contradicts the
                                     // correction underneath. 2 sentences, same voice as the prose.
-  ${PROFILE_UPDATE_SHAPE.replace(/,$/, '')}
+  ${PROFILE_UPDATE_SHAPE}
+  "mind": {                         // what to change about YOURSELF — see "Amending yourself"
+                                    // above. changed: false on most runs. This is the one engine the
+                                    // user speaks to, which makes it the one place a correction they
+                                    // make about *themselves* can be kept somewhere that outlives
+                                    // this record. Nothing about the person here — that is "profile".
+    ${UPDATE_FIELDS}
+  }
 }`
 
 export const CHAT_SCHEMA: JsonSchemaSpec = {
@@ -339,11 +345,12 @@ export const CHAT_SCHEMA: JsonSchemaSpec = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['reply', 'headline', 'profile'],
+    required: ['reply', 'headline', 'profile', 'mind'],
     properties: {
       reply: { type: 'string' },
       headline: { type: 'string' },
       profile: profileUpdate,
+      mind: profileUpdate,
     },
   },
 }
@@ -444,8 +451,9 @@ export function validateSelf(r: object, base?: string): string | null {
   )
 }
 
-export function validateChat(r: object, base?: string): string | null {
+export function validateChat(r: object, base?: string, mindBase?: string): string | null {
   const headline = (r as { headline?: unknown }).headline
+  const mind = (r as { mind?: unknown }).mind
   return (
     missing(r, ['reply', 'profile']) ??
     needsString(r, 'reply') ??
@@ -459,7 +467,11 @@ export function validateChat(r: object, base?: string): string | null {
     // and says nothing, and the thread shows a blank bubble where an answer
     // should be.
     ((r as { reply: string }).reply.trim() ? null : '"reply" must not be empty — answer the user') ??
-    validateProfileUpdate((r as { profile: unknown }).profile, 'profile', base)
+    validateProfileUpdate((r as { profile: unknown }).profile, 'profile', base) ??
+    // Absent passes: an engine whose whole job is one profile edit has nothing
+    // to say about itself on most turns, and a backend without schema
+    // enforcement drops the field rather than sending changed: false.
+    (mind == null ? null : validateProfileUpdate(mind, 'mind', mindBase))
   )
 }
 

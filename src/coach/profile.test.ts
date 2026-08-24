@@ -852,4 +852,26 @@ describe('the amend contract', () => {
     expect(validateChat({ ...ok(), headline: ['a'] })).toContain('headline')
     expect(validateChat({ ...ok(), headline: 3 })).toContain('headline')
   })
+
+  // This engine is the only one the user speaks to, so it is the only one
+  // besides `suggestMove` that may amend the coach itself.
+  test('an absent mind amendment is allowed — most turns have nothing to say', () => {
+    expect(validateChat(ok())).toBeNull()
+    expect(validateChat({ ...ok(), mind: { changed: false } })).toBeNull()
+  })
+
+  test('a mind edit is quote-checked against the mind, not against the profile', () => {
+    const doc = "## What you've learned\n\n- Writes in lower case"
+    const fits = {
+      ...ok(),
+      mind: {
+        changed: true,
+        sections: [
+          { heading: "What you've learned", mode: 'edit', old: '- Writes in lower case', content: '- Writes in lower case, no emoji' },
+        ],
+      },
+    }
+    expect(validateChat(fits, '', doc)).toBeNull()
+    expect(validateChat(fits, doc, '')).toContain('mind')
+  })
 })

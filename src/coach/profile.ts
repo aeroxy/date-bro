@@ -98,12 +98,58 @@ export interface ProfileUpdate {
 // what he knows.
 export const PERSON_SECTIONS = [
   'Who they are',
+  'Personality',
+  'Love languages',
   'What they care about',
   'Right now',
   'How they talk',
   'Handle with care',
   'Threads to pick back up',
 ] as const
+
+/**
+ * What a heading holds, printed beside it in the rebuild instructions. Only the
+ * headings whose name doesn't settle the question need one.
+ *
+ * The personality read has two sections of its own on each side, and it did not
+ * start that way. It began as a note on "Who they are" — the name reads as a
+ * biography slot and duly filled with job, city and training, while the mind was
+ * asking for an MBTI and a love-language read with nowhere to put either. The
+ * note moved the contract but not the behaviour: a heading is a slot the model is
+ * expected to fill and whose absence is visible, a note beside one is advice, and
+ * the read came back only sometimes. A section that must exist is the difference.
+ *
+ * Split in two rather than one "Personality" holding both, because they are
+ * answered from different evidence and one reliably crowds out the other: a type
+ * is read off how someone thinks and decides across the whole thread, a love
+ * language off what they do when they want to show something and what they visibly
+ * receive.
+ *
+ * Both sides carry both, and the self side is the half that changes the advice:
+ * what the user is drafted to say has to sound like them, and what they are told
+ * to want out of a move has to be something they would actually feel as being
+ * wanted. Neither rebuild can see the other's document — each writes its half
+ * blind, which is fine. The next-move engine is the only one handed both, which is
+ * where a love language stops being a description and becomes a decision. It reads
+ * the pair and may amend neither (`proposalInstructions`): a personality read is a
+ * judgment over the whole transcript, not something one exchange earns a nudge to.
+ *
+ * Every note stands on its own, with no cross-reference to its twin. An engine is
+ * printed one list or the other and never both, so a note pointing at its opposite
+ * number points at nothing in the only request that reads it.
+ */
+export const SECTION_NOTES: Readonly<Record<string, string>> = {
+  'Who they are': 'the standing facts that place them — work, city, what they trained in, who is in their life. Not the personality read, which has its own sections below.',
+  Personality:
+    'their MBTI read. A working hypothesis carried with its confidence and revised as the transcript argues with it — never a label, and never stated as settled. Say what you saw them do that supports each letter you are confident about, and leave out the ones you are not: three letters with evidence beat four with two invented. If a read of theirs is currently sitting in "Who they are", move it here.',
+  'Love languages':
+    'both directions, and they are routinely different: the one they speak, seen in what they do when they want to show something, and the one they want spoken back to them, seen in what visibly lands. The receiving side is the one that decides what is worth sending them, so it is the half worth being most careful about. Confidence on each, and say what you read it off. If this is currently sitting in "Who they are", move it here.',
+  'Who you are': 'the standing facts about the user, kept to the ones that change something between these two people. Not the personality read, which has its own sections below.',
+  'Your personality':
+    'the user\'s MBTI read, on the same terms: a hypothesis with its confidence, revised as their own turns argue with it, never a label. Read it off how they behave here rather than off how they describe themselves — a self-description is written to be read by someone.',
+  'Your love languages':
+    'both directions for the user too — what they reach for when they want to show something, and what they visibly light up at. Read off their own turns, not off a note they wrote about themselves. This is the half that says whether a move the coach is about to recommend is one they would actually feel as being wanted.',
+}
 
 // "What you're into" is additive rather than a rename, so records written before
 // it simply don't have it until their next rebuild — the same shape as any part
@@ -116,6 +162,8 @@ export const PERSON_SECTIONS = [
 // anywhere.
 export const SELF_SECTIONS = [
   'Who you are',
+  'Your personality',
+  'Your love languages',
   'How you come across',
   'How you write',
   "What you're into",

@@ -21,11 +21,11 @@ are — they're the addresses an amendment aims at. Split so each engine only pa
 
 | Module | Used by | Contents |
 |---|---|---|
-| `KB_IDENTITY` | every engine | Who the coach is: voice, nerve, who the advice is for, no assumption about where a connection is going (partnership is one destination among several, not the grown-up end of a ladder — the user's stated goal decides, and the evidence decides where it is silent), and the one line that never bends, now bounded to what was actually refused and to the moment it was said in |
-| `KB_EVIDENCE` | both rebuilders | Inference discipline: separate observation from inference, confidence is part of the claim, one message is never a pattern, prefer the boring explanation, unknowns are output, and politeness is not uptake — an ironic thank-you or a wall of laughing is a receipt, so read the two messages after it, which bites hardest when the coach is grading its own advice |
-| `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), Big Five over MBTI/love-languages, what the thread is *for* — read before temperature and carried structurally in `interest_read.toward`, since "how warm" is meaningless until you know warm toward what, and interest in sex, partnership and companionship are separable and routinely mismatched — and pace is part of the destination: a long text-phase of romantic charge before in-person feels safe is a road, not a stall, told apart by charge that deepens and a declined plan arriving with the warmth intact. A stated frame ("just friends", "nothing serious") names a pace or a shape more often than a category — friends-first, friends-plus-sex, label-as-shield — and conduct since is its live edit; stated process preferences ("I hate guessing") get the same behaviour check, since being hurt by an unknown is proof of investment, not a request to end it; after a no, deniable re-openings (a charged photo, a wistful line) are the expected shape of continuation — the register continuing, neither reversal nor nothing, and post-no conduct is never scored against the no; bids for connection — including the ones that reach into something of the user's, since stepping over one is how a live subject dies — who is supplying the conversation (who opens, which subjects they feed versus close politely, what they raised that nobody picked up, what is spent, whether the thread has narrowed to one loop), honest interest signals ranked by diagnostic value, red/amber/green flags |
-| `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, voice, stated vs revealed goals, who brings the subjects (answering well is the comfortable half and invisible as a gap), and what the user is actually into this month — the one conversational supply that works before a thread has any history, and the only material here that cannot be researched |
-| `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate *toward what this one is for* rather than up a ladder — with the more cautious person setting the pace of anything in person, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder; building charge as its own axis (notch-by-notch, reciprocation-gated, scene over vocabulary, never in the same burst as logistics — added after a real record showed every charge line coming from the user while the coach only capped, cooled, or converted); naming-it as a move with a trigger rather than a duty (the unnamed stretch is often the living part, definition is the biggest escalation on the menu, and the paying/playing tell — what they do after it stings — decides when the plain conversation is due; after an overshoot what retires is the ask, not the warmth — the retreat register is read off what they still feed, and deniable bids get deniable answers); cheap well-evidenced wins, texting pragmatics (now carrying density, one-subject-per-burst, their-line-first, and don't-explain-a-tease), set pieces (asking out, opening cold, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means |
+| `KB_IDENTITY` | every engine | Who the coach is: voice, nerve, who the advice is for, no assumption about where a connection is going (partnership is one destination among several, not the grown-up end of a ladder — the user's stated goal decides, and the evidence decides where it is silent), and the one line that never bends, now bounded to what was actually refused and to the moment it was said in, and the shape criticism takes: it lands on the move, never on the person, because a verdict about *them* stops them thinking about the thread and starts them defending themselves |
+| `KB_EVIDENCE` | every engine | Inference discipline: separate observation from inference, confidence is part of the claim, one message is never a pattern, stay curious — and two rules about the compliment, the most misread evidence in a transcript. **Silence and deflection are the same non-answer.** There is no graceful reply to praise for your looks or your cleverness, so what comes back is nothing, or the script — "stop it, the picture isn't that good", "you're giving me too much credit" — and the people who liked it produce exactly what the people who didn't produce. Read it off what happens around it (does the deflection arrive warm, or with a subject change), never as a rule: "praise for her looks bounces" bans for good the thing she may have wanted more of. **And don't rank bid types by reply length** — a question can be answered in a paragraph and a compliment cannot be answered at all, so that metric concludes "being taken seriously lands, being wanted bounces" for everyone alive; it measures what is answerable, not what is welcome. Compare like with like. Both live here rather than in `KB_READ_THEM` because the engine that would quietly stop sending compliments is the next-move one, which never sees that section |
+| `KB_READ_THEM` | rebuild-them | Attachment markers (as hypotheses), a personality read — MBTI, and love languages in both directions, since what someone gives and what actually lands on them are routinely different and the receiving side is what decides what is worth sending — what the thread is *for* — read before temperature and carried structurally in `interest_read.toward`, since "how warm" is meaningless until you know warm toward what, and interest in sex, partnership and companionship are separable and routinely mismatched — and pace is part of the destination: a long text-phase of romantic charge before in-person feels safe is a road, not a stall, told apart by charge that deepens and a declined plan arriving with the warmth intact. A stated frame ("just friends", "nothing serious") names a pace or a shape more often than a category — friends-first, friends-plus-sex, label-as-shield — and conduct since is its live edit; stated process preferences ("I hate guessing") get the same behaviour check, since being hurt by an unknown is proof of investment, not a request to end it; after a no, deniable re-openings (a charged photo, a wistful line) are the expected shape of continuation — the register continuing, neither reversal nor nothing, and post-no conduct is never scored against the no; bids for connection — including the ones that reach into something of the user's, since stepping over one is how a live subject dies, and excluding the ones that cannot be acknowledged out loud, where silence and "stop it, I'm not that clever" are both the required reply, so they leave the count rather than scoring as turned away — who is supplying the conversation (who opens, which subjects they feed versus close politely, what they raised that nobody picked up, what is spent, whether the thread has narrowed to one loop), honest interest signals ranked by diagnostic value, red/amber/green flags; a want put as a debt is amber (the sigh, an account of what they have given), where the framing is the flag and not the want |
+| `KB_READ_ME` | rebuild-you | Responsiveness quality, bid response rate, investment asymmetry, interview mode, disclosure level, the same personality read pointed at the user (MBTI, and the love language they speak versus the one they want spoken back — half of a pair that only means anything when the next-move engine sees both documents at once), voice, stated vs revealed goals, who brings the subjects (answering well is the comfortable half and invisible as a gap), and what the user is actually into this month — the one conversational supply that works before a thread has any history, and the only material here that cannot be researched, apologising as punctuation and yes-given-to-end-a-bad-feeling (invisible to the user, since it feels like being easy to get on with, and it accumulates as resentment on one side and falling interest on the other) |
+| `KB_MOVES` | suggest | Attraction before rapport (lead, don't over-agree, escalate *toward what this one is for* rather than up a ladder — with the more cautious person setting the pace of anything in person, flirt) and attention-as-the-product; then the PPR recipe (understanding → validation → caring → then your own) scoped to replying rather than billed as universal; the depth ladder; building charge as its own axis (notch-by-notch, reciprocation-gated, scene over vocabulary, never in the same burst as logistics — added after a real record showed every charge line coming from the user while the coach only capped, cooled, or converted); naming-it as a move with a trigger rather than a duty (the unnamed stretch is often the living part, definition is the biggest escalation on the menu, and the paying/playing tell — what they do after it stings — decides when the plain conversation is due; after an overshoot what retires is the ask, not the warmth — the retreat register is read off what they still feed, and deniable bids get deniable answers); cheap well-evidenced wins, texting pragmatics (now carrying density, one-subject-per-burst, their-line-first, and don't-explain-a-tease), set pieces (asking out, opening cold, exclusivity, repair, taking a no, ending it), calibration rules, and what early ambiguity actually means. **Guilt**, added as two rules with opposite signs: never draft it as a lever (the written sigh, "guess you're busy", the itemised account of what the user has given — named precisely because they work in the short run, and buy compliance at the price of the wanting they were meant to serve), and repair when the user was genuinely in the wrong, which the set-pieces previously only covered in the raising-a-grievance direction. That one turns on a test before anything is drafted: something actually agreed was broken (a real apology), or an expectation nobody agreed to was disappointed (a difference, stated plainly — apologising there makes the user answerable for how someone feels about a thing they were entitled to do). A real one is the act and not the self, said once, with nothing riding along: "I'm the worst" hands them the user's feelings to manage, and an apology ending in "do you still like me" is an ask in an apology's clothes |
 | `KB_WORTH_REPLYING` | suggest | The half `KB_MOVES` lacked: not whether a reply is right, but what the other person gains by reading it. Announce-do-report and its boundary (it yields the next *beat* of a thread, never a new one); the reply owes them something new; guess-don't-survey as two moves — an unmissable description plus a reframe that admires where sympathy was expected, aimed at a self-concept rather than a habit, and never at an insecurity; open-don't-only-answer with a test for "new" and the running loop ruled off its own supply list; a read inflating as fast as a compliment does; take the bid — with stockpiled material (the looked-up kit, the saved errand) named as the strongest pull against it, riding underneath the answer to their line or waiting; status as a ticket that needs a seat in it; land it and leave; drafting for voice once the channel changes, which the playbook pushed toward for a year without saying what to do on arrival; don't become the channel for their bad week. Derived from a real 930-turn record rather than from research — see the module comment, which also says what was deliberately left out and why the examples in the prose are load-bearing |
 | `KB_RESEARCH` | suggest, only when tools are attached | Three lanes: what they've said about themselves, whether it holds up, and the logistics of the move. Search what would change the advice, as many times as that needs — but not for its own sake, and with the query built from the thread's current state, or it looks up a venue in the city they left four turns ago. Bounded by where it starts — outward from what the person disclosed, not a sweep for everything findable about them, which is the one scope limit any section carries. Check `<research_notes>` before searching again, and write back only what's new — the block is kept for you, so restating it is how it fills with the same fact in six wordings |
 
@@ -208,7 +208,8 @@ in an uncached segment below it.
   transcript wins. Absent until the first rebuild, in which case the engine works from the
   transcript alone.
 - **`updateInstructions(sections)`** — how a rebuild amends the document; rides in the system block
-  with the rest of the task, so it is constant per engine and caches with it. Names the modes, pins the canonical headings, asks for bullets carrying confidence
+  with the rest of the task, so it is constant per engine and caches with it. Names the modes, pins the canonical headings — each printed with its
+  note from `SECTION_NOTES` where the name alone doesn't settle what belongs in it — asks for bullets carrying confidence
   and a turn citation, states the ~1,500-word ceiling, and says plainly that `changed: false` is a
   real answer rather than a failure. It also bans, in those words, a bullet that corrects another
   bullet — see the `edit` mode below for why that instruction needed an op behind it before it
@@ -451,7 +452,7 @@ took back.
 |---|---|---|
 | `rebuildPersonContext` | `PersonProfile` | `markdown` (amended, not regenerated) + `judgment`: `interest_read` with `level` (degree), `toward` (kind — `partnership` / `sex` / `companionship` / `unclear`, a list because the three are separable and routinely mismatched), `signals_for` / `signals_against` / `honest_note`; `flags`; `open_questions` |
 | `rebuildSelfContext` | `SelfProfile` | `markdown` + `judgment`: `goal_read` splitting stated from revealed; `open_questions` |
-| `chatAboutProfile` | `{reply, headline, markdown, changed}` | one instruction: prose for the user, an optional `ProfileUpdate` applied to the stored markdown, and a replacement headline when the amendment made the old one wrong (`""` otherwise, the common case) |
+| `chatAboutProfile` | `{reply, headline, markdown, changed}` | one instruction: prose for the user, an optional `ProfileUpdate` applied to the stored markdown, and a replacement headline when the amendment made the old one wrong (`""` otherwise, the common case). It also carries a `mind` slot, written here rather than returned — see "Who writes, and on what evidence" |
 | `suggestMove` | `Suggestion` | `options[]` — each a verbatim `draft`, a `why`, a `then` for reading the response, and a risk level; plus `avoid`, `timing`, `honest_note`, `research_notes` (durable findings, merged into the record — see `lib/research-notes.ts`), `mind` (a `ProfileUpdate` the coach applies **to itself**), and `profiles` (a `ProfileProposal[]`, at most one per document, applied by the caller when the advice is stored and undoable from the card — see above) |
 
 **Constraint sections have their own ceiling.** `Handle with care` and `Costing you` are lists of
@@ -591,6 +592,16 @@ A heading the user renames or deletes simply isn't found and that engine goes wi
 deliberately not backfilled from the seed, since the point of an editable coach is that deleting
 something deletes it. `missingHeadings` is what tells them, in the editor rather than silently.
 
+**An empty body deletes, except where empty is what shipped.** `writeMindSection` treats a cleared
+body as an intent to delete, which is right for the editor — typing the box empty is how a section
+goes. It is wrong for the one part whose seed *is* empty: `What you've learned` ships as a heading
+with nothing under it, so `mindText` refreshing it from the seed, and `resetBeliefs` carrying it
+over, were both handing that function an empty body and getting the deletion it promises. The
+section disappeared from every document the moment anything was stored — the editor reported it
+deleted as though the user had done it, and the heading amendments are told to aim at was not in the
+document they aimed at. The two rebuild paths pass `keepEmpty`; the editor and `mergeMind` keep the
+delete, because there an empty body means someone emptied it.
+
 Heading matching is `profile.ts`'s `key` on both sides — the same normalisation an amendment is
 matched with, so `What you've learned` and `What you’ve learned` can't be one section to the coach
 and two to the engine reading it. Renaming a *shipped* heading in `MIND_PARTS` is the one edit to
@@ -599,17 +610,41 @@ every document already forked from the seed.
 
 ### Who writes, and on what evidence
 
-`suggestMove` only, and not for safety — it is the engine that gives advice and, a run later, reads
-its own `COACH` line and whatever the user did underneath. It is the only one that ever finds out
-whether it was right. Three writers amending one document from different records, unable to see each
-other's edits, would also be three ways to lose the same paragraph.
+`suggestMove` and `chatAboutProfile`. The first is the engine that gives advice and, a run later,
+reads its own `COACH` line and whatever the user did underneath, so it is the only one that ever
+finds out whether it was right. The second is the only engine the user *speaks to*, which turns out
+to matter more. The two rebuilds still can't write: they infer from one transcript and have nothing
+to add that a `Rebuild` doesn't already put in a profile.
 
 The bar is stated as evidence: a `COACH` line plus what happened under it, twice. Once is a
-coincidence. A specific finding about this user goes in "What you've learned"; a playbook section is
-amended only when the *rule* was wrong, not when it didn't fit one conversation — and narrowing a
-claim is usually what was actually learned, not deleting it. Two things it may not do: write anything
-about the person in the current request (that leaks one connection into all of them), and amend away
-the line about a real no.
+coincidence. A playbook section is amended only when the *rule* was wrong, not when it didn't fit one
+conversation — and narrowing a claim is usually what was actually learned, not deleting it. Two
+things neither writer may do: write anything about the person in the current request (that leaks one
+connection into all of them), and amend away the line about a real no.
+
+**"What you've learned" is narrower than it was, because the wide version filled with leak.** It used
+to invite "this user's voice, a move that lands for them, a preference they stated, a fact about their
+life" — three facts and one strategy claim, sitting directly above the rule against writing about the
+person in this request. Real documents duly filled with per-record specifics instead of anything that
+transferred. The cause is structural rather than a weak model: the writer sees exactly one record, is
+never shown a second to compare it against, and so cannot tell a fact about *people* from a fact about
+*this person*. Asking it for a cross-record generalisation from single-record evidence is asking for
+something the input does not contain, and the specifics are the only true thing available to write.
+
+So the section is now for the user and only for what they told you or showed you in their own
+writing — how they write, a constraint they stated, an instruction they gave, a correction they made
+to a read of yours. They are the one person present in every record, which is what makes a finding
+about them transfer at all. "Not what works" is stated as its own rule, with the test attached: name
+who told you, or point at the sentence of theirs you read it off, or you have a hunch from one
+transcript rather than a finding.
+
+That rule is also why `chatAboutProfile` gained the write. The chat engine is where the user says
+"stop writing like that" — the one input that generalises by construction, because it comes from the
+person who is in all the records — and it was being discarded, while the inferred kind was kept. It
+carries the same `mind` slot as a suggestion (required in `CHAT_SCHEMA`, optional in `validateChat`,
+quote-checked against the mind rather than the profile) and writes through the same
+`writeMindAmendment` helper: fresh read, `mergeMind` base, failure swallowed so a storage error never
+costs the user their reply.
 
 **And no turn numbers in this document**, which is the one place the standing "cite the turn like
 `[4]`" rule inverts. A turn number is scoped to *one record*, and the learned section is read on every
@@ -638,6 +673,42 @@ arrives in the tail, a couple of blocks above where the answer starts.
 ## `profile.ts`
 
 The memory of a person, as markdown amended by section.
+
+**The personality read has sections of its own.** `Personality` and `Love languages` on the person's
+side, `Your personality` and `Your love languages` on the user's — four headings that did not exist
+until the read kept failing to appear.
+
+It was tried the cheap way first. The mind asked for an MBTI and a love-language read; nothing in the
+profile layout had a slot for either, so it went into `Who they are`, whose name reads as a biography
+slot and duly filled with job, city and training. Annotating that heading via `SECTION_NOTES` moved
+the *contract* but not the behaviour — a heading is a slot the model is expected to fill and whose
+absence is visible, a note beside one is advice, and the read came back only sometimes. A section
+that must exist is the difference.
+
+Two sections rather than one holding both, because they are answered from different evidence and one
+crowds the other out: a type is read off how someone thinks and decides across the whole thread, a
+love language off what they do when they want to show something and what visibly lands on them. The
+love-language note asks for both directions and says which matters more — the receiving side is what
+decides what is worth *sending*, and it is routinely not the giving side. `Who they are` keeps the
+notes, reduced to what it is now for: the standing facts, explicitly not the personality.
+
+**Only the rebuilds write them.** `proposalInstructions` bars a next-move run from amending any of the
+four. That engine is the one place both documents are visible at once — which is what makes the
+love-language pair usable when it drafts, one person reading effort as time while the other offers it
+in favours being what explains a thread warm from both ends that still leaves someone cold — but a
+personality read is a judgment over the whole transcript, and a suggestion proposing a nudge to one is
+the drive-by amendment the user has to notice to undo. It puts the observation in `read` and leaves
+the document to the Rebuild button. Every other heading stays open to it, `Who they are` now included.
+
+The self side needed the belief as well as the slot: `## Reading the other person` already said to
+build the read, `## Reading the user` did not, so a section there would have been a slot with no
+instruction behind it. Notes are keyed by heading rather than passed per engine, so every call site
+that prints a heading list carries them without being told to — and each note stands alone, since an
+engine is printed one list or the other and never both.
+
+Adding a heading is additive and needs no migration: an older profile simply has nothing under the new
+sections until its next rebuild, and the love-language note tells that rebuild to move any read it
+finds stranded in `Who they are`.
 
 ```ts
 type SectionUpdate = {

@@ -160,6 +160,33 @@ export async function rebuildSelfContext(
 }
 
 /**
+ * The coach amending itself, for the two engines allowed to.
+ *
+ * Applied to a fresh read, not to the copy the run was built from — a run takes
+ * time and the user may have edited the document by hand in the meantime.
+ * `mindText` resolves the seed, so an amendment lands on the full document rather
+ * than on an empty one, and `saveMind` then forks only the section it actually
+ * rewrote, leaving the rest still tracking releases. Base and draft come from the
+ * same read, so the merge carries only the section this amendment touched: the
+ * user may be sitting in the editor with the document open, and without the base
+ * this would replace whatever they are part-way through typing.
+ *
+ * A failed write is never allowed to take the answer with it. By the time this
+ * runs the reply or the suggestion is finished and paid for; losing it because
+ * storage refused a write is the worse of the two outcomes by a wide margin, and
+ * the amendment is the part a run can afford to drop.
+ */
+async function writeMindAmendment(amendment?: ProfileUpdate): Promise<void> {
+  if (!amendment?.changed) return
+  try {
+    const current = mindText(await getMind())
+    await saveMind(applyProfileUpdate(current, amendment), current)
+  } catch {
+    /* the coach doesn't learn from this run; the user still gets their answer */
+  }
+}
+
+/**
  * One instruction to amend a profile. Not a conversation: the request carries no
  * history, and nothing here is kept but the document it changes.
  *
@@ -182,16 +209,28 @@ export async function chatAboutProfile(
   const { config, customPrompt, mind } = await context()
   const current = (engine === 'them' ? record.themProfile : record.meProfile)?.markdown ?? ''
 
-  const { reply, headline, profile } = await completeJSON<{
+  const { reply, headline, profile, mind: amendment } = await completeJSON<{
     reply: string
     headline?: string
     profile: ProfileUpdate
+    mind?: ProfileUpdate
   }>(
     config,
     buildChatMessages(record, engine, message, mind, customPrompt),
-    (r) => validateChat(r, current),
+    (r) => validateChat(r, current, mind),
     { signal, jsonSchema: CHAT_SCHEMA, onThinking, sessionId: record.id },
   )
+
+  // Written here rather than handed back, and for the same reasons `suggestMove`
+  // writes its own: the mind is no record's field, so there is no record-merge
+  // for a caller to get right, and a storage failure may not take the reply with
+  // it — the user asked a question and is owed the answer either way.
+  //
+  // This engine is the only one the user talks to, which is what earns it the
+  // write. A correction they make about themselves is the one kind of finding
+  // that generalises past the record it was typed in; every other engine is
+  // inferring from a single transcript. See `mindInstructions`.
+  await writeMindAmendment(amendment)
 
   return {
     reply: reply.trim(),
@@ -288,18 +327,7 @@ export async function suggestMove(
   // finished and half a minute paid for by the time this runs; losing all of it
   // because storage refused a write is the worse of the two outcomes by a wide
   // margin, and the amendment is the one this run can afford to drop.
-  if (amendment?.changed) {
-    try {
-      // Base and draft from the same read, so the merge carries only the section
-      // this amendment touched. The user may be sitting in the editor with the
-      // document open; without the base, saving here would replace whatever they
-      // are part-way through typing.
-      const current = mindText(await getMind())
-      await saveMind(applyProfileUpdate(current, amendment), current)
-    } catch {
-      /* the coach doesn't learn from this run; the user still gets their answer */
-    }
-  }
+  await writeMindAmendment(amendment)
 
   return {
     ...result,

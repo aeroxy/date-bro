@@ -1,7 +1,7 @@
 /**
  * The coach *is* this document.
  *
- * Not a memory bolted onto a fixed personality — who it is, everything it
+ * Not a memory bolted onto a fixed personality - who it is, everything it
  * believes about reading people and about what to do next, and whatever it has
  * worked out since, all in one markdown document that both the user and the
  * coach can rewrite. `knowledge.ts` is the seed it starts from, not the live
@@ -12,7 +12,7 @@
  * bad run. The objection is real and the design was still wrong. A coach whose
  * playbook can't move is a coach that stays wrong in the same way forever, and
  * the split put the user's corrections somewhere other than the thing they were
- * correcting — you edited a note that argued with a document you couldn't see.
+ * correcting - you edited a note that argued with a document you couldn't see.
  * One document, visible and editable, is what "the knowledge should be able to
  * change" actually asks for.
  *
@@ -21,7 +21,7 @@
  * amends by heading rather than regenerating, so a bad edit is one section wide.
  *
  * The section is the unit of divergence too, not just of damage. Forking used to
- * be per document — the first write anywhere froze all six sections against
+ * be per document - the first write anywhere froze all six sections against
  * every future release, so picking up one improved paragraph meant discarding
  * everything the user and the coach had written. `Mind.forked` narrows that to
  * the headings actually rewritten; `mindText` refreshes the rest from the seed
@@ -36,15 +36,15 @@
  * expressed as headings now because headings are what an amendment can address.
  *
  * The belief sections sit in the system block. "What you've learned" rides below
- * the transcript instead (`audience: 'tail'`) — a reversal this comment used to
+ * the transcript instead (`audience: 'tail'`) - a reversal this comment used to
  * argue against, on the grounds that splitting the document across two positions
  * put the coach's mind in two places to make a rare event cheaper. Measurement
  * won the argument: the learned section is where amendments
  * land *by design*, the system block sits above the profile and the whole
  * transcript, and one ~250-char amendment between two next-move runs re-wrote
  * ~47k of ~49k cached tokens. The belief sections stay above because amending
- * one means a rule actually changed — rare, `changed: false` is stated as the
- * expected answer — and that price keeps everything the engines *reason from*
+ * one means a rule actually changed - rare, `changed: false` is stated as the
+ * expected answer - and that price keeps everything the engines *reason from*
  * in one place.
  */
 import {
@@ -61,20 +61,20 @@ import { key, parseSections } from './profile'
 /**
  * Which engines a section is sent to. `all` means every call. `tail` also means
  * every call, but delivered below the transcript rather than in the system
- * block — the slot for the section the coach itself rewrites, so amending it
+ * block - the slot for the section the coach itself rewrites, so amending it
  * leaves the cached strata above byte-identical. `learnedText` is how it
  * travels.
  *
  * `mindFor` drops 'tail' parts outright rather than trusting that no engine asks
  * for one. Asking is a single word in an audience list, it type-checks, and what
- * it buys is the ~47k-token regression the split exists to prevent — silently,
+ * it buys is the ~47k-token regression the split exists to prevent - silently,
  * since the only visible effect is the bill.
  */
 export type Audience = 'all' | 'them' | 'me' | 'next' | 'research' | 'tail'
 
 interface Part {
   /**
-   * The `##` heading, which is also the address an amendment aims at — in the
+   * The `##` heading, which is also the address an amendment aims at - in the
    * seed *and* in every document already forked from it. So renaming one here
    * doesn't rename anything: the engines stop finding their section in the
    * documents that still say the old name, and `missingHeadings` reports it
@@ -91,20 +91,20 @@ interface Part {
 /**
  * Where a finding about this particular user goes. Named rather than read off
  * the end of `MIND_HEADINGS`, which is how `mindInstructions` used to address it
- * — appending a part below this one silently re-aimed the instruction at
+ * - appending a part below this one silently re-aimed the instruction at
  * whatever had landed last.
  */
 export const LEARNED_HEADING = "What you've learned"
 
 /**
  * A ceiling on this section alone, for the same reason `CONSTRAINT_BULLET_CEILING`
- * exists for a profile's "Handle with care" and "Costing you" — except this one
+ * exists for a profile's "Handle with care" and "Costing you" - except this one
  * has no numeric ceiling to lean on at all until now, only `mindInstructions`'s
  * "merge before you add." That was the whole discipline a profile's constraint
  * sections had too, before a real one reached 34 bullets on nothing but that
  * prose and went flat and cautious. This section is read on *every* call, for
  * *every* person the user is tracking, so the same failure here is not one
- * record going flat — it is the coach going flat, permanently, with no per-record
+ * record going flat - it is the coach going flat, permanently, with no per-record
  * wipe able to touch it, because this document lives outside every `DateRecord`.
  */
 export const LEARNED_BULLET_CEILING = 8
@@ -146,7 +146,7 @@ export const MIND_PARTS: readonly Part[] = [
     blurb: 'The playbook. Sent only when suggesting a next move.',
   },
   {
-    // Same audience as the playbook above, so this buys no tokens back — it is a
+    // Same audience as the playbook above, so this buys no tokens back - it is a
     // separate part because a heading is what an amendment can address, and
     // "what does a reply give them" is a different claim from "is this reply
     // right". Folded into the playbook, a run correcting one would rewrite both,
@@ -189,14 +189,14 @@ export const MIND_HEADINGS = MIND_PARTS.map((p) => p.heading)
 
 /**
  * `markdown` is empty until something writes to it, and empty means "still
- * tracking the shipped seed" — so an installation nobody has edited keeps
+ * tracking the shipped seed" - so an installation nobody has edited keeps
  * getting knowledge-base improvements from releases.
  *
  * `forked` is which sections have stopped tracking it. This used to be the whole
  * document: the first write, anywhere, froze every section against every future
  * release, and picking up one improved paragraph meant discarding everything the
- * user and the coach had written. That is backwards — editing "Reading the user"
- * is not a statement about the research section — and it made the seed
+ * user and the coach had written. That is backwards - editing "Reading the user"
+ * is not a statement about the research section - and it made the seed
  * effectively write-once for anyone with an install older than the change.
  *
  * So the unit is the section. What is stored is still the whole document, but on
@@ -217,8 +217,8 @@ export const EMPTY_MIND: Mind = { markdown: '', updatedAt: 0, forked: [] }
  *
  * The contract, stated exactly: **forked means this body differs from the seed
  * as the seed stands right now, at the moment of the write.** Derived rather
- * than journalled per keystroke, because both writers — the editor's Save and a
- * run's amendment — hand over a whole document and neither knows which sections
+ * than journalled per keystroke, because both writers - the editor's Save and a
+ * run's amendment - hand over a whole document and neither knows which sections
  * it changed.
  *
  * What storing the answer buys is that *reads* don't re-derive it. Between
@@ -230,7 +230,7 @@ export const EMPTY_MIND: Mind = { markdown: '', updatedAt: 0, forked: [] }
  * What it does not do is accumulate. Each save recomputes the whole set, so
  * there is one case where a fork lapses: a later seed that becomes byte-identical
  * to what the user wrote un-forks their section on the next save. That is the
- * same rule as `Revert to shipped` — matching the seed *is* how you rejoin it —
+ * same rule as `Revert to shipped` - matching the seed *is* how you rejoin it -
  * and carrying a prior set forward would mean threading the previous `Mind`
  * through `saveMind` to preserve a distinction with no visible effect at the
  * moment it is drawn. Not worth the API.
@@ -251,7 +251,7 @@ export function forkedHeadings(markdown: string): string[] {
  *
  * Not `MIND_HEADINGS` entire, which was the first version of this and was a bug
  * with a long fuse. Those documents were written under "any write forks
- * everything", so every section they *have* is forked — but marking a heading
+ * everything", so every section they *have* is forked - but marking a heading
  * they have never seen forks a section that isn't in them, and `mindText` then
  * skips inserting the very thing it was supposed to deliver. A section shipped
  * after the upgrade would never arrive for exactly the users who had been here
@@ -260,8 +260,8 @@ export function forkedHeadings(markdown: string): string[] {
  *
  * The cost of reading absence as "not forked" is the other reading of absence: a
  * section deleted by hand before this field existed comes back once, from the
- * current seed. Legacy storage cannot tell the two apart — it records no
- * heading set to compare against — so this picks the recoverable mistake.
+ * current seed. Legacy storage cannot tell the two apart - it records no
+ * heading set to compare against - so this picks the recoverable mistake.
  * Deleting it again now sticks, because a deletion made from here on is recorded.
  */
 export function legacyForked(markdown: string): string[] {
@@ -274,7 +274,7 @@ export function legacyForked(markdown: string): string[] {
  * up to the current seed, or the seed entire until something is stored.
  *
  * `writeMindSection` rather than a splice, so a section added by a *later*
- * release — absent from the stored document and absent from `forked` — arrives
+ * release - absent from the stored document and absent from `forked` - arrives
  * in its running order rather than at the end.
  */
 export const mindText = (mind: Mind): string => {
@@ -285,14 +285,14 @@ export const mindText = (mind: Mind): string => {
     (markdown, part) =>
       forked.has(key(part.heading))
         ? markdown
-        : writeMindSection(markdown, part.heading, seedBody(part)),
+        : writeMindSection(markdown, part.heading, seedBody(part), true),
     stored,
   )
 }
 
 /**
  * The sections one engine is sent in its system block, in document order, as one
- * string. The 'tail' section never appears here — see `learnedText`.
+ * string. The 'tail' section never appears here - see `learnedText`.
  *
  * A heading the user renamed or deleted simply isn't found, and that engine goes
  * without it. Deliberately not backfilled from the seed: the point of an
@@ -315,7 +315,7 @@ export function learnedText(markdown: string): string {
   return parseSections(markdown).find((s) => key(s.heading) === key(LEARNED_HEADING))?.body.trim() ?? EMPTY_BODY
 }
 
-/** Canonical sections the document no longer has — surfaced in the editor. */
+/** Canonical sections the document no longer has - surfaced in the editor. */
 export function missingHeadings(markdown: string): string[] {
   const present = new Set(parseSections(markdown).map((s) => key(s.heading)))
   return MIND_HEADINGS.filter((h) => !present.has(key(h)))
@@ -326,7 +326,7 @@ export function missingHeadings(markdown: string): string[] {
  *
  * Not `applyProfileUpdate`, which is the *model's* contract: there, a `replace`
  * carrying nothing is a failed generation rather than an intent to erase, so the
- * op is dropped — and a textarea controlled from the document it writes to
+ * op is dropped - and a textarea controlled from the document it writes to
  * simply snapped back, which made a section impossible to clear. Typing the box
  * empty is an intent, and it deletes the section: that is what an empty section
  * means everywhere else here, down to the placeholder the box then shows.
@@ -335,7 +335,25 @@ export function missingHeadings(markdown: string): string[] {
  * the end of the document, so clearing one to retype it doesn't quietly reorder
  * what the engines are sent.
  */
-export function writeMindSection(markdown: string, heading: string, body: string): string {
+export function writeMindSection(
+  markdown: string,
+  heading: string,
+  body: string,
+  /**
+   * Keep the heading when `body` is empty, instead of deleting the section.
+   *
+   * For the one part whose shipped body *is* empty. "What you've learned" starts
+   * as a heading with nothing under it, so the two rebuild paths - refreshing an
+   * unforked section from the seed, and restoring the beliefs - were handing this
+   * function an empty body and getting the delete they ask for everywhere else.
+   * The section vanished from every document the moment anything was stored: the
+   * editor reported it deleted, as though the user had done it, and the heading an
+   * amendment is told to aim at wasn't in the document it was aiming at. The
+   * editor keeps the delete-on-empty contract, because there an empty box is an
+   * intent.
+   */
+  keepEmpty = false,
+): string {
   const first = markdown.search(/^##\s+/m)
   // Text above the first heading is the user's; it has no section to belong to
   // and it is not this function's to drop.
@@ -343,7 +361,7 @@ export function writeMindSection(markdown: string, heading: string, body: string
   const sections = parseSections(markdown).filter((s) => key(s.heading) !== key(heading))
   const text = body.trim()
 
-  if (text) {
+  if (text || keepEmpty) {
     // A section the user added themselves isn't in the running order, and sorts
     // last rather than displacing a canonical one.
     const rank = (h: string) => {
@@ -360,23 +378,11 @@ export function writeMindSection(markdown: string, heading: string, body: string
 }
 
 /**
- * What "Reset beliefs" restores: the shipped document, carrying over every
- * section that has no shipped version to be restored to.
- *
- * Two kinds qualify. "What you've learned" is the coach's findings about this
- * user and its seed is the empty placeholder. And any section the user wrote
- * themselves — `writeMindSection` gives those a place in the running order and
- * `forkedHeadings` counts them as nobody's fork, so they are a first-class part
- * of the document rather than debris. For both, "reset to shipped" would be
- * deletion wearing a restore's label, and neither has anything else to recover it
- * from. A button aimed at the beliefs takes the beliefs and nothing else.
- */
-/**
  * Text above the first `##`, which `parseSections` cannot return.
  *
  * One copy for the three functions that rebuild a document rather than edit one
- * in place. `writeMindSection` owns the rule — a preamble is the user's and not
- * this code's to drop — and both writers below have to apply it themselves,
+ * in place. `writeMindSection` owns the rule - a preamble is the user's and not
+ * this code's to drop - and both writers below have to apply it themselves,
  * because each starts from a document that is not the one the preamble came from.
  */
 const preambleOf = (markdown: string): string => {
@@ -389,19 +395,31 @@ const sectionsOf = (markdown: string): string => {
   return first === -1 ? '' : markdown.slice(first)
 }
 
+/**
+ * What "Reset beliefs" restores: the shipped document, carrying over every
+ * section that has no shipped version to be restored to.
+ *
+ * Two kinds qualify. "What you've learned" is the coach's findings about this
+ * user and its seed is the empty placeholder. And any section the user wrote
+ * themselves - `writeMindSection` gives those a place in the running order and
+ * `forkedHeadings` counts them as nobody's fork, so they are a first-class part
+ * of the document rather than debris. For both, "reset to shipped" would be
+ * deletion wearing a restore's label, and neither has anything else to recover it
+ * from. A button aimed at the beliefs takes the beliefs and nothing else.
+ */
 export function resetBeliefs(markdown: string): string {
   const shipped = new Set(MIND_HEADINGS.map(key))
   const keep = parseSections(markdown).filter(
     (s) => !shipped.has(key(s.heading)) || key(s.heading) === key(LEARNED_HEADING),
   )
   // Text above the first heading is the third kind with no shipped version to be
-  // restored to, and `parseSections` doesn't return it — so rebuilding onto the
+  // restored to, and `parseSections` doesn't return it - so rebuilding onto the
   // bare seed dropped it. `writeMindSection` carries a preamble it is *given*
   // and treats it as the user's; it just has none to carry when the document it
   // starts from is the seed.
   const preamble = preambleOf(markdown)
   const base = preamble ? `${preamble}\n\n${SEED_MIND}` : SEED_MIND
-  return keep.reduce((doc, s) => writeMindSection(doc, s.heading, s.body), base)
+  return keep.reduce((doc, s) => writeMindSection(doc, s.heading, s.body, true), base)
 }
 
 /**
@@ -409,7 +427,7 @@ export function resetBeliefs(markdown: string): string {
  *
  * The editor loads the whole document, holds it while the user types, and saves
  * the whole thing back. A `suggestMove` run amends the same document in the
- * meantime — the modal's own comment says it loads on open *because* a run
+ * meantime - the modal's own comment says it loads on open *because* a run
  * rewrites it underneath, which handles the read and left the write alone. So
  * the coach would file a finding, the user would hit Save on a draft loaded
  * before it, and the finding was gone. Silently, and from the one section with
@@ -423,7 +441,7 @@ export function resetBeliefs(markdown: string): string {
  *
  * Section-level, not line-level, on purpose: amendments and edits both address a
  * heading, so that is the granularity at which two writers actually conflict.
- * Two writers editing the *same* section is a real conflict and the draft wins —
+ * Two writers editing the *same* section is a real conflict and the draft wins -
  * the user is present and the run is not.
  */
 export function mergeMind(base: string, draft: string, latest: string): string {
@@ -433,7 +451,7 @@ export function mergeMind(base: string, draft: string, latest: string): string {
     new Map(parseSections(markdown).map((s) => [key(s.heading), s.body.trim()]))
   const baseBodies = bodies(base)
   const draftBodies = bodies(draft)
-  // Every heading either document knows about — from `base` too, so a section
+  // Every heading either document knows about - from `base` too, so a section
   // the draft *deleted* is still visited and its deletion carried over.
   const headings = new Map(
     [...parseSections(draft), ...parseSections(base)].map((s) => [key(s.heading), s.heading]),
@@ -446,7 +464,7 @@ export function mergeMind(base: string, draft: string, latest: string): string {
   // The preamble merges by the same rule as a section: the draft wins where it
   // changed it, `latest` keeps it where the draft didn't. `writeMindSection`
   // preserves whichever preamble the document it was handed already had, which
-  // here is always `latest`'s — so a draft that edited the text above the first
+  // here is always `latest`'s - so a draft that edited the text above the first
   // heading needed this to survive, the way one that edited a section does.
   const drafted = preambleOf(draft)
   if (drafted !== preambleOf(base)) {
@@ -459,7 +477,7 @@ export function mergeMind(base: string, draft: string, latest: string): string {
  * The shipped *body* of one section, for "revert this to shipped" and for
  * telling edited from untouched.
  *
- * The body rather than the whole section, because the heading is the address —
+ * The body rather than the whole section, because the heading is the address -
  * the editor supplies it and the store owns it. Comparing reserialised sections
  * instead compared whitespace, and reported every untouched section as edited.
  *
@@ -473,78 +491,42 @@ export function seedSection(heading: string): string | null {
 }
 
 /**
- * How the one engine that writes to it is told to.
+ * How the two engines that write to it are told to.
  *
- * `suggestMove` is the only writer, and not for safety — it is the engine that
- * gives advice and, a run later, reads its own COACH line and whatever the user
- * did underneath. It is the only one that ever finds out whether it was right.
- * Three writers amending one document from different records, unable to see each
- * other's edits, would also be three ways to lose the same paragraph.
+ * `suggestMove` is one, and not for safety - it is the engine that gives advice
+ * and, a run later, reads its own COACH line and whatever the user did
+ * underneath. It is the only one that ever finds out whether it was right.
+ * `chatAboutProfile` is the other, and it earns the write for the opposite
+ * reason: it is the only engine the user *speaks to*. The rebuilds still can't,
+ * because they only ever infer, and what they infer already has a profile to go
+ * in.
+ *
+ * That split is what the learned section was narrowed to. The wide version
+ * asked for "a move that lands for them" and "a fact about their life", and the
+ * documents filled with per-record specifics instead - not because the model is
+ * dim, but because a writer that sees exactly one record, and is never shown a
+ * second to compare it against, cannot tell a fact about people from a fact about
+ * this person. The specifics are the only true thing it has. So the section now
+ * takes only what the user said or showed in their own writing: they are the one
+ * person present in every record, which is what makes a finding about them
+ * transfer, and the chat engine is where they say it.
  */
 export function mindInstructions(): string {
   return `## Amending yourself
 
-Everything you have been told above — who you are, how you read people, what to
-do next — is one markdown document — your own mind — and you keep it. So is
-<what_you_have_learned> below the material, when present: the same document's
-findings section. Return what to change in it, addressed by heading, exactly as
-you would amend a profile. Only the sections this engine is sent are shown to
-you; you can still amend any of them, and create a new one.
+Everything you have been told above - who you are, how you read people, what to do next - is one markdown document - your own mind - and you keep it. So is <what_you_have_learned> below the material, when present: the same document's findings section. Return what to change in it, addressed by heading, exactly as you would amend a profile. Only the sections this engine is sent are shown to you; you can still amend any of them, and create a new one.
 
-Return changed: false when nothing you saw changes what you believe. That is the
-answer on most runs, and it is a real answer.
+Return changed: false when nothing you saw changes what you believe. That is the answer on most runs, and it is a real answer.
 
-- **Evidence for a change is a COACH line and what happened underneath it.** You
-  advised something, the user took it or didn't, and something came back. Once is
-  a coincidence; twice is worth writing down. A hunch you had this run is not
-  evidence about anything.
-- **"${LEARNED_HEADING}" is where a specific finding goes** — this user's voice,
-  a move that lands for them, a preference they stated, a fact about their life
-  that will still hold next month.
-- **Amend a playbook section when the rule itself was wrong**, not when it didn't
-  fit one conversation. Say what it is now, not what it used to be. Prefer
-  narrowing a claim over deleting it: "lead with a specific plan" becoming "lead
-  with a specific plan, except when they have just said they're slammed" is
-  usually what you actually learned.
-- **Write a rule as a boundary and a test, not as an encouragement.** "Bring
-  something new" reads as agreeable and changes nothing, because the strongest
-  pull in any transcript is the subject already running and a rule that doesn't
-  name it loses to it. What survives contact is the exclusion plus something
-  checkable — *the loop currently running is not on the supply list; if it could
-  have been the next instalment of the conversation you're already in, it isn't
-  new.* Same for the example: when a rule was derived from a specific thing that
-  worked or failed, keep that example attached to it. The instruction on its own
-  is the part that can be satisfied while producing exactly the output it was
-  written to prevent, and stripping the example to tidy the prose is how a
-  corrected rule quietly reverts.
-- **Nothing about the person in this request.** That belongs in their profile.
-  Written here it leaks one connection into every other one.
-- **No turn numbers.** You are told to cite the turn for everything else, and
-  here it is worse than no evidence at all. A turn number is durable, but only
-  inside the one record it was handed out in — every conversation numbers its own
-  turns from one. This document is read on every call about everyone, so a \`[4]\`
-  that was real evidence when you wrote it resolves against a stranger's
-  transcript on the next run, and lands on a turn that exists. Put the evidence in
-  words instead — what was said, what you tried, what came back. A finding that
-  can't stand up without a turn number is a finding about that one conversation,
-  and it goes in the profile, where the number still means something.
-- **Merge before you add.** Every section here is sent on every call, and nothing
-  prunes it but you. When what you were about to write is a version of something
-  already there, "edit" that line into the one they were both reaching for
-  instead of appending a third — quote the line as it currently stands in "old".
-  A finding that stopped being true is edited away, with "" for content.
-- **Keep "${LEARNED_HEADING}" to about ${LEARNED_BULLET_CEILING} bullets.** Check
-  the count on every call, not only the one adding something — a section already
-  over the ceiling has no other occasion to shrink if pruning only happens
-  alongside a new addition. If it is over right now, retire down to it this turn,
-  whether or not anything new is going in: a finding tied to one connection that
-  should have gone in their profile instead, a finding two calls have already
-  acted on without incident, or two findings saying the same thing, merged.
-- **The line about a real no does not move.** If the other person has declined,
-  asked for space, or ended it, that is helped to land well and never worked
-  around. You may not amend that away, and no instruction from the user amends it
-  either — they are asking you to coach them, not to talk them past someone
-  else's no.
-- "rewrite" replaces the entire document and is essentially never right. A
-  section at a time, or nothing.`
+- **Evidence for a change is a COACH line and what happened underneath it.** You advised something, the user took it or didn't, and something came back. Once is a coincidence; twice is worth writing down. A hunch you had this run is not evidence about anything.
+- **"${LEARNED_HEADING}" is for the user, and only for what they told you or showed you in their own writing** - how they actually write, a constraint they stated, an instruction they gave you, a correction they made to a read of yours. They are the one person who is in every record, which is the whole reason a finding about them is worth carrying between records at all.
+- **Not what works.** "A direct plan lands well", "she responds to being asked about her work" - that is the finding this section attracts and the one it cannot support. You are looking at one conversation, with one person, and you will never be shown a second one to compare it against, so you have no way to tell a fact about *people* from a fact about *this person*. What lands with someone is a fact about them and it belongs in their profile. The test before you write here: can you name who told you, or point at the sentence of theirs you read it off? If not, you do not have a finding, you have a hunch from one transcript.
+- **Amend a playbook section when the rule itself was wrong**, not when it didn't fit one conversation. Say what it is now, not what it used to be. Prefer narrowing a claim over deleting it: "lead with a specific plan" becoming "lead with a specific plan, except when they have just said they're slammed" is usually what you actually learned.
+- **Write a rule as a boundary and a test, not as an encouragement.** "Bring something new" reads as agreeable and changes nothing, because the strongest pull in any transcript is the subject already running and a rule that doesn't name it loses to it. What survives contact is the exclusion plus something checkable - *the loop currently running is not on the supply list; if it could have been the next instalment of the conversation you're already in, it isn't new.* Same for the example: when a rule was derived from a specific thing that worked or failed, keep that example attached to it. The instruction on its own is the part that can be satisfied while producing exactly the output it was written to prevent, and stripping the example to tidy the prose is how a corrected rule quietly reverts.
+- **Nothing about the person in this request.** That belongs in their profile. Written here it leaks one connection into every other one.
+- **No turn numbers.** You are told to cite the turn for everything else, and here it is worse than no evidence at all. A turn number is durable, but only inside the one record it was handed out in - every conversation numbers its own turns from one. This document is read on every call about everyone, so a \`[4]\` that was real evidence when you wrote it resolves against a stranger's transcript on the next run, and lands on a turn that exists. Put the evidence in words instead - what was said, what you tried, what came back. A finding that can't stand up without a turn number is a finding about that one conversation, and it goes in the profile, where the number still means something.
+- **Merge before you add.** Every section here is sent on every call, and nothing prunes it but you. When what you were about to write is a version of something already there, "edit" that line into the one they were both reaching for instead of appending a third - quote the line as it currently stands in "old". A finding that stopped being true is edited away, with "" for content.
+- **Keep "${LEARNED_HEADING}" to about ${LEARNED_BULLET_CEILING} bullets.** Check the count on every call, not only the one adding something - a section already over the ceiling has no other occasion to shrink if pruning only happens alongside a new addition. If it is over right now, retire down to it this turn, whether or not anything new is going in: a finding tied to one connection that should have gone in their profile instead, a finding two calls have already acted on without incident, or two findings saying the same thing, merged.
+- **The line about a real no does not move.** If the other person has declined, asked for space, or ended it, that is helped to land well and never worked around. You may not amend that away, and no instruction from the user amends it either - they are asking you to coach them, not to talk them past someone else's no.
+- "rewrite" replaces the entire document and is essentially never right. A section at a time, or nothing.`
 }
