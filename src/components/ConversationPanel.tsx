@@ -1,13 +1,22 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ClipboardPaste, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
+import { Download, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
+import {
+  getImportLast,
+  importFromSource,
+  setImportLast,
+  SOURCES,
+  type SourceDef,
+  type SourceId,
+} from '@/lib/import/sources'
 import { parsePastedLog, speakerLabel, transcriptStats } from '@/lib/transcript'
 import type { Channel, DateRecord, Speaker, Turn } from '@/types/date'
 import { Button } from './ui/Button'
 import { Chip, Eyebrow } from './ui/Card'
 import { Field, Input, Textarea } from './ui/Field'
 import { Select } from './ui/Select'
+import { Spinner } from './ui/Spinner'
 import { Modal } from './ui/Modal'
 
 const CHANNEL_ICON = {
@@ -149,7 +158,7 @@ export function ConversationPanel({
           </Button>
         ) : null}
         <Button variant="ghost" size="sm" onClick={() => setImporting(true)}>
-          <ClipboardPaste size={13} /> Paste a log
+          <Download size={13} /> Import
         </Button>
       </div>
 
@@ -565,11 +574,57 @@ function ImportModal({
   onImport: (turns: Turn[], mode: 'append' | 'replace') => void
 }) {
   const [raw, setRaw] = useState('')
+  const [source, setSource] = useState<SourceId | null>(null)
+  // Blank means the whole history: the expensive answer is the honest default,
+  // since a number picked for you silently drops the messages above it.
+  const [last, setLast] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
   // Memoised: this runs on every keystroke, and a pasted thread can be long.
   const parsed = useMemo(
     () => (raw.trim() ? parsePastedLog(raw, record.name) : []),
     [raw, record.name],
   )
+
+  const active = SOURCES.find((s) => s.id === source)
+
+  // The remembered count lands a tick after mount, so it must not overwrite a
+  // number the user has already started typing.
+  const typedLast = useRef(false)
+  useEffect(() => {
+    void getImportLast().then((v) => {
+      if (v && !typedLast.current) setLast(v)
+    })
+  }, [])
+
+  async function fetchFrom(def: SourceDef) {
+    setFetching(true)
+    setError(null)
+    setStatus('Looking for the tab…')
+    try {
+      // Blank, 0, or anything unreadable means the whole history — the expensive
+      // answer, so it has to be asked for rather than fallen into.
+      const n = Math.max(0, Math.floor(Number(last.trim())) || 0)
+      void setImportLast(n ? String(n) : '')
+      const result = await importFromSource(def, n, (found) => setStatus(`${found} messages so far…`))
+      setRaw(result.text)
+      setStatus(
+        [
+          `${result.count} messages`,
+          result.peer ? `from ${result.peer}` : null,
+          result.note,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      )
+    } catch (e) {
+      setError((e as Error).message)
+      setStatus(null)
+    } finally {
+      setFetching(false)
+    }
+  }
 
   return (
     <Modal
@@ -577,7 +632,7 @@ function ImportModal({
       onClose={onClose}
       wide
       eyebrow="Import"
-      title="Paste a conversation"
+      title="Import a conversation"
       footer={
         <>
           <span className="mr-auto text-[12px] text-fg-3">
@@ -616,16 +671,94 @@ function ImportModal({
         </>
       }
     >
-      <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
-        One message per line, labelled. <code className="font-mono text-fg-2">Me:</code> for you;{' '}
-        <code className="font-mono text-fg-2">{record.name}:</code>,{' '}
-        <code className="font-mono text-fg-2">Them:</code>, or{' '}
-        <code className="font-mono text-fg-2">Her:</code>/<code className="font-mono text-fg-2">Him:</code>{' '}
-        for them. Unlabelled lines join the message above, so multi-line texts survive. Add a
-        timestamp in brackets right after the label if you have one —{' '}
-        <code className="font-mono text-fg-2">Me [Tue 9pm]:</code> — free-form, same as the "when"
-        field below; it's optional and safe to leave off.
-      </p>
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex overflow-hidden rounded-md border border-border">
+          <button
+            onClick={() => setSource(null)}
+            className={cn(
+              'px-3 py-1 text-[12px] font-semibold transition',
+              source === null ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
+            )}
+          >
+            Paste
+          </button>
+          {SOURCES.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                setSource(s.id)
+                setError(null)
+                setStatus(null)
+              }}
+              className={cn(
+                'border-l border-border px-3 py-1 text-[12px] font-semibold transition',
+                source === s.id ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {active ? (
+          <>
+            <Input
+              value={last}
+              onChange={(e) => {
+                typedLast.current = true
+                setLast(e.target.value)
+              }}
+              placeholder="all"
+              className="h-8 w-[92px] text-[12.5px]"
+              aria-label="How many recent messages"
+            />
+            <span className="text-[11.5px] text-fg-3">most recent · blank for all</span>
+            <Button
+              variant="accent"
+              size="sm"
+              className="ml-auto"
+              disabled={fetching}
+              onClick={() => fetchFrom(active)}
+            >
+              {fetching ? <Spinner /> : <Download size={13} />} Fetch
+            </Button>
+          </>
+        ) : null}
+      </div>
+
+      {active ? (
+        <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
+          Reads the conversation you have open in your {active.label} tab, straight from the page —
+          nothing is uploaded anywhere. Open {active.where}, click into the chat, then Fetch. The log
+          lands below for you to check before it goes in.
+          {active.id === 'telegram' ? (
+            <>
+              {' '}
+              Telegram only loads history cleanly in one direction, so a capped fetch climbs backwards
+              and can skip on a long haul — leave the count blank for the slower, complete read.
+            </>
+          ) : null}
+        </p>
+      ) : (
+        <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
+          One message per line, labelled. <code className="font-mono text-fg-2">Me:</code> for you;{' '}
+          <code className="font-mono text-fg-2">{record.name}:</code>,{' '}
+          <code className="font-mono text-fg-2">Them:</code>, or{' '}
+          <code className="font-mono text-fg-2">Her:</code>/
+          <code className="font-mono text-fg-2">Him:</code> for them. Unlabelled lines join the
+          message above, so multi-line texts survive. Add a timestamp in brackets right after the
+          label if you have one — <code className="font-mono text-fg-2">Me [Tue 9pm]:</code> —
+          free-form, same as the "when" field below; it's optional and safe to leave off.
+        </p>
+      )}
+
+      {error ? (
+        <p className="mb-3 rounded-md border border-no-strong/30 bg-no-soft px-3 py-2 text-[12.5px] leading-relaxed text-no-strong">
+          {error}
+        </p>
+      ) : status ? (
+        <p className="mb-3 text-[12px] text-fg-3">{status}</p>
+      ) : null}
+
       <Textarea
         rows={14}
         value={raw}

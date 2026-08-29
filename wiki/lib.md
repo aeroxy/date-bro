@@ -419,6 +419,39 @@ can't produce a false staleness chip. It also runs the four migrations; see
 | `parsePastedLog(raw, theirName)` | `Name: text` lines with the common label variants plus the person's own name, plus an optional bracketed timestamp right after the label — `Name [Tue 9pm]: text`. The bracket is free-form, same string the manual composer's "when" field takes; omit it and the line parses exactly as before. Unlabelled lines join the previous turn, so multi-line messages survive. Anything before the first recognised label is dropped. |
 | `transcriptStats(record)` | Turn, word, and question counts per side — the UI header, and nothing else. The prompt used to carry them as `<counts>`; it doesn't, and the reasoning is in `transcriptSegments`. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |
 
+## `import/`
+
+Reading a conversation out of WhatsApp Web, Telegram Web or Instagram, so the transcript can arrive
+without a round trip through a terminal. The three sources differ in how they *reach* a message and
+agree on nothing else, so the module splits along that seam: one self-contained extractor each, and
+one renderer they share.
+
+| Export | Purpose |
+|---|---|
+| `render.ts` — `RawMessage`, `renderLog(messages)` | The half that isn't source-specific: a side, a time, some text, and the asides that only exist bracketed (media, quoted reply, forward, reactions, shared link). Renders the same `Me [Wed Oct 30, 7:08pm]: text` lines a hand-pasted log uses, so **`parsePastedLog` is the only parser** and an imported log is indistinguishable from a typed one. `RawMessage.order` is deliberately *not* the timestamp — Telegram's bubbles don't all carry a time but its ids are sequential, so each source supplies whichever of the two it can always produce and ordering never rests on the one it can't. An untimed message borrows the previous stamp marked `~`, which survives the round trip because the parser's bracket is free-form |
+| `whatsapp.ts`, `telegram.ts`, `instagram.ts` | One injected function each, run in the tab's **MAIN world**. WhatsApp encrypts message bodies at rest and Instagram keeps its auth tokens in the page's module registry, so both need `window.require` — that, not convenience, is why the world matters. Telegram only reads the DOM but runs there too, so all three keep their resumable progress in one place |
+| `sources.ts` — `SOURCES`, `importFromSource(source, last, onProgress)` | The registry, and the loop that drives one source until it reports `done`. Each pass is time-boxed so the injected function returns while the page is still listening and resumes on the next one; the sources hold their own progress in the tab |
+
+Three things are load-bearing and easy to undo by accident.
+
+**It runs from the app page, not the service worker.** The existing `chrome.scripting` calls live in
+`qwen/`, which is worker-side, so the convention points the other way — but a whole history is
+minutes of passes, and the app page is the context with no lifetime to worry about. It's the same
+split the LLM backends make: keyed `fetch` from the page, only the Qwen stream bridged.
+
+**The injected functions cannot close over anything.** `chrome.scripting` serialises them, so an
+import or a module constant that looks harmless is `undefined` at the far end — which is why the
+shared rendering sits outside them and every helper is inlined. `minify: false` keeps the serialised
+source readable, and the build carries no transpiler helpers, so what is written is what is injected.
+
+**`last` is the cheap direction, and the whole history is the expensive one.** All three page
+backwards from newest, so a capped fetch stops early rather than reading everything and trimming.
+Telegram is the exception worth knowing: it only loads history cleanly going *forward*, so a whole
+read rewinds to the first message and rides the list down, while a capped one climbs from where the
+chat sits and can skip on a long haul. That's why the result lands in the modal's textarea for review
+rather than importing itself — and why the trim happens *after* fetching, since the overshoot is what
+resolves a reply quoting a message just outside the window.
+
 ## `export-markdown.ts`
 
 `recordToMarkdown(record, now?)` → one record as a document: the standing facts, both profiles with

@@ -7,7 +7,8 @@ do next. All input is manual — there is no scraping, no site integration, no c
 ## What It Does
 
 1. **Stores people.** One record per person: name, stage, and what the user wants out of it.
-2. **Stores the conversation.** Turns typed one at a time or bulk-imported from a pasted log, plus
+2. **Stores the conversation.** Turns typed one at a time, or bulk-imported — from a pasted log, or
+   read straight out of an open WhatsApp Web, Telegram or Instagram tab (`lib/import/`) — plus
    `NOTE` entries for anything the user knows that nobody typed. One pool — there is no separate
    "what you know about them" field, and no fact about the connection lives outside this list. The
    one thing that does is `goal`, which isn't a fact about them: it's what the user is asking the
