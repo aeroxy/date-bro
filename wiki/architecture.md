@@ -14,7 +14,7 @@ date-bro/
 │   ├── components/              # UI, with ui/ holding the design-system primitives
 │   ├── coach/                   # knowledge.ts, prompts.ts, schemas.ts, run.ts
 │   ├── hooks/useDates.ts
-│   ├── lib/                     # llm-client, agent, storage, db, transcript, cn, qwen/, tools/
+│   ├── lib/                     # llm-client, agent, storage, db, transcript, cn, qwen/, tools/, import/
 │   ├── types/                   # date, coach, settings, globals
 │   └── assets/index.css         # Design tokens (@theme) + editorial layer
 ├── public/assets/icon.svg       # Toolbar icon master → icon-{16,32,48,128}.png
@@ -91,6 +91,7 @@ Plus one background → app page broadcast, `QWEN_CHAT_THINKING` (`{ requestId, 
 | `chrome.storage.local` | `dateBroSettings` | `CoachSettings` (the house-rules prompt) |
 | `chrome.storage.local` | `dateBroCoachMind` | `Mind` — the coach itself: its identity, its whole playbook, and what it has learned. Not a `DateRecord` field precisely because every record shares it; see [coach.md](coach.md#mindts) |
 | `chrome.storage.local` | `dateBroLastOpened` | last-selected date id, so the app reopens where you left it |
+| `chrome.storage.local` | `dateBroImportLast` | the "last N messages" the previous import fetched with; blank (the default) means the whole history |
 | `chrome.storage.local` | `qwen_device_id` | cached device id for the Qwen fingerprint |
 
 `normalize` in `lib/db.ts` runs four migrations and then `numberTurns`, on every read, under the same
