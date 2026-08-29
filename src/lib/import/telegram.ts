@@ -129,6 +129,65 @@ export async function fetchTelegram(args: { last: number; budgetMs: number; rest
   }
 
   const MONTH = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i
+
+  /**
+   * Telegram writes these headers in its own UI language, and a label we can't
+   * read costs every message under it its timestamp. So rebuild the same three
+   * shapes out of `Intl` in the page's locale rather than widening the English
+   * patterns — the names come from the browser, so nothing here is a word list.
+   */
+  const localised = (label: string, now: Date): Date | null => {
+    const loc = document.documentElement.lang || navigator.language || 'en'
+    const norm = label.toLowerCase().trim()
+    const rel = (n: number) => {
+      try {
+        return new Intl.RelativeTimeFormat(loc, { numeric: 'auto' }).format(n, 'day').toLowerCase()
+      } catch {
+        return null
+      }
+    }
+    if (norm === rel(0)) return new Date(now)
+    if (norm === rel(-1)) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - 1)
+      return d
+    }
+    // A leading four-digit year makes the rest unambiguous, which is the one
+    // numeric shape worth reading: "2023年5月20日", "2023-05-20". Day-first
+    // numerics stay unread on purpose — 05.06 is two different days depending on
+    // a locale the label doesn't carry, and a guess puts messages months out.
+    const ymd = label.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/)
+    if (ymd) return new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))
+
+    // Year first, then the day out of what's left, so a year can't be read as one.
+    const year = Number((label.match(/\d{4}/) || [])[0]) || now.getFullYear()
+    const day = Number((label.replace(/\d{4}/, ' ').match(/\d{1,2}/) || [])[0])
+    if (!day) return null
+    for (const month of ['long', 'short'] as const) {
+      for (let mo = 0; mo < 12; mo++) {
+        let name: string
+        try {
+          // Formatted as part of a whole date, not alone: inflected languages
+          // write a different word in a date than they do standalone, and it is
+          // the date form Telegram prints ("20 мая", not "май").
+          const parts = new Intl.DateTimeFormat(loc, {
+            day: 'numeric',
+            month,
+            year: 'numeric',
+          }).formatToParts(new Date(2000, mo, 15))
+          name = parts.find((p) => p.type === 'month')?.value ?? ''
+        } catch {
+          return null
+        }
+        name = name.replace(/\.$/, '').toLowerCase()
+        // A locale that numbers its months gives back "5", which every label
+        // carrying a day would match. Those are the ones `ymd` above covers.
+        if (name.length > 2 && norm.includes(name)) return new Date(year, mo, day)
+      }
+    }
+    return null
+  }
+
   const whenOf = (dateLabel: string, time: string): number | null => {
     const now = new Date()
     let d: Date
@@ -139,7 +198,11 @@ export async function fetchTelegram(args: { last: number; budgetMs: number; rest
     } else if (MONTH.test(dateLabel)) {
       // Telegram drops the year inside the current one: "May 20" vs "May 20, 2023".
       d = new Date(/\d{4}/.test(dateLabel) ? dateLabel : `${dateLabel}, ${now.getFullYear()}`)
-    } else return null
+    } else {
+      const alt = localised(dateLabel, now)
+      if (!alt) return null
+      d = alt
+    }
     if (isNaN(d.getTime())) return null
     const m = String(time || '')
       .trim()

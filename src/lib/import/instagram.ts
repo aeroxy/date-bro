@@ -36,7 +36,9 @@ export async function fetchInstagram(args: { last: number }) {
   const dtsg = (mod('DTSGInitialData') || {}).token || (mod('DTSG_ASYNC') || {}).token
   const lsd = (mod('LSD') || {}).token
   const av = (mod('CurrentUserInitialData') || {}).ACCOUNT_ID
-  if (!dtsg || !lsd) return { error: 'Instagram auth tokens not found — is that tab logged in?' }
+  // `av` is sent with every request, so a missing one goes out as the literal
+  // "undefined" and comes back as a GraphQL error about nothing in particular.
+  if (!dtsg || !lsd || !av) return { error: 'Instagram auth tokens not found — is that tab logged in?' }
 
   // jazoest is a checksum of fb_dtsg; the server rejects a mismatch.
   let sum = 0

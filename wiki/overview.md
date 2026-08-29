@@ -2,7 +2,9 @@
 
 **Date Bro** is a full-page Chrome extension that helps someone understand a dating situation they
 are already in: who the other person appears to be, how they themselves are showing up, and what to
-do next. All input is manual — there is no scraping, no site integration, no content script.
+do next. Input is the user's own: typed, pasted, or imported on demand from a conversation
+they already have open. There is no content script and nothing runs on its own — a source read
+happens only when the user asks for one, in a tab they are already signed into.
 
 ## What It Does
 
