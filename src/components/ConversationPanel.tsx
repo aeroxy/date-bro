@@ -674,7 +674,11 @@ function ImportModal({
       <div className="mb-3 flex items-center gap-2">
         <div className="flex overflow-hidden rounded-md border border-border">
           <button
-            onClick={() => setSource(null)}
+            onClick={() => {
+              setSource(null)
+              setError(null)
+              setStatus(null)
+            }}
             className={cn(
               'px-3 py-1 text-[12px] font-semibold transition',
               source === null ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
