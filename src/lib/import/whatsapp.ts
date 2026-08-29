@@ -1,4 +1,4 @@
-import type { RawMessage } from './render'
+import type { FetchArgs, RawMessage } from './render'
 
 /**
  * The WhatsApp Web chat you have open, paged in through the app's own store.
@@ -16,7 +16,7 @@ import type { RawMessage } from './render'
  * Everything is inlined: `chrome.scripting` serialises this function, so it
  * cannot close over an import or a module constant.
  */
-export async function fetchWhatsApp(args: { last: number; budgetMs: number; restart: boolean }) {
+export async function fetchWhatsApp(args: FetchArgs) {
   if (!location.hostname.endsWith('web.whatsapp.com')) {
     return { error: 'That tab is not on web.whatsapp.com.' }
   }
@@ -128,7 +128,9 @@ export async function fetchWhatsApp(args: { last: number; budgetMs: number; rest
   }
 
   const messages: RawMessage[] = []
-  for (const m of chat.msgs.getModelsArray()) {
+  const models = chat.msgs.getModelsArray()
+  for (let i = 0; i < models.length; i++) {
+    const m = models[i]
     const key = String(m.id)
     if (st.sent.has(key)) continue
     st.sent.add(key)
@@ -136,7 +138,12 @@ export async function fetchWhatsApp(args: { last: number; budgetMs: number; rest
     const q = m.quotedMsg
     messages.push({
       id: key,
-      order: m.t,
+      // `t` is whole seconds, so a burst of messages inside one second would
+      // otherwise share a sort key and come back in whatever order the dedup Map
+      // happened to yield. The collection is already chronological, so its index
+      // breaks the tie; the multiplier is what keeps one second's worth of
+      // indices from spilling into the next second.
+      order: m.t * 1e6 + i,
       ts: m.t * 1000,
       out: !!m.id.fromMe,
       text: textOf(m),

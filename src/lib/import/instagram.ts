@@ -1,4 +1,4 @@
-import type { RawMessage } from './render'
+import type { FetchArgs, RawMessage } from './render'
 
 /**
  * One Instagram DM thread, read the way the web app reads it: repeated POSTs to
@@ -8,12 +8,22 @@ import type { RawMessage } from './render'
  * Instagram's own module registry. Pages arriving newest-first is what makes
  * `last` cheap here — it stops as soon as it has enough, and that *is* the tail.
  *
+ * The one source that runs to completion in a single pass, so it ignores
+ * `budgetMs`/`restart` and always answers `done: true`. Nothing here needs the
+ * cooperative yield the other two have: this is a plain request loop with no
+ * page to keep mounted and no scroll position to hold, so a pass that stopped
+ * early would only have to re-derive the cursor it just threw away. The cost is
+ * that a whole history on a very long thread reports no progress until it
+ * finishes — visible, and cheaper than page-global cursor state.
+ *
  * Everything is inlined: `chrome.scripting` serialises this function, so it
  * cannot close over an import or a module constant.
  */
-export async function fetchInstagram(args: { last: number }) {
+export async function fetchInstagram(args: FetchArgs) {
   const QUERY = 'IGDMessageListOffMsysQuery'
-  // The last id seen in the wild, for when resolution comes up empty.
+  // Only for when resolution comes up empty. Instagram rotates this on deploy,
+  // so treat it as a stale guess worth one try rather than a pinned constant —
+  // when the API-shape error below starts appearing, this is what's out of date.
   const FALLBACK_DOC = '27502152406082940'
   const MAX_PAGES = 500
 

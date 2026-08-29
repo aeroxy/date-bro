@@ -1,4 +1,4 @@
-import { renderLog, type RawMessage } from './render'
+import { renderLog, type FetchArgs, type RawMessage } from './render'
 import { fetchInstagram } from './instagram'
 import { fetchTelegram } from './telegram'
 import { fetchWhatsApp } from './whatsapp'
@@ -20,7 +20,7 @@ export type SourceDef = {
   match: string
   /** The address to name when there isn't one. */
   where: string
-  fetch: (args: { last: number; budgetMs: number; restart: boolean }) => Promise<FetchResult>
+  fetch: (args: FetchArgs) => Promise<FetchResult>
 }
 
 export const SOURCES: SourceDef[] = [
