@@ -10,6 +10,26 @@
  * import anything; this is the half that doesn't, so it's written once.
  */
 
+/**
+ * What every source's injected function is handed. It lives here rather than in
+ * `sources.ts` so the three drivers can name it without importing the module
+ * that imports them — and because a type import is erased at build, taking it
+ * costs the injected functions nothing at runtime.
+ *
+ * All three take the whole thing even where they don't read all of it: the
+ * shape is the contract `SourceDef.fetch` is checked against, and a parameter
+ * narrowed to what one driver happens to use today is a rename waiting to go
+ * unnoticed, since function parameters compare bivariantly.
+ */
+export type FetchArgs = {
+  /** How many recent messages the user asked for; 0 means the whole history. */
+  last: number
+  /** How long this pass may run before yielding, for the resumable sources. */
+  budgetMs: number
+  /** First pass of a fetch — discard any state a previous one left behind. */
+  restart: boolean
+}
+
 export type RawMessage = {
   id: string
   /**
@@ -33,6 +53,11 @@ export type RawMessage = {
 
 // "Wed Oct 30, 7:08pm" in the browser's own zone, matching what the standalone
 // exporters produce so a fetched log and a hand-pasted one read identically.
+// Deliberately en-US, and deliberately *not* the page locale that
+// `telegram.ts` reads its date headers in. Those two solve opposite problems:
+// there we parse whatever language Telegram happened to render, here we emit
+// the one shape `parsePastedLog` reads back. Tying this to the browser's locale
+// would make a fetched log unparseable on a non-English machine.
 const WHEN = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
   month: 'short',

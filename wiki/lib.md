@@ -428,7 +428,7 @@ one renderer they share.
 
 | Export | Purpose |
 |---|---|
-| `render.ts` — `RawMessage`, `renderLog(messages)` | The half that isn't source-specific: a side, a time, some text, and the asides that only exist bracketed (media, quoted reply, forward, reactions, shared link). Renders the same `Me [Wed Oct 30, 7:08pm]: text` lines a hand-pasted log uses, so **`parsePastedLog` is the only parser** and an imported log is indistinguishable from a typed one. `RawMessage.order` is deliberately *not* the timestamp — Telegram's bubbles don't all carry a time but its ids are sequential, so each source supplies whichever of the two it can always produce and ordering never rests on the one it can't. An untimed message borrows the previous stamp marked `~`, which survives the round trip because the parser's bracket is free-form |
+| `render.ts` — `RawMessage`, `FetchArgs`, `renderLog(messages)` | The half that isn't source-specific: a side, a time, some text, and the asides that only exist bracketed (media, quoted reply, forward, reactions, shared link). Renders the same `Me [Wed Oct 30, 7:08pm]: text` lines a hand-pasted log uses, so **`parsePastedLog` is the only parser** and an imported log is indistinguishable from a typed one. `RawMessage.order` is deliberately *not* the timestamp — Telegram's bubbles don't all carry a time but its ids are sequential, so each source supplies whichever of the two it can always produce and ordering never rests on the one it can't. An untimed message borrows the previous stamp marked `~`, which survives the round trip because the parser's bracket is free-form |
 | `whatsapp.ts`, `telegram.ts`, `instagram.ts` | One injected function each, run in the tab's **MAIN world**. WhatsApp encrypts message bodies at rest and Instagram keeps its auth tokens in the page's module registry, so both need `window.require` — that, not convenience, is why the world matters. Telegram only reads the DOM but runs there too, so all three keep their resumable progress in one place |
 | `sources.ts` — `SOURCES`, `importFromSource(source, last, onProgress)` | The registry, and the loop that drives one source until it reports `done`. Each pass is time-boxed so the injected function returns while the page is still listening and resumes on the next one; the sources hold their own progress in the tab |
 
@@ -451,6 +451,20 @@ read rewinds to the first message and rides the list down, while a capped one cl
 chat sits and can skip on a long haul. That's why the result lands in the modal's textarea for review
 rather than importing itself — and why the trim happens *after* fetching, since the overshoot is what
 resolves a reply quoting a message just outside the window.
+
+**All three drivers take the same `FetchArgs`, including the parts they ignore.** Instagram is a
+plain request loop with no page to keep mounted, so it runs to completion in one pass and always
+answers `done: true` — but it still takes `budgetMs` and `restart`, because `SourceDef.fetch` is the
+contract and TypeScript compares function parameters bivariantly: a driver narrowed to what it
+happens to read today type-checks perfectly while silently opting out of a field rename.
+
+**What's tested is the orchestration, not the drivers.** `sources.test.ts` fakes `chrome.tabs` and
+`chrome.scripting` and covers the tab lookup, the pass loop and its `restart` flag, dedup across
+passes, `order` sorting, the tail trim, the `MAX_PASSES` note and the error paths. The drivers
+themselves are deliberately uncovered: the same serialisation constraint that forbids them an import
+also denies them a seam, and their brittle surface is site selectors (`.MessageList[data-list-key^=]`,
+`WAWebCollections`) that only a real page can falsify — a mock of Telegram's DOM would test the mock.
+Treat a site rename as a field failure, which is why a fetch lands in a textarea for review.
 
 ## `export-markdown.ts`
 

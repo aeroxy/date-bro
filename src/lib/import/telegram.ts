@@ -1,4 +1,4 @@
-import type { RawMessage } from './render'
+import type { FetchArgs, RawMessage } from './render'
 
 /**
  * The Telegram Web A chat you have open, read off the message list as the app
@@ -23,7 +23,7 @@ import type { RawMessage } from './render'
  * Resumable across calls via `window.__dbTgImport`. Everything is inlined:
  * `chrome.scripting` serialises this function, so it cannot close over an import.
  */
-export async function fetchTelegram(args: { last: number; budgetMs: number; restart: boolean }) {
+export async function fetchTelegram(args: FetchArgs) {
   if (!location.hostname.endsWith('web.telegram.org')) {
     return { error: 'That tab is not on web.telegram.org.' }
   }

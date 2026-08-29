@@ -598,6 +598,14 @@ function ImportModal({
     })
   }, [])
 
+  // Switching tabs drops whatever the last fetch said: an error or a "142
+  // messages" line describes a source you are no longer looking at.
+  function selectSource(id: SourceId | null) {
+    setSource(id)
+    setError(null)
+    setStatus(null)
+  }
+
   async function fetchFrom(def: SourceDef) {
     setFetching(true)
     setError(null)
@@ -674,11 +682,7 @@ function ImportModal({
       <div className="mb-3 flex items-center gap-2">
         <div className="flex overflow-hidden rounded-md border border-border">
           <button
-            onClick={() => {
-              setSource(null)
-              setError(null)
-              setStatus(null)
-            }}
+            onClick={() => selectSource(null)}
             className={cn(
               'px-3 py-1 text-[12px] font-semibold transition',
               source === null ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
@@ -689,11 +693,7 @@ function ImportModal({
           {SOURCES.map((s) => (
             <button
               key={s.id}
-              onClick={() => {
-                setSource(s.id)
-                setError(null)
-                setStatus(null)
-              }}
+              onClick={() => selectSource(s.id)}
               className={cn(
                 'border-l border-border px-3 py-1 text-[12px] font-semibold transition',
                 source === s.id ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
