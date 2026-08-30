@@ -43,16 +43,21 @@ function fakeSource(over: Partial<SourceDef> = {}): SourceDef {
 }
 
 let calls: FetchArgs[] = []
+let injectedInto: (number | undefined)[] = []
+
+type FakeTab = { id?: number; lastAccessed?: number; active?: boolean }
 
 /** Stand in for the two chrome APIs `importFromSource` reaches for. */
-function install(passes: Pass[], { tabs = [{ id: 7 }] }: { tabs?: { id?: number }[] } = {}) {
+function install(passes: Pass[], { tabs = [{ id: 7 }] }: { tabs?: FakeTab[] } = {}) {
   calls = []
+  injectedInto = []
   let i = 0
   ;(globalThis as Record<string, any>).chrome = {
     tabs: { query: async () => tabs },
     scripting: {
-      executeScript: async ({ args }: { args: [FetchArgs] }) => {
+      executeScript: async ({ args, target }: { args: [FetchArgs]; target: { tabId: number } }) => {
         calls.push(args[0])
+        injectedInto.push(target.tabId)
         // Past the end, keep answering with the last pass: a driver that never
         // says `done` is exactly what the MAX_PASSES guard is for.
         const pass = passes[Math.min(i++, passes.length - 1)]
@@ -137,6 +142,49 @@ describe('importFromSource', () => {
     const result = await importFromSource(fakeSource(), 0, () => {})
 
     expect(result.note).toBe('history remains')
+  })
+
+  test('picks the matching tab the user was in most recently', async () => {
+    // The realistic Instagram case: a feed tab matches the pattern just as well
+    // as the DM, and array order would have handed us the feed.
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: true }], {
+      tabs: [
+        { id: 1, lastAccessed: 1000 },
+        { id: 2, lastAccessed: 5000 },
+        { id: 3, lastAccessed: 2000 },
+      ],
+    })
+    const result = await importFromSource(fakeSource(), 0, () => {})
+
+    expect(injectedInto).toEqual([2])
+    // Having had a choice is said out loud, so a wrong pick is visible.
+    expect(result.note).toMatch(/of 3 open/)
+  })
+
+  test('falls back to the active tab where lastAccessed is not reported', async () => {
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: true }], {
+      tabs: [{ id: 1 }, { id: 2, active: true }],
+    })
+    await importFromSource(fakeSource(), 0, () => {})
+
+    expect(injectedInto).toEqual([2])
+  })
+
+  test('one tab says nothing about which tab', async () => {
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: true }])
+    const result = await importFromSource(fakeSource(), 0, () => {})
+
+    expect(result.note).toBeNull()
+  })
+
+  test('the ambiguity note does not swallow the didn\'t-finish warning', async () => {
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: false }], {
+      tabs: [{ id: 1, lastAccessed: 2 }, { id: 2, lastAccessed: 1 }],
+    })
+    const result = await importFromSource(fakeSource(), 0, () => {})
+
+    expect(result.note).toMatch(/of 2 open/)
+    expect(result.note).toMatch(/Stopped after 200 passes/)
   })
 
   test('no tab open names the source and where to open it', async () => {
