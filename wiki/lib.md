@@ -458,6 +458,14 @@ answers `done: true` — but it still takes `budgetMs` and `restart`, because `S
 contract and TypeScript compares function parameters bivariantly: a driver narrowed to what it
 happens to read today type-checks perfectly while silently opting out of a field rename.
 
+**Which tab gets read is a choice, and it's made by recency.** A match pattern has to cover the
+whole site, so several tabs can match — for Instagram one usually does, since a feed tab is as good a
+match as the DM. The most recently accessed matching tab wins (`active` where `lastAccessed` isn't
+reported): clicking into the conversation and coming back here is what an import *is*, so recency is
+the signal. Array order was the bug — a background feed tab could answer "no DM is open" while the DM
+sat open one tab over. When there was more than one candidate the result says so, because the peer
+name confirms *which conversation* but nothing else would show that a choice had been made.
+
 **What's tested is the orchestration, not the drivers.** `sources.test.ts` fakes `chrome.tabs` and
 `chrome.scripting` and covers the tab lookup, the pass loop and its `restart` flag, dedup across
 passes, `order` sorting, the tail trim, the `MAX_PASSES` note and the error paths. The drivers

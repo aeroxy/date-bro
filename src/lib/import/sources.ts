@@ -74,10 +74,24 @@ export async function importFromSource(
   onProgress: (found: number) => void,
 ): Promise<ImportResult> {
   const tabs = await chrome.tabs.query({ url: source.match, discarded: false })
-  const tabId = tabs[0]?.id
+  // More than one tab can match, and for Instagram it usually does: the pattern
+  // has to cover the whole site, so a feed tab matches as readily as the DM. Take
+  // the one the user was in most recently — clicking into the conversation and
+  // then coming back here is what an import *is*, so recency is the signal, and
+  // taking whatever the array happened to list first meant a background feed tab
+  // could answer "no DM is open" while the DM sat open one tab over.
+  const rank = (t: chrome.tabs.Tab) => t.lastAccessed ?? (t.active ? 1 : 0)
+  const target = [...tabs].sort((a, b) => rank(b) - rank(a))[0]
+  const tabId = target?.id
   if (tabId === undefined) {
     throw new Error(`No ${source.label} tab is open. Open ${source.where}, go to the conversation, and try again.`)
   }
+
+  // Kept apart from the driver's own note rather than seeded into it: they can
+  // both be true, and folding them together would let this one stand in for the
+  // "didn't finish" warning below.
+  const ambiguous =
+    tabs.length > 1 ? `read the ${source.label} tab you were in last, of ${tabs.length} open` : null
 
   const byId = new Map<string, RawMessage>()
   let peer: string | null = null
@@ -115,11 +129,12 @@ export async function importFromSource(
   const tail = last ? all.slice(-last) : all
   if (!tail.length) throw new Error(`${source.label} gave back no messages for that conversation.`)
 
+  const progress = done ? note : (note ?? `Stopped after ${MAX_PASSES} passes — older history may remain.`)
   return {
     text: renderLog(tail),
     peer,
     count: tail.length,
-    note: done ? note : (note ?? `Stopped after ${MAX_PASSES} passes — older history may remain.`),
+    note: [ambiguous, progress].filter(Boolean).join(' · ') || null,
   }
 }
 
