@@ -231,11 +231,13 @@ export async function readPage(url: string, ctx: ToolHandlerContext = {}): Promi
   return capped(parseHtmlToMarkdown(html), truncated)
 }
 
+// Exported for its own test: the surrogate trim below is the kind of line that
+// reads as a pointless `replace` and gets "simplified" back into a bare slice.
 // Says so explicitly, so the model treats it as a partial read instead of
 // concluding the page simply ends there. Both tools go through this: a search
 // results page is normally small, but "normally" isn't a bound, and a silently
 // clipped result reads to the model as the complete set.
-function capped(markdown: string, truncated: boolean): string {
+export function capped(markdown: string, truncated: boolean): string {
   if (markdown.length <= MAX_PAGE_CHARS && !truncated) return markdown
   // `slice` counts UTF-16 units, and pages are full of emoji: a cut landing
   // inside a surrogate pair leaves an orphaned half that strict JSON parsers
