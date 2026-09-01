@@ -139,6 +139,7 @@ export async function fetchInstagram(args: FetchArgs) {
   let after: string | null = null
   let pages = 0
   let note: string | null = null
+  let reachedEnd = false
   while (pages < MAX_PAGES) {
     let j: any
     try {
@@ -160,12 +161,24 @@ export async function fetchInstagram(args: FetchArgs) {
     // Pages run newest-first, so having enough of them means having the tail.
     // Everything fetched is returned and the caller trims: the overshoot is what
     // resolves a reply quoting a message just outside the window.
-    if (args.last && byId.size >= args.last) break
-    if (!thread.slide_messages.page_info.has_next_page) break
+    if (args.last && byId.size >= args.last) {
+      reachedEnd = true
+      break
+    }
+    if (!thread.slide_messages.page_info.has_next_page) {
+      reachedEnd = true
+      break
+    }
     after = thread.slide_messages.page_info.end_cursor
     await sleep(350)
   }
-  if (pages >= MAX_PAGES) note = `stopped at ${MAX_PAGES} pages — older history remains`
+  // Only when the loop ran out of allowance rather than out of history: a thread
+  // that happens to end on its last permitted page has nothing older, and
+  // saying otherwise sends the user hunting for messages that don't exist. `??`
+  // so an error caught on that same page keeps its own, more specific message.
+  if (!reachedEnd && pages >= MAX_PAGES) {
+    note = note ?? `stopped at ${MAX_PAGES} pages — older history remains`
+  }
 
   // Instagram sends one node type per attachment kind; only text carries a
   // text_body. The pluralisation is theirs: Image is singular, Videos is not.
@@ -190,6 +203,10 @@ export async function fetchInstagram(args: FetchArgs) {
   // can have at most two senders, so a third means that footing is gone — and
   // the failure would be silent in the worst direction: every message comes back
   // as mine and the coach reads a monologue as if the other person never spoke.
+  // Normalised on both sides of every comparison, not just here. `threadId` is
+  // a string off the url, and a numeric `sender_fbid` would make `!==` true for
+  // everyone — the exact monologue above, with two senders in this set and the
+  // backstop looking straight through it.
   const senders = new Set(nodes.map((n) => String(n.sender_fbid)))
   if (senders.size > 2) {
     return {
@@ -213,7 +230,7 @@ export async function fetchInstagram(args: FetchArgs) {
       order: Number(n.timestamp_ms),
       ts: Number(n.timestamp_ms),
       // The id in the URL is the other participant's fbid, so anyone else is me.
-      out: n.sender_fbid !== threadId,
+      out: String(n.sender_fbid) !== threadId,
       text: n.text_body || '',
       media,
       reply: replyId ? quoted.get(replyId) || null : null,
@@ -222,7 +239,7 @@ export async function fetchInstagram(args: FetchArgs) {
     })
   }
 
-  const peerName = nodes.find((n) => n.sender_fbid === threadId)?.sender
+  const peerName = nodes.find((n) => String(n.sender_fbid) === threadId)?.sender
   return {
     peer: peerName?.username || peerName?.name || null,
     messages,
