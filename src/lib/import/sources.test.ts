@@ -8,7 +8,7 @@ import type { FetchArgs, RawMessage } from './render'
 /**
  * The half of the import that isn't a page.
  *
- * The three drivers themselves can't be reached from here — they read `document`
+ * The drivers themselves can't be reached from here — they read `document`
  * and `window.require`, and they're written as one self-contained function each
  * because `chrome.scripting` stringifies them, so there is nothing to import and
  * no seam to inject a fake DOM through. What *is* testable is everything around

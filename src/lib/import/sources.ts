@@ -1,9 +1,10 @@
 import { renderLog, type FetchArgs, type RawMessage } from './render'
 import { fetchInstagram } from './instagram'
+import { fetchRed } from './red'
 import { fetchTelegram } from './telegram'
 import { fetchWhatsApp } from './whatsapp'
 
-export type SourceId = 'whatsapp' | 'telegram' | 'instagram'
+export type SourceId = 'whatsapp' | 'telegram' | 'instagram' | 'red'
 
 type FetchResult = {
   peer?: string | null
@@ -44,6 +45,18 @@ export const SOURCES: SourceDef[] = [
     match: '*://*.instagram.com/*',
     where: 'instagram.com',
     fetch: fetchInstagram,
+  },
+  {
+    id: 'red',
+    label: 'RED',
+    // The only source matched down to the conversation's own path, because it
+    // is the only one where the id of the thread to read lives in the url — so
+    // narrowing here means the tab lookup can never hand the driver a tab it
+    // has nothing to say about, and "no RED tab is open" is the honest error
+    // for a feed tab rather than something the driver has to discover.
+    match: '*://*.xiaohongshu.com/chat/*',
+    where: 'xiaohongshu.com',
+    fetch: fetchRed,
   },
 ]
 
@@ -103,9 +116,10 @@ export async function importFromSource(
     try {
       injected = await chrome.scripting.executeScript({
         target: { tabId },
-        // WhatsApp and Instagram both need the page's own module registry, which
-        // only exists in the main world. Telegram only reads the DOM, but runs
-        // there too so all three keep their progress in one place.
+        // WhatsApp and Instagram need the page's own module registry and RED
+        // needs its patched `fetch`, none of which exist anywhere else. Telegram
+        // only reads the DOM, but runs there too so all four keep their progress
+        // in one place.
         world: 'MAIN',
         func: source.fetch,
         args: [{ last, budgetMs: BUDGET_MS, restart: pass === 0 }],
