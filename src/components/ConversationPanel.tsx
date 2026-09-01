@@ -613,6 +613,28 @@ function ImportModal({
   const logBox = useRef<HTMLTextAreaElement>(null)
   const backdrop = useRef<HTMLDivElement>(null)
 
+  // The textarea can reserve space for a scrollbar inside its own content box;
+  // the backdrop, which never scrolls, cannot. Where that space is real — a
+  // platform with classic scrollbars, or macOS set to always show them — the
+  // two wrap at different widths and drift a row apart, the same failure the
+  // leading fix removed, reached by a different route. Measured rather than
+  // assumed in either direction: on overlay scrollbars the gutter is 2px and
+  // this does nothing.
+  useLayoutEffect(() => {
+    const box = logBox.current
+    const layer = backdrop.current
+    if (!box || !layer) return
+    const border = parseFloat(getComputedStyle(box).borderRightWidth) || 0
+    const gutter = box.offsetWidth - box.clientWidth - border * 2
+    // `paddingLeft` is the untouched twin of the padding being overridden, so
+    // the base comes from the layer itself and no spacing value is hardcoded.
+    const base = parseFloat(getComputedStyle(layer).paddingLeft) || 0
+    layer.style.paddingRight = gutter > 0.5 ? `${base + gutter}px` : ''
+    // Bounded rather than run on every render: it reads layout and writes style,
+    // which is a forced reflow, and the only thing that changes a gutter is the
+    // log growing past the box.
+  }, [raw, finding])
+
   // Where the log stops being new. Recomputed with the log because a fetch, an
   // edit and a paste all change the answer — but deferred, because it shapes
   // every line and a whole-history import is tens of thousands of them. The
@@ -692,11 +714,25 @@ function ImportModal({
    * string node however long it is.
    */
   const painted = useMemo(() => {
+    // Marks either side of the current match. Bounded because each is a DOM
+    // node and a one-letter query on a whole history matches tens of thousands
+    // of times; wide enough that scrolling never outruns it.
+    const PAINT_SPAN = 400
     // The find owns the highlighter while it is in use; the seam gets it the
     // rest of the time. Two overlapping range sets would have to be merged, and
     // nobody is reading a seam marker while typing a query.
     const ranges = hits.length
-      ? hits.slice(0, 500).map((start, i) => ({ start, end: start + needle.length, current: i === cursor }))
+      ? // A window around where the user is, not the first N. Capping at the
+        // front meant match 501 stepped to a selection nothing painted — the
+        // same invisible-match failure this layer exists to fix, moved behind a
+        // threshold instead of removed.
+        hits
+          .slice(Math.max(0, cursor - PAINT_SPAN), cursor + PAINT_SPAN)
+          .map((start) => ({
+            start,
+            end: start + needle.length,
+            current: start === hits[cursor],
+          }))
       : overlap
         ? [{ start: overlap.start, end: overlap.start + overlap.length, current: false }]
         : []
@@ -781,7 +817,17 @@ function ImportModal({
     setStatus(null)
   }
 
+  /** What the last fetch put in the box, so an edit can be told from a paste. */
+  const fetched = useRef('')
+
   async function fetchFrom(def: SourceDef) {
+    // A second fetch overwrites the box, and by then the box may hold work: a
+    // run trimmed, a mangled line repaired. Guarded like Replace all, and only
+    // when there is something to lose — an untouched log, or one this fetch put
+    // there itself, is replaced without ceremony.
+    if (raw.trim() && raw !== fetched.current && !confirm('Replace what is in the box? Your edits to it will be lost.')) {
+      return
+    }
     setFetching(true)
     setError(null)
     setStatus('Looking for the tab…')
@@ -805,6 +851,7 @@ function ImportModal({
       // Stored on the way out, so what comes back next time is a count that
       // actually ran — not one from an attempt that died on "no tab open".
       void setImportLast(n ? String(n) : '')
+      fetched.current = result.text
       setRaw(result.text)
       setStatus(
         [

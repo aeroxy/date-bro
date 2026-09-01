@@ -214,7 +214,16 @@ export async function fetchInstagram(args: FetchArgs) {
   // a string off the url, and a numeric `sender_fbid` would make `!==` true for
   // everyone — the exact monologue above, with two senders in this set and the
   // backstop looking straight through it.
-  const senders = new Set(nodes.map((n) => String(n.sender_fbid)))
+  // Counted over the same rows the render loop keeps. An admin row — a call
+  // notice, a vanish-mode banner — is not a participant and often carries no
+  // sender at all, and `String(undefined)` made it a third "person": a 1:1
+  // thread refused outright, with copy sending the user to look for a group
+  // that does not exist. A guard against silent misattribution must not be
+  // trippable by rows it does not govern.
+  const said = nodes.filter((n) => (n.content?.__typename || n.content_type) !== 'SlideMessageAdminText')
+  const senders = new Set(
+    said.map((n) => String(n.sender_fbid)).filter((id) => id && id !== 'undefined'),
+  )
   if (senders.size > 2) {
     return {
       error: `That Instagram thread has ${senders.size} people in it — this reads one-to-one DMs, where the id in the url is the other person.`,
