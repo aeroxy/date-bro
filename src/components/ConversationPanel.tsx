@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Download, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
+import { findOverlap } from '@/lib/import/overlap'
 import {
   getImportLast,
   importFromSource,
@@ -603,6 +604,10 @@ function ImportModal({
   const findBox = useRef<HTMLInputElement>(null)
   const logBox = useRef<HTMLTextAreaElement>(null)
 
+  // Where the log stops being new. Recomputed with the log because a fetch, an
+  // edit and a paste all change the answer.
+  const overlap = useMemo(() => findOverlap(raw, record.turns), [raw, record.turns])
+
   const needle = find.toLowerCase()
   const hits = useMemo(() => {
     if (!needle) return []
@@ -616,16 +621,12 @@ function ImportModal({
     return found
   }, [raw, needle])
 
-  /** Select the nth match, wrapping, and bring it into view. */
-  function jump(n: number) {
-    if (!hits.length) return
-    const i = ((n % hits.length) + hits.length) % hits.length
-    setAt(i)
+  /** Select a span of the log and scroll it into the middle of the box. */
+  function reveal(start: number, length: number) {
     const box = logBox.current
     if (!box) return
-    const start = hits[i]!
     box.focus()
-    box.setSelectionRange(start, start + needle.length)
+    box.setSelectionRange(start, start + length)
     // Chrome does not scroll a textarea to a programmatic selection — measured,
     // not assumed: focus-then-select, blur-focus-select and select-then-refocus
     // all leave `scrollTop` exactly where it was, so a match 100 lines down gets
@@ -649,6 +650,14 @@ function ImportModal({
       rows += cols > 0 ? Math.max(1, Math.ceil(line.length / cols)) : 1
     }
     box.scrollTop = Math.max(0, rows * lh - box.clientHeight / 2)
+  }
+
+  /** Select the nth match, wrapping. */
+  function jump(n: number) {
+    if (!hits.length) return
+    const i = ((n % hits.length) + hits.length) % hits.length
+    setAt(i)
+    reveal(hits[i]!, needle.length)
   }
 
   // The query changing makes every offset stale, so the first match is the only
@@ -877,6 +886,31 @@ function ImportModal({
         </p>
       ) : status ? (
         <p className="mb-3 text-[12px] text-fg-3">{status}</p>
+      ) : null}
+
+      {overlap ? (
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-fg-3">
+          <span>
+            {overlap.score === 1 ? 'Already recorded' : 'Looks already recorded'} through line{' '}
+            <span className="font-semibold text-fg-2">{overlap.line + 1}</span>
+            {overlap.back ? ` (your last ${overlap.back} recorded turn${overlap.back > 1 ? 's' : ''} aren't in this log)` : ''} —{' '}
+            {overlap.fresh
+              ? `the ${overlap.fresh} line${overlap.fresh > 1 ? 's' : ''} below ${overlap.fresh > 1 ? 'are' : 'is'} new.`
+              : 'nothing below it is new.'}
+          </span>
+          {/* The match is a resemblance, not a fact — the recorded turn may have
+              been typed by hand — so the way to check it is to go and look. */}
+          <button
+            type="button"
+            onClick={() => reveal(overlap.start, overlap.length)}
+            className="font-semibold text-action underline-offset-2 hover:underline"
+          >
+            Show me
+          </button>
+          {overlap.score < 1 ? (
+            <span className="text-fg-3">Matched on wording, so check before appending.</span>
+          ) : null}
+        </p>
       ) : null}
 
       {finding ? (
