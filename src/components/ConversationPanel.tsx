@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { Download, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
@@ -603,10 +611,15 @@ function ImportModal({
   const [at, setAt] = useState(0)
   const findBox = useRef<HTMLInputElement>(null)
   const logBox = useRef<HTMLTextAreaElement>(null)
+  const backdrop = useRef<HTMLDivElement>(null)
 
   // Where the log stops being new. Recomputed with the log because a fetch, an
-  // edit and a paste all change the answer.
-  const overlap = useMemo(() => findOverlap(raw, record.turns), [raw, record.turns])
+  // edit and a paste all change the answer — but deferred, because it shapes
+  // every line and a whole-history import is tens of thousands of them. The
+  // banner is a summary of the log, not feedback on the keystroke, so it is
+  // allowed to arrive a frame late rather than hold up the character.
+  const settled = useDeferredValue(raw)
+  const overlap = useMemo(() => findOverlap(settled, record.turns), [settled, record.turns])
 
   const needle = find.toLowerCase()
   const hits = useMemo(() => {
@@ -621,11 +634,21 @@ function ImportModal({
     return found
   }, [raw, needle])
 
-  /** Select a span of the log and scroll it into the middle of the box. */
+  /**
+   * Select a span of the log and scroll it into the middle of the box.
+   *
+   * Deliberately does **not** focus the textarea. It used to, and that made
+   * the find field unusable: the live-query effect reveals on every keystroke,
+   * so the first character typed moved focus to the log with the match
+   * selected, and the second character *replaced that match* — typing "hello"
+   * silently edited four characters into a transcript about to be appended as
+   * fact. Focus was only ever there to coax a native scroll-to-selection that
+   * Chrome does not do anyway, and Chrome paints an unfocused selection grey,
+   * so nothing is lost by leaving focus where the user put it.
+   */
   function reveal(start: number, length: number) {
     const box = logBox.current
     if (!box) return
-    box.focus()
     box.setSelectionRange(start, start + length)
     // Chrome does not scroll a textarea to a programmatic selection — measured,
     // not assumed: focus-then-select, blur-focus-select and select-then-refocus
@@ -633,24 +656,73 @@ function ImportModal({
     // selected somewhere the user can't see. The row is found by hand instead.
     const cs = getComputedStyle(box)
     const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
-    // Wrapped rows count too, and the log renders in a monospace face — so one
-    // character's width is every character's, and the wrap is arithmetic rather
-    // than layout. Word breaks make this a row or two short on long lines,
-    // which centring absorbs.
     const inner = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
     const ctx = document.createElement('canvas').getContext('2d')
-    let cols = 0
-    if (ctx) {
-      ctx.font = cs.font
-      const ch = ctx.measureText('0').width
-      if (ch > 0) cols = Math.floor(inner / ch)
-    }
+    if (ctx) ctx.font = cs.font
+    // Wrapped rows count toward the offset, and each line is *measured* rather
+    // than counted: a character is not a column. RED logs are largely Chinese,
+    // where every glyph is two columns wide even in a monospace face, so
+    // `length / cols` put the target at half its true depth and the scroll
+    // landed short by more than centring could absorb.
     let rows = 0
     for (const line of raw.slice(0, start).split('\n').slice(0, -1)) {
-      rows += cols > 0 ? Math.max(1, Math.ceil(line.length / cols)) : 1
+      const width = ctx ? ctx.measureText(line).width : 0
+      rows += width > 0 && inner > 0 ? Math.max(1, Math.ceil(width / inner)) : 1
     }
     box.scrollTop = Math.max(0, rows * lh - box.clientHeight / 2)
   }
+
+  // `at` is only reset when the query changes, but editing the log or running a
+  // second fetch recomputes the matches under it — leaving a counter reading
+  // "7 / 2". Clamped at the point of use so the number shown and the number
+  // stepped from are the same one.
+  const cursor = hits.length ? Math.min(at, hits.length - 1) : 0
+
+  /**
+   * The log, cut into the runs that get painted and the runs that don't.
+   *
+   * A textarea cannot colour its own contents, and Chrome does not paint an
+   * unfocused selection — checked, after shipping a version that relied on it:
+   * `setSelectionRange` with focus in the find field draws nothing at all. So
+   * the highlight is a second copy of the text sitting behind the transparent
+   * textarea, in the same font at the same width, wrapping identically, with a
+   * background behind the runs that matter. Focus never has to move for it.
+   *
+   * Children are O(matches), not O(lines): the text between two marks is one
+   * string node however long it is.
+   */
+  const painted = useMemo(() => {
+    // The find owns the highlighter while it is in use; the seam gets it the
+    // rest of the time. Two overlapping range sets would have to be merged, and
+    // nobody is reading a seam marker while typing a query.
+    const ranges = hits.length
+      ? hits.slice(0, 500).map((start, i) => ({ start, end: start + needle.length, current: i === cursor }))
+      : overlap
+        ? [{ start: overlap.start, end: overlap.start + overlap.length, current: false }]
+        : []
+    if (!ranges.length) return null
+    const out: ReactNode[] = []
+    let cut = 0
+    ranges.forEach((r, i) => {
+      if (r.start > cut) out.push(raw.slice(cut, r.start))
+      out.push(
+        <mark
+          key={i}
+          className={cn(
+            'rounded-[3px] text-transparent',
+            r.current ? 'bg-action/35' : hits.length ? 'bg-action/15' : 'bg-warn/25',
+          )}
+        >
+          {raw.slice(r.start, r.end)}
+        </mark>,
+      )
+      cut = r.end
+    })
+    // The trailing newline keeps the last line scrollable to the same depth the
+    // textarea reaches; without it the two can disagree by a row at the bottom.
+    out.push(`${raw.slice(cut)}\n`)
+    return out
+  }, [raw, hits, needle.length, cursor, overlap])
 
   /** Select the nth match, wrapping. */
   function jump(n: number) {
@@ -893,7 +965,9 @@ function ImportModal({
           <span>
             {overlap.score === 1 ? 'Already recorded' : 'Looks already recorded'} through line{' '}
             <span className="font-semibold text-fg-2">{overlap.line + 1}</span>
-            {overlap.back ? ` (your last ${overlap.back} recorded turn${overlap.back > 1 ? 's' : ''} aren't in this log)` : ''} —{' '}
+            {overlap.back
+              ? ` (your last ${overlap.back} recorded turn${overlap.back > 1 ? "s aren't" : " isn't"} in this log)`
+              : ''}{' '}—{' '}
             {overlap.fresh
               ? `the ${overlap.fresh} line${overlap.fresh > 1 ? 's' : ''} below ${overlap.fresh > 1 ? 'are' : 'is'} new.`
               : 'nothing below it is new.'}
@@ -922,7 +996,7 @@ function ImportModal({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
-                jump(e.shiftKey ? at - 1 : at + 1)
+                jump(e.shiftKey ? cursor - 1 : cursor + 1)
               }
               // Escape empties the box before it closes anything: the modal
               // listens for Escape on the window, and losing a fetched log to
@@ -938,12 +1012,12 @@ function ImportModal({
             aria-label="Find in the imported log"
           />
           <span className="min-w-[64px] text-[11.5px] tabular-nums text-fg-3">
-            {!find ? '' : hits.length ? `${at + 1} / ${hits.length}` : 'no matches'}
+            {!find ? '' : hits.length ? `${cursor + 1} / ${hits.length}` : 'no matches'}
           </span>
-          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(at - 1)}>
+          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(cursor - 1)}>
             Prev
           </Button>
-          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(at + 1)}>
+          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(cursor + 1)}>
             Next
           </Button>
           <Button
@@ -959,14 +1033,37 @@ function ImportModal({
         </div>
       ) : null}
 
-      <Textarea
-        ref={logBox}
-        rows={14}
-        value={raw}
-        onChange={(e) => setRaw(e.target.value)}
-        className="font-mono text-[12.5px]"
-        placeholder={`Me [Sat 11pm]: hey — how was the thing on Saturday?\n${record.name} [Sun 9am]: honestly a disaster, my sister showed up late and then\nmade it everyone's problem\nMe: oh no. the classic`}
-      />
+      <div className="relative rounded-md bg-surface">
+        <div
+          ref={backdrop}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-transparent px-3 py-2 font-mono text-[12.5px] leading-relaxed text-transparent"
+        >
+          {painted}
+        </div>
+        <Textarea
+          ref={logBox}
+          rows={14}
+          // The backdrop only lines up while it shows the same text at the same
+          // offset, so the textarea hands over its scroll on every change to it.
+          onScroll={(e) => {
+            const b = backdrop.current
+            if (!b) return
+            b.scrollTop = e.currentTarget.scrollTop
+            b.scrollLeft = e.currentTarget.scrollLeft
+          }}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          // `leading-relaxed` and `block` are load-bearing, not decoration. The
+          // base already sets the leading, but `tailwind-merge` reads a v4
+          // `text-*` as owning line-height too, so `text-[12.5px]` silently
+          // dropped it and the two layers computed 1.5 against 1.625 — the
+          // highlight drifting a row lower every twelve lines. `block` removes
+          // the inline-block line box that made the backdrop 5px the taller.
+          className="relative block bg-transparent font-mono text-[12.5px] leading-relaxed"
+          placeholder={`Me [Sat 11pm]: hey — how was the thing on Saturday?\n${record.name} [Sun 9am]: honestly a disaster, my sister showed up late and then\nmade it everyone's problem\nMe: oh no. the classic`}
+        />
+      </div>
       {parsed.length ? (
         <div className="mt-3 space-y-1.5">
           <Eyebrow>Preview</Eyebrow>

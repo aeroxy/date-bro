@@ -85,7 +85,10 @@ const TOO_SHORT = 6
 
 export function findOverlap(log: string, turns: Turn[]): Overlap | null {
   const lines = log.split('\n')
-  if (!log.trim() || lines.length < 2) return null
+  // A single-line log is allowed to be all overlap: fetching the last message
+  // and finding it already recorded is worth saying, since appending it is
+  // exactly the duplicate this banner exists to prevent.
+  if (!log.trim()) return null
 
   // Only what two people actually said: a NOTE is something nobody typed into
   // the conversation, and a COACH line is this app talking about it, so neither
