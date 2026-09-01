@@ -137,11 +137,25 @@ describe('importFromSource', () => {
     expect(result.note).toMatch(/Stopped after 200 passes/)
   })
 
-  test("a driver's own note survives, and outranks the didn't-finish one", async () => {
+  test("a driver's own note and the didn't-finish one both survive", async () => {
     install([{ messages: [msg({ id: 'a', order: 1 })], done: false, note: 'history remains' }])
     const result = await importFromSource(fakeSource(), 0, () => {})
 
-    expect(result.note).toBe('history remains')
+    // Both are true at once, and the driver's used to stand in for the cap.
+    expect(result.note).toMatch(/history remains/)
+    expect(result.note).toMatch(/Stopped after 200 passes/)
+  })
+
+  test('an aborted signal stops the pass loop', async () => {
+    // Never says `done`, so only the signal can end it.
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: false }])
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(importFromSource(fakeSource(), 0, () => {}, controller.signal)).rejects.toThrow(
+      /cancelled/i,
+    )
+    expect(injectedInto).toEqual([])
   })
 
   test('picks the matching tab the user was in most recently', async () => {

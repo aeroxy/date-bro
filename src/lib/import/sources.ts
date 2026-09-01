@@ -85,6 +85,7 @@ export async function importFromSource(
   source: SourceDef,
   last: number,
   onProgress: (found: number) => void,
+  signal?: AbortSignal,
 ): Promise<ImportResult> {
   const tabs = await chrome.tabs.query({ url: source.match, discarded: false })
   // More than one tab can match, and for Instagram it usually does: the pattern
@@ -112,6 +113,12 @@ export async function importFromSource(
   let done = false
 
   for (let pass = 0; pass < MAX_PASSES && !done; pass++) {
+    // Checked between passes rather than inside one: a pass is already bounded,
+    // and there is no way to reach into a running `executeScript`. Without this
+    // a whole-history fetch the user walked away from kept driving their tab —
+    // up to `MAX_PASSES` × `BUDGET_MS`, an hour of someone else's Telegram
+    // scrolling itself with the window that started it long gone.
+    if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError')
     let injected
     try {
       injected = await chrome.scripting.executeScript({
@@ -143,12 +150,15 @@ export async function importFromSource(
   const tail = last ? all.slice(-last) : all
   if (!tail.length) throw new Error(`${source.label} gave back no messages for that conversation.`)
 
-  const progress = done ? note : (note ?? `Stopped after ${MAX_PASSES} passes — older history may remain.`)
+  // Kept apart for the same reason `ambiguous` is: a driver can both report
+  // something and fail to finish, and letting its note stand in for the pass cap
+  // would hide the one fact that changes what the transcript is worth.
+  const capped = done ? null : `Stopped after ${MAX_PASSES} passes — older history may remain.`
   return {
     text: renderLog(tail),
     peer,
     count: tail.length,
-    note: [ambiguous, progress].filter(Boolean).join(' · ') || null,
+    note: [ambiguous, note, capped].filter(Boolean).join(' · ') || null,
   }
 }
 

@@ -581,6 +581,11 @@ function ImportModal({
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
+  // A fetch outlives this component unless something stops it: the modal is
+  // mounted only while open, so unmounting is every way out of it at once —
+  // Cancel, the X, Escape, Append, Replace.
+  const running = useRef<AbortController | null>(null)
+  useEffect(() => () => running.current?.abort(), [])
   // Memoised: this runs on every keystroke, and a pasted thread can be long.
   const parsed = useMemo(
     () => (raw.trim() ? parsePastedLog(raw, record.name) : []),
@@ -610,12 +615,21 @@ function ImportModal({
     setFetching(true)
     setError(null)
     setStatus('Looking for the tab…')
+    const controller = new AbortController()
+    running.current = controller
     try {
       // Blank, 0, or anything unreadable means the whole history — the expensive
       // answer, so it has to be asked for rather than fallen into.
       const n = Math.max(0, Math.floor(Number(last.trim())) || 0)
+      const result = await importFromSource(
+        def,
+        n,
+        (found) => setStatus(`${found} messages so far…`),
+        controller.signal,
+      )
+      // Stored on the way out, so what comes back next time is a count that
+      // actually ran — not one from an attempt that died on "no tab open".
       void setImportLast(n ? String(n) : '')
-      const result = await importFromSource(def, n, (found) => setStatus(`${found} messages so far…`))
       setRaw(result.text)
       setStatus(
         [
@@ -627,6 +641,9 @@ function ImportModal({
           .join(' · '),
       )
     } catch (e) {
+      // Cancelling is something the user did, not something that went wrong —
+      // and by then this component is unmounted anyway.
+      if ((e as Error).name === 'AbortError') return
       setError((e as Error).message)
       setStatus(null)
     } finally {

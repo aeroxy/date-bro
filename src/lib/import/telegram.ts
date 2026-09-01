@@ -37,6 +37,9 @@ export async function fetchTelegram(args: FetchArgs) {
 
   const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms))
   const list = () => document.querySelector(`.MessageList[data-list-key^="${chatId}_"]`) as HTMLElement | null
+  // Outside `budgetMs` on purpose, and it can be the longer of the two: waiting
+  // on a cold tab isn't work that can be resumed next pass, since there is
+  // nothing to resume until the app exists. Only the scroll loop is budgeted.
   for (let i = 0; i < 60 && !list(); i++) await sleep(500)
   if (!list()) return { error: `Telegram chat ${chatId} is not open in that tab.` }
 
@@ -228,6 +231,11 @@ export async function fetchTelegram(args: FetchArgs) {
         // but re-read it later once the meta is there.
         const had = st.seen.get(id)
         if (had && (had.time || !el.querySelector('.message-time'))) continue
+        // This re-read is about to gain the stamp the first one missed, so the
+        // message has to be allowed out a second time — the caller keys on id
+        // and overwrites, but `sent` would otherwise hold the untimed version
+        // in place and the repair would never leave the page.
+        if (had) st.sent.delete(id)
         const body = ownPart(el, '.text-content, .message-text')
         const reply = el.querySelector('.EmbeddedMessage')
         const web = el.querySelector('.WebPage')
@@ -291,7 +299,6 @@ export async function fetchTelegram(args: FetchArgs) {
   for (const m of Array.from(st.seen.values()) as any[]) {
     if (st.sent.has(m.id)) continue
     st.sent.add(m.id)
-    if (m.deleted) continue
     messages.push(m as RawMessage)
   }
   messages.sort((a, b) => a.order - b.order)

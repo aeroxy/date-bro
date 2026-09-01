@@ -35,7 +35,9 @@ export async function fetchWhatsApp(args: FetchArgs) {
   }
 
   const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms))
-  // A cold tab boots its collections asynchronously and starts with none.
+  // A cold tab boots its collections asynchronously and starts with none. This
+  // wait sits outside `budgetMs` and can outlast it: there is nothing to resume
+  // next pass until the app exists, so only the paging below is budgeted.
   for (let i = 0; i < 60 && !Collections.Chat.getModelsArray().length; i++) await sleep(500)
 
   // Which chat is on screen. `Cmd.activeChat` is the app's own answer; the
@@ -148,11 +150,12 @@ export async function fetchWhatsApp(args: FetchArgs) {
       out: !!m.id.fromMe,
       text: textOf(m),
       media: m.type === 'chat' ? null : mediaLabel(m),
-      // `Array.from` splits by code point where `slice` splits by UTF-16 unit:
-      // a cut through an emoji's surrogate pair leaves a half that strict JSON
-      // parsers reject, failing the whole request. Spelled out rather than
-      // shared with `render.ts`'s `clip` because this runs injected, where
-      // nothing can be imported.
+      // A payload bound, not the wire's protection — `render.ts`'s `clip` re-cuts
+      // every reply to 40 code points, and that is the one guarding the request.
+      // Splitting by code point here anyway, because `slice`'s UTF-16 units can
+      // orphan half an emoji and a cheap bound shouldn't hand the next stage a
+      // broken string to repair. Spelled out rather than shared with `clip`
+      // because this runs injected, where nothing can be imported.
       reply: q ? Array.from(textOf(q) || MEDIA[q.type] || q.type || '').slice(0, 60).join('') : null,
       via: m.isForwarded ? 'forwarded' : null,
     })

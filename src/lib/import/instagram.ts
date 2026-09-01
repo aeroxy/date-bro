@@ -185,6 +185,18 @@ export async function fetchInstagram(args: FetchArgs) {
     nodes.map((n) => [n.message_id, (n.text_body || '').replace(/\s+/g, ' ').trim()]),
   )
 
+  // `out` rests on the id in the url being the other participant's fbid, which
+  // holds for a 1:1 DM and not for a group, where it is nobody's. A 1:1 thread
+  // can have at most two senders, so a third means that footing is gone — and
+  // the failure would be silent in the worst direction: every message comes back
+  // as mine and the coach reads a monologue as if the other person never spoke.
+  const senders = new Set(nodes.map((n) => String(n.sender_fbid)))
+  if (senders.size > 2) {
+    return {
+      error: `That Instagram thread has ${senders.size} people in it — this reads one-to-one DMs, where the id in the url is the other person.`,
+    }
+  }
+
   const messages: RawMessage[] = []
   for (const n of nodes) {
     const type = n.content?.__typename || n.content_type
