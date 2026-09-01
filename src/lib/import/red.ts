@@ -189,7 +189,11 @@ export async function fetchRed(args: FetchArgs) {
     cursor = low - 1
     await sleep(150)
   }
-  if (pages >= MAX_PAGES) note = note ?? `stopped at ${MAX_PAGES} pages — older history remains`
+  // The walk can finish on its last permitted page, having reached the bottom of
+  // the range — the cap is only news when it is what stopped us.
+  if (cursor >= Math.max(bottom, 1) && pages >= MAX_PAGES) {
+    note = note ?? `stopped at ${MAX_PAGES} pages — older history remains`
+  }
 
   // A quoted reply carries its own copy of what it quotes, so it resolves
   // without the fetched window having to contain the original.
@@ -226,7 +230,7 @@ export async function fetchRed(args: FetchArgs) {
       id: m.id,
       order: Number(m.store_id),
       ts: Number(m.created_at),
-      out: m.sender_id === meId,
+      out: String(m.sender_id) === String(meId),
       text,
       media: m.revoked ? 'deleted' : r.media || null,
       reply: m.ref_message ? quote(m.ref_message) : null,

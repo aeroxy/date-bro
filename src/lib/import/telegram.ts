@@ -227,6 +227,12 @@ export async function fetchTelegram(args: FetchArgs) {
       for (const el of Array.from(group.querySelectorAll('.Message.message-list-item'))) {
         const id = (el as HTMLElement).dataset.messageId
         if (!id) continue
+        // Ordering rests on the id being a number, and a comparator handed NaN
+        // stops ordering without saying so — a scrambled transcript with nothing
+        // in the note. Dropped like a bubble with no id at all, since a turn in
+        // the wrong place reads as something the person said next.
+        const order = Number(id)
+        if (!Number.isFinite(order)) continue
         // A bubble caught mid-mount can be missing its stamp; keep what we have
         // but re-read it later once the meta is there.
         const had = st.seen.get(id)
@@ -244,7 +250,7 @@ export async function fetchTelegram(args: FetchArgs) {
         const time = (el.querySelector('.message-time')?.textContent || '').trim()
         st.seen.set(id, {
           id,
-          order: Number(id),
+          order,
           ts: whenOf(dateLabel, time),
           time,
           out: el.classList.contains('own'),
@@ -303,10 +309,16 @@ export async function fetchTelegram(args: FetchArgs) {
   }
   messages.sort((a, b) => a.order - b.order)
 
-  return {
+  const result = {
     peer: (document.querySelector('.MiddleHeader .ChatInfo .fullName')?.textContent || '').trim() || null,
     messages,
     done: st.done,
     note: null,
   }
+  // The state exists to survive *between* passes. Once the walk is finished it
+  // is a Map holding every message harvested, parked on the user's Telegram tab
+  // until they reload it — 40k objects for a 40k history. `messages` already
+  // holds what it needs, so this frees the rest.
+  if (st.done) delete w.__dbTgImport
+  return result
 }

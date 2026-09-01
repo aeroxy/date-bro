@@ -208,6 +208,31 @@ describe('importFromSource', () => {
     )
   })
 
+  test('an injection that throws names the source, not the driver', async () => {
+    // The tab navigated away, the page was closed mid-pass, the world is gone:
+    // `executeScript` rejects and there is no driver answer to read.
+    install([])
+    ;(globalThis as Record<string, any>).chrome.scripting.executeScript = async () => {
+      throw new Error('Frame with ID 0 was removed.')
+    }
+
+    await expect(importFromSource(fakeSource(), 0, () => {})).rejects.toThrow(
+      /Couldn't read the WhatsApp tab.*Frame with ID 0/s,
+    )
+  })
+
+  test('an injection that answers with nothing points at the tab', async () => {
+    // A driver that fell off the end of its own function, so `result` is
+    // undefined — distinct from one that reported an error, and the copy has to
+    // say which tab it was asking, since that is the thing the user can check.
+    install([])
+    ;(globalThis as Record<string, any>).chrome.scripting.executeScript = async () => [{}]
+
+    await expect(importFromSource(fakeSource(), 0, () => {})).rejects.toThrow(
+      /The WhatsApp tab returned nothing.*web\.whatsapp\.com/s,
+    )
+  })
+
   test("a driver's error is surfaced verbatim", async () => {
     install([{ error: 'No Telegram chat is open — click into the conversation you want.' }])
     await expect(importFromSource(fakeSource(), 0, () => {})).rejects.toThrow(

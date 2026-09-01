@@ -113,11 +113,14 @@ export async function importFromSource(
   let done = false
 
   for (let pass = 0; pass < MAX_PASSES && !done; pass++) {
-    // Checked between passes rather than inside one: a pass is already bounded,
-    // and there is no way to reach into a running `executeScript`. Without this
-    // a whole-history fetch the user walked away from kept driving their tab —
-    // up to `MAX_PASSES` × `BUDGET_MS`, an hour of someone else's Telegram
-    // scrolling itself with the window that started it long gone.
+    // Checked between passes rather than inside one: there is no way to reach
+    // into a running `executeScript`. That bounds what this can do, and the
+    // bound is worth naming — it stops the two resumable sources, where a
+    // whole-history fetch walked away from would otherwise keep driving the tab
+    // for up to `MAX_PASSES` × `BUDGET_MS`. Instagram and RED do the whole
+    // import in pass 0, so cancelling them stops the UI from listening but not
+    // the work; what caps those is their own `MAX_PAGES`, minutes rather than
+    // an hour.
     if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError')
     let injected
     try {

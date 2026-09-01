@@ -769,8 +769,8 @@ function ImportModal({
       {active ? (
         <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
           Reads the conversation you have open in your {active.label} tab, straight from the page —
-          nothing is uploaded anywhere. Open {active.where}, click into the chat, then Fetch. The log
-          lands below for you to check before it goes in.
+          the fetch itself sends nothing anywhere. Open {active.where}, click into the chat, then
+          Fetch. The log lands below for you to check before it goes in.
           {active.id === 'telegram' ? (
             <>
               {' '}

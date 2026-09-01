@@ -161,10 +161,14 @@ export async function fetchWhatsApp(args: FetchArgs) {
     })
   }
 
-  return {
+  const result = {
     peer: chat.formattedTitle || chat.name || chatId,
     messages,
     done: st.done,
     note: null,
   }
+  // Only needed between passes; once the walk is finished it is a Set of every
+  // message id left sitting on the user's WhatsApp tab.
+  if (st.done) delete w.__dbWaImport
+  return result
 }
