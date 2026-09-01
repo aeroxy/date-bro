@@ -456,7 +456,7 @@ import or a module constant that looks harmless is `undefined` at the far end â€
 shared rendering sits outside them and every helper is inlined. `minify: false` keeps the serialised
 source readable, and the build carries no transpiler helpers, so what is written is what is injected.
 
-**`last` is the cheap direction, and the whole history is the expensive one.** All three page
+**`last` is the cheap direction, and the whole history is the expensive one.** All four page
 backwards from newest, so a capped fetch stops early rather than reading everything and trimming.
 Telegram is the exception worth knowing: it only loads history cleanly going *forward*, so a whole
 read rewinds to the first message and rides the list down, while a capped one climbs from where the

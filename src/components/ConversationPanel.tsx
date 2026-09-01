@@ -586,6 +586,11 @@ function ImportModal({
   // Cancel, the X, Escape, Append, Replace.
   const running = useRef<AbortController | null>(null)
   useEffect(() => () => running.current?.abort(), [])
+  // Which fetch the UI is currently showing. Aborting only stops the *work*,
+  // and only between passes — the pass already in flight still runs to its end
+  // and still calls back — so every write below is gated on this instead of on
+  // the abort having landed.
+  const generation = useRef(0)
   // Memoised: this runs on every keystroke, and a pasted thread can be long.
   const parsed = useMemo(
     () => (raw.trim() ? parsePastedLog(raw, record.name) : []),
@@ -604,8 +609,13 @@ function ImportModal({
   }, [])
 
   // Switching tabs drops whatever the last fetch said: an error or a "142
-  // messages" line describes a source you are no longer looking at.
+  // messages" line describes a source you are no longer looking at. It also
+  // ends that fetch rather than leaving it to finish into a source nobody is
+  // looking at, and takes the spinner with it — nothing is running any more.
   function selectSource(id: SourceId | null) {
+    generation.current++
+    running.current?.abort()
+    setFetching(false)
     setSource(id)
     setError(null)
     setStatus(null)
@@ -617,6 +627,8 @@ function ImportModal({
     setStatus('Looking for the tab…')
     const controller = new AbortController()
     running.current = controller
+    const mine = ++generation.current
+    const current = () => generation.current === mine
     try {
       // Blank, 0, or anything unreadable means the whole history — the expensive
       // answer, so it has to be asked for rather than fallen into.
@@ -624,9 +636,12 @@ function ImportModal({
       const result = await importFromSource(
         def,
         n,
-        (found) => setStatus(`${found} messages so far…`),
+        (found) => {
+          if (current()) setStatus(`${found} messages so far…`)
+        },
         controller.signal,
       )
+      if (!current()) return
       // Stored on the way out, so what comes back next time is a count that
       // actually ran — not one from an attempt that died on "no tab open".
       void setImportLast(n ? String(n) : '')
@@ -641,13 +656,12 @@ function ImportModal({
           .join(' · '),
       )
     } catch (e) {
-      // Cancelling is something the user did, not something that went wrong —
-      // and by then this component is unmounted anyway.
-      if ((e as Error).name === 'AbortError') return
+      // Cancelling is something the user did, not something that went wrong.
+      if ((e as Error).name === 'AbortError' || !current()) return
       setError((e as Error).message)
       setStatus(null)
     } finally {
-      setFetching(false)
+      if (current()) setFetching(false)
     }
   }
 
