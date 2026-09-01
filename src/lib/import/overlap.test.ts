@@ -88,6 +88,15 @@ describe('findOverlap', () => {
     expect(findOverlap(log, [turn('me', 'a completely unrelated sentence about bicycles')])).toBeNull()
   })
 
+  test('a one-line log can be all overlap, with nothing new below it', () => {
+    const found = findOverlap('Them [Sun Aug 9, 11:00am]: oh nice, i run there sometimes', [
+      turn('them', 'oh nice, i run there sometimes'),
+    ])
+
+    expect(found?.line).toBe(0)
+    expect(found?.fresh).toBe(0)
+  })
+
   test('answers null on an empty log or an empty record', () => {
     expect(findOverlap('', [turn('me', 'east coast, near the park')])).toBeNull()
     expect(findOverlap(log, [])).toBeNull()

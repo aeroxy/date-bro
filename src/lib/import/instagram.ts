@@ -48,6 +48,13 @@ export async function fetchInstagram(args: FetchArgs) {
   const av = (mod('CurrentUserInitialData') || {}).ACCOUNT_ID
   // `av` is sent with every request, so a missing one goes out as the literal
   // "undefined" and comes back as a GraphQL error about nothing in particular.
+  //
+  // It is *not* the user's fbid, however much the name suggests otherwise:
+  // measured on a logged-in page, `ACCOUNT_ID` is the string "0", matching no
+  // sender in the thread. So `out` cannot be derived from it — the id in the
+  // url is the only thing here that identifies a person. Written down because
+  // "compare sender_fbid against av" is the obvious improvement to reach for,
+  // and it would mark every message as the other person's.
   if (!dtsg || !lsd || !av) return { error: 'Instagram auth tokens not found — is that tab logged in?' }
 
   // jazoest is a checksum of fb_dtsg; the server rejects a mismatch.
@@ -211,6 +218,16 @@ export async function fetchInstagram(args: FetchArgs) {
   if (senders.size > 2) {
     return {
       error: `That Instagram thread has ${senders.size} people in it — this reads one-to-one DMs, where the id in the url is the other person.`,
+    }
+  }
+  // Two people spoke and neither is the id in the url, so that id is a thread
+  // id and not a participant's — the same monologue, reached a different way.
+  // Only checked at two senders: one sender who isn't the url id is the ordinary
+  // shape of an opener nobody has answered yet, where every message really is
+  // mine and there is nothing wrong to report.
+  if (senders.size === 2 && !senders.has(threadId)) {
+    return {
+      error: `Neither sender in that Instagram thread matches the id in the url, so this can't tell which side is you. It reads one-to-one DMs, where that id is the other person.`,
     }
   }
 
