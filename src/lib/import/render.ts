@@ -2,21 +2,21 @@
  * Turning a source's messages into the `Me [Wed Oct 30, 7:08pm]: text` lines
  * `parsePastedLog` already reads.
  *
- * Shared across the three sources because they differ in how they *reach* a
- * message, not in what one looks like once reached: every one of them ends up
- * with a side, a time, some text, and a handful of things that only exist as
- * bracketed asides — media, a quoted reply, a forward, reactions, a shared link.
+ * Shared across the sources because they differ in how they *reach* a message,
+ * not in what one looks like once reached: every one of them ends up with a
+ * side, a time, some text, and a handful of things that only exist as bracketed
+ * asides — media, a quoted reply, a forward, reactions, a shared link.
  * The extraction has to live inside each source's injected function, which can't
  * import anything; this is the half that doesn't, so it's written once.
  */
 
 /**
  * What every source's injected function is handed. It lives here rather than in
- * `sources.ts` so the three drivers can name it without importing the module
+ * `sources.ts` so the drivers can name it without importing the module
  * that imports them — and because a type import is erased at build, taking it
  * costs the injected functions nothing at runtime.
  *
- * All three take the whole thing even where they don't read all of it: the
+ * They all take the whole thing even where they don't read all of it: the
  * shape is the contract `SourceDef.fetch` is checked against, and a parameter
  * narrowed to what one driver happens to use today is a rename waiting to go
  * unnoticed, since function parameters compare bivariantly.
