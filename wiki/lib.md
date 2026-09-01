@@ -50,6 +50,17 @@ a dead socket still fails. And `postSSE` stops retrying once it has delivered an
 already on screen and state already accumulated by then, so a replay would double it. A failure before
 the first event (including a non-2xx, whose body arrives whole) retries normally.
 
+**Everything leaving the page is scrubbed** by `wellFormed`, which walks a value's strings and drops
+any half of a UTF-16 surrogate pair left without its partner. `JSON.stringify` emits such a half as a
+literal `\ud83d`, which a strict parser (serde_json — the Anthropic API, and any Rust proxy in front of
+it) rejects outright, so one invisible character 400s the whole request. Those halves come from text
+clipped by UTF-16 unit instead of code point; `clip` in `import/render.ts` is where that stopped being
+produced, and this is what heals logs imported before it. It runs on the value, never on the serialized
+JSON, where the escape we want gone is indistinguishable from the six characters a user typed. All three
+backends go through it: `postJSON` and `postSSE` serialize once outside their retry loop, and
+`qwenCompletion` scrubs separately because its payload crosses to the background worker by structured
+clone — which carries a lone surrogate through intact — and is serialized there.
+
 **OpenAI path.** POSTs `{base_url}/chat/completions` with `Authorization: Bearer`. `response_format`
 is `json_schema` when the user enabled structured output and a schema was passed, `json_object`
 otherwise. `temperature` is omitted entirely when unset so the provider's own default applies —
