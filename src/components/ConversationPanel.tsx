@@ -591,6 +591,85 @@ function ImportModal({
   // and still calls back — so every write below is gated on this instead of on
   // the abort having landed.
   const generation = useRef(0)
+
+  // Find, scoped to the fetched log. The browser's own Cmd+F searches the whole
+  // page, so on a modal laid over a conversation it answers with the very turns
+  // the user opened this to replace — matches they can see, behind a dimmed
+  // panel, and cannot act on. Captured here rather than by hiding the page
+  // behind: that would also make the backdrop a blank rectangle.
+  const [find, setFind] = useState('')
+  const [finding, setFinding] = useState(false)
+  const [at, setAt] = useState(0)
+  const findBox = useRef<HTMLInputElement>(null)
+  const logBox = useRef<HTMLTextAreaElement>(null)
+
+  const needle = find.toLowerCase()
+  const hits = useMemo(() => {
+    if (!needle) return []
+    const hay = raw.toLowerCase()
+    const found: number[] = []
+    // Non-overlapping, so "aa" in "aaaa" is two matches and not three — the
+    // count has to mean the same thing as the number of times Next stops.
+    for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) {
+      found.push(i)
+    }
+    return found
+  }, [raw, needle])
+
+  /** Select the nth match, wrapping, and bring it into view. */
+  function jump(n: number) {
+    if (!hits.length) return
+    const i = ((n % hits.length) + hits.length) % hits.length
+    setAt(i)
+    const box = logBox.current
+    if (!box) return
+    const start = hits[i]!
+    box.focus()
+    box.setSelectionRange(start, start + needle.length)
+    // Chrome does not scroll a textarea to a programmatic selection — measured,
+    // not assumed: focus-then-select, blur-focus-select and select-then-refocus
+    // all leave `scrollTop` exactly where it was, so a match 100 lines down gets
+    // selected somewhere the user can't see. The row is found by hand instead.
+    const cs = getComputedStyle(box)
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
+    // Wrapped rows count too, and the log renders in a monospace face — so one
+    // character's width is every character's, and the wrap is arithmetic rather
+    // than layout. Word breaks make this a row or two short on long lines,
+    // which centring absorbs.
+    const inner = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    const ctx = document.createElement('canvas').getContext('2d')
+    let cols = 0
+    if (ctx) {
+      ctx.font = cs.font
+      const ch = ctx.measureText('0').width
+      if (ch > 0) cols = Math.floor(inner / ch)
+    }
+    let rows = 0
+    for (const line of raw.slice(0, start).split('\n').slice(0, -1)) {
+      rows += cols > 0 ? Math.max(1, Math.ceil(line.length / cols)) : 1
+    }
+    box.scrollTop = Math.max(0, rows * lh - box.clientHeight / 2)
+  }
+
+  // The query changing makes every offset stale, so the first match is the only
+  // honest place to be.
+  useEffect(() => {
+    setAt(0)
+    if (hits.length) jump(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needle])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+      e.preventDefault()
+      setFinding(true)
+      // Next frame, because the field may not exist yet on the first press.
+      requestAnimationFrame(() => findBox.current?.select())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   // Memoised: this runs on every keystroke, and a pasted thread can be long.
   const parsed = useMemo(
     () => (raw.trim() ? parsePastedLog(raw, record.name) : []),
@@ -800,7 +879,54 @@ function ImportModal({
         <p className="mb-3 text-[12px] text-fg-3">{status}</p>
       ) : null}
 
+      {finding ? (
+        <div className="mb-2 flex items-center gap-2">
+          <Input
+            ref={findBox}
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                jump(e.shiftKey ? at - 1 : at + 1)
+              }
+              // Escape empties the box before it closes anything: the modal
+              // listens for Escape on the window, and losing a fetched log to
+              // a keystroke meant for the search field is not a trade anyone
+              // would make. An already-empty box lets it through.
+              if (e.key === 'Escape' && find) {
+                e.stopPropagation()
+                setFind('')
+              }
+            }}
+            placeholder="Find in the log"
+            className="h-8 flex-1 text-[12.5px]"
+            aria-label="Find in the imported log"
+          />
+          <span className="min-w-[64px] text-[11.5px] tabular-nums text-fg-3">
+            {!find ? '' : hits.length ? `${at + 1} / ${hits.length}` : 'no matches'}
+          </span>
+          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(at - 1)}>
+            Prev
+          </Button>
+          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(at + 1)}>
+            Next
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setFinding(false)
+              setFind('')
+            }}
+          >
+            Done
+          </Button>
+        </div>
+      ) : null}
+
       <Textarea
+        ref={logBox}
         rows={14}
         value={raw}
         onChange={(e) => setRaw(e.target.value)}
