@@ -679,12 +679,18 @@ function ImportModal({
         </>
       }
     >
-      <div className="mb-3 flex items-center gap-2">
-        <div className="flex overflow-hidden rounded-md border border-border">
+      {/* Everything on this row holds its width except the hint, which reflows.
+          The row is one source wider than it used to be and the modal is only as
+          wide as the window allows, so something has to give — left to itself
+          flexbox squeezed the tab strip and clipped a label to one letter.
+          The height is held at two lines of that reflowed hint whether or not a
+          source is picked, so choosing one doesn't nudge the whole modal down. */}
+      <div className="mb-3 flex min-h-10 items-center gap-2">
+        <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
           <button
             onClick={() => selectSource(null)}
             className={cn(
-              'px-3 py-1 text-[12px] font-semibold transition',
+              'px-3 py-1 text-[12px] font-semibold whitespace-nowrap transition',
               source === null ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
             )}
           >
@@ -695,7 +701,7 @@ function ImportModal({
               key={s.id}
               onClick={() => selectSource(s.id)}
               className={cn(
-                'border-l border-border px-3 py-1 text-[12px] font-semibold transition',
+                'border-l border-border px-3 py-1 text-[12px] font-semibold whitespace-nowrap transition',
                 source === s.id ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
               )}
             >
@@ -712,14 +718,14 @@ function ImportModal({
                 setLast(e.target.value)
               }}
               placeholder="all"
-              className="h-8 w-[92px] text-[12.5px]"
+              className="h-8 w-[92px] shrink-0 text-[12.5px]"
               aria-label="How many recent messages"
             />
-            <span className="text-[11.5px] text-fg-3">most recent · blank for all</span>
+            <span className="min-w-0 text-[11.5px] text-fg-3">most recent · blank for all</span>
             <Button
               variant="accent"
               size="sm"
-              className="ml-auto"
+              className="ml-auto shrink-0"
               disabled={fetching}
               onClick={() => fetchFrom(active)}
             >
