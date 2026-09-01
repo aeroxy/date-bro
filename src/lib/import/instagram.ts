@@ -148,7 +148,11 @@ export async function fetchInstagram(args: FetchArgs) {
       break
     }
     const thread = j?.data?.fetch__SlideThread?.as_ig_direct_thread
-    if (!thread) {
+    // `slide_messages` is read unguarded twice below, so it belongs in the same
+    // check as the thread: a shape that answers with one but not the other is
+    // the same "they changed the API" problem, and throwing here would surface
+    // as `sources.ts`'s "returned nothing" instead of saying so.
+    if (!thread?.slide_messages) {
       return { error: `Instagram gave an answer this doesn't understand (doc_id ${docId}). It may have changed its API.` }
     }
     for (const e of thread.slide_messages.edges) byId.set(e.node.message_id, e.node)
