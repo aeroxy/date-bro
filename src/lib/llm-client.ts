@@ -153,6 +153,44 @@ function truncatedMessage(maxTokens: number, partial = false): string {
     : `Response was cut off at max_tokens (${maxTokens}) before any output — reasoning models spend this budget thinking first. Raise "Max tokens" in settings.`
 }
 
+/**
+ * Half of a UTF-16 surrogate pair with no partner. Text clipped by unit count
+ * rather than code point is the usual source — see `clip` in `import/render.ts`,
+ * which is where this stopped being produced; this catches what was already
+ * stored before that, plus anything the user pastes in.
+ */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+/**
+ * Strings the API can actually accept: no half of a surrogate pair left alone.
+ * `JSON.stringify` serializes such a half as a literal `\ud83d` escape, which
+ * a strict parser (serde_json — the Anthropic API, and any Rust proxy in front
+ * of it) rejects outright, so one invisible character 400s the whole request.
+ *
+ * Applied to the value before serializing, never to the serialized JSON: in the
+ * latter an escape we want gone is indistinguishable from the same six
+ * characters a user typed. Dropping the half is the only repair available —
+ * nothing completes a pair whose partner is gone.
+ *
+ * Every path out of the page goes through it: `postJSON` and `postSSE` for the
+ * keyed backends, and `qwenCompletion` separately, because that one hands its
+ * payload to the background worker by structured clone — which preserves a lone
+ * surrogate intact — and the worker serializes it there.
+ */
+export function wellFormed<T>(v: T): T {
+  if (typeof v === 'string') return v.replace(LONE_SURROGATE, '') as T
+  if (Array.isArray(v)) return v.map(wellFormed) as T
+  // Plain objects only. A Date or a class instance is left whole so it keeps
+  // its own `toJSON`; every body we send is built here or parsed from stored
+  // JSON, so nothing that travels is missed by the narrower test.
+  const proto = v && typeof v === 'object' ? Object.getPrototypeOf(v) : undefined
+  if (proto === Object.prototype || proto === null)
+    return Object.fromEntries(
+      Object.entries(v as object).map(([k, x]) => [wellFormed(k), wellFormed(x)]),
+    ) as T
+  return v
+}
+
 export async function chatCompletion(
   config: LLMConfig,
   messages: ChatMessage[],
@@ -179,7 +217,7 @@ async function qwenCompletion(
   const payload = {
     type: 'QWEN_CHAT_REQUEST',
     requestId,
-    messages: messages.map(({ role, content }) => ({ role, content })),
+    messages: messages.map(({ role, content }) => ({ role, content: wellFormed(content) })),
     qwenModel: normalizeQwenModel(config.qwenModel),
   }
 
@@ -540,6 +578,9 @@ const RETRYABLE_STATUS = [429, 500, 502, 503, 504]
  */
 async function postJSON<T>(url: string, options: PostJSONOptions): Promise<T> {
   const { headers, body, timeoutMs, signal } = options
+  // Serialized once, outside the retry loop: the scrub walks the whole body,
+  // and retries send the identical bytes.
+  const payload = JSON.stringify(wellFormed(body))
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
@@ -554,7 +595,7 @@ async function postJSON<T>(url: string, options: PostJSONOptions): Promise<T> {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify(body),
+        body: payload,
         signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
       })
       // Timer deliberately still armed: the body reads below are part of the
@@ -606,6 +647,7 @@ async function postSSE<T>(
   onEvent: (event: T) => void,
 ): Promise<void> {
   const { headers, body, timeoutMs, signal } = options
+  const payload = JSON.stringify(wellFormed(body))
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
@@ -626,7 +668,7 @@ async function postSSE<T>(
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...headers },
-        body: JSON.stringify(body),
+        body: payload,
         signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
       })
 

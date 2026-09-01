@@ -237,5 +237,10 @@ export async function readPage(url: string, ctx: ToolHandlerContext = {}): Promi
 // clipped result reads to the model as the complete set.
 function capped(markdown: string, truncated: boolean): string {
   if (markdown.length <= MAX_PAGE_CHARS && !truncated) return markdown
-  return `${markdown.slice(0, MAX_PAGE_CHARS)}\n\n[Truncated: the page was longer than this tool returns. Search for a more specific source if what you need isn't above.]`
+  // `slice` counts UTF-16 units, and pages are full of emoji: a cut landing
+  // inside a surrogate pair leaves an orphaned half that strict JSON parsers
+  // reject, failing the whole turn rather than the one character. Trimming the
+  // trailing high half is enough — no other position can be left unpaired.
+  const head = markdown.slice(0, MAX_PAGE_CHARS).replace(/[\uD800-\uDBFF]$/, '')
+  return `${head}\n\n[Truncated: the page was longer than this tool returns. Search for a more specific source if what you need isn't above.]`
 }

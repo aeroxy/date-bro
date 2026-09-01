@@ -148,7 +148,12 @@ export async function fetchWhatsApp(args: FetchArgs) {
       out: !!m.id.fromMe,
       text: textOf(m),
       media: m.type === 'chat' ? null : mediaLabel(m),
-      reply: q ? (textOf(q) || MEDIA[q.type] || q.type || '').slice(0, 60) : null,
+      // `Array.from` splits by code point where `slice` splits by UTF-16 unit:
+      // a cut through an emoji's surrogate pair leaves a half that strict JSON
+      // parsers reject, failing the whole request. Spelled out rather than
+      // shared with `render.ts`'s `clip` because this runs injected, where
+      // nothing can be imported.
+      reply: q ? Array.from(textOf(q) || MEDIA[q.type] || q.type || '').slice(0, 60).join('') : null,
       via: m.isForwarded ? 'forwarded' : null,
     })
   }

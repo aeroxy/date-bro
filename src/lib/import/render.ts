@@ -74,6 +74,17 @@ function when(ms: number): string {
   return `${p.weekday} ${p.month} ${p.day}, ${p.hour}:${p.minute}${period}`
 }
 
+/**
+ * Clip to `max` characters, never through the middle of one. `slice` counts
+ * UTF-16 units, so a cut that lands inside an emoji's surrogate pair leaves an
+ * orphaned half — which `JSON.stringify` emits as `\ud83d` and strict parsers
+ * (serde_json, i.e. the proxy and the Anthropic API) reject outright, failing
+ * the whole request rather than the one character.
+ */
+export function clip(s: string, max: number): string {
+  return Array.from(s).slice(0, max).join('')
+}
+
 function body(m: RawMessage): string | null {
   let text = m.text.replace(/\s+/g, ' ').trim()
   if (m.media) text = `[${m.media}] ${text}`.trim()
@@ -81,7 +92,7 @@ function body(m: RawMessage): string | null {
   // A bare photo has no caption and nothing else to say; a media label is the
   // only thing that makes such a message worth a line at all.
   if (!text) return null
-  if (m.reply) text = `[re: ${m.reply.slice(0, 40)}] ${text}`
+  if (m.reply) text = `[re: ${clip(m.reply, 40)}] ${text}`
   if (m.via) text = `[${m.via}] ${text}`
   if (m.reactions) text = `${text} [${m.reactions}]`
   // One turn per line is the whole format, and shared-post titles arrive with
