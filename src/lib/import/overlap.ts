@@ -67,11 +67,19 @@ function body(line: string): string {
 function score(line: string, turn: string): number {
   if (!line || !turn) return 0
   if (line === turn) return 1
-  if (line.includes(turn) || turn.includes(line)) return 0.95
+  // Containment only counts when the contained side is itself substantial: a
+  // turn that mentions "no" once contains every one-word line saying "no", and
+  // that is two people saying a common word, not a seam. `turn` is already past
+  // TOO_SHORT by the time it gets here; the line has to clear the same bar.
+  if (line.includes(turn) || (line.length >= TOO_SHORT && turn.includes(line))) return 0.95
+  // Distinct words on both sides. Counting the turn's words with repeats let
+  // "no no no no" score four hits against a line that says "no" once — a full
+  // match to an unrelated message, made of one word said with feeling.
   const words = new Set(line.split(' '))
-  const wanted = turn.split(' ')
-  const shared = wanted.filter((w) => words.has(w)).length
-  return shared / Math.max(words.size, wanted.length)
+  const wanted = new Set(turn.split(' '))
+  let shared = 0
+  for (const w of wanted) if (words.has(w)) shared++
+  return shared / Math.max(words.size, wanted.size)
 }
 
 /** Below this, a "match" is two messages that happen to share a few words. */
@@ -82,6 +90,12 @@ const FLOOR = 0.6
  * conversation, and the seam they point at would be somewhere arbitrary.
  */
 const TOO_SHORT = 6
+
+/**
+ * And one with fewer distinct words than this, however long: "no no no no" is
+ * eleven characters of a single word, and a single word is not a fingerprint.
+ */
+const TOO_FEW_WORDS = 2
 
 export function findOverlap(log: string, turns: Turn[]): Overlap | null {
   const lines = log.split('\n')
@@ -103,6 +117,7 @@ export function findOverlap(log: string, turns: Turn[]): Overlap | null {
   for (const [back, turn] of recent.entries()) {
     const wanted = shape(turn.text)
     if (wanted.length < TOO_SHORT) continue
+    if (new Set(wanted.split(' ')).size < TOO_FEW_WORDS) continue
     let bestLine = -1
     let best = 0
     // Last wins a tie: the same thing said twice is most usefully anchored at

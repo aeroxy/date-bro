@@ -79,6 +79,20 @@ describe('findOverlap', () => {
     expect(findOverlap(log, [turn('me', 'ok')])).toBeNull()
   })
 
+  test('a repeated word is not a fingerprint, however long the turn', () => {
+    // Four "no"s used to score four shared words against a line that says "no"
+    // once — a perfect match to a message that has nothing to do with it.
+    const noisy = ['Them [Sat 9pm]: no way, really?', 'Me [Sat 9pm]: yes it happened', 'Them [Sat 9pm]: wild'].join('\n')
+    expect(findOverlap(noisy, [turn('me', 'no no no no')])).toBeNull()
+  })
+
+  test('containment needs a substantial line, not a one-word one', () => {
+    // "yes no yes no" contains "no", so a one-word line saying "no" used to
+    // count as a 0.95 match. The line has to clear the same length bar the turn does.
+    const oneWord = 'Them [Sat 9pm]: no\nMe [Sat 9pm]: something else entirely'
+    expect(findOverlap(oneWord, [turn('me', 'yes no yes no')])).toBeNull()
+  })
+
   test('ignores notes and coach lines, which no source can have said', () => {
     expect(findOverlap(log, [turn('context', 'she mentioned a sister who lives nearby')])).toBeNull()
     expect(findOverlap(log, [turn('coach', 'ask about the running, it is the open thread')])).toBeNull()

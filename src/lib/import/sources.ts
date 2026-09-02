@@ -74,6 +74,15 @@ export const SOURCES: SourceDef[] = [
 const BUDGET_MS = 20_000
 const MAX_PASSES = 200
 
+/**
+ * Which import currently owns each tab's parked state. A cancelled import only
+ * notices at its next pass boundary, up to a whole pass later — and in that
+ * window the user can start again on the same tab, whose pass 0 re-creates the
+ * state with `restart`. The old import's cleanup then lands on the new import's
+ * progress. Ownership says whose it is.
+ */
+const owners = new Map<number, symbol>()
+
 export type ImportResult = {
   text: string
   peer: string | null
@@ -125,8 +134,14 @@ export async function importFromSource(
   // is a Map of every message harvested, sitting there until they reload the
   // site. Cancelling is exactly when the most has piled up, so the exit path
   // clears it rather than leaving it to the next import's `restart`.
+  const me = Symbol('import')
+  owners.set(tabId, me)
   const clearState = async () => {
     if (done || !source.stateKey) return
+    // A newer import on this tab has re-created the state and will clear its
+    // own; deleting it from here would wipe that import's pass-0 progress and
+    // send its pass 1 back to the start.
+    if (owners.get(tabId) !== me) return
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
