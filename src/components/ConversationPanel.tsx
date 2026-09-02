@@ -838,6 +838,18 @@ function ImportModal({
     if (raw.trim() && raw !== fetched.current && !confirm('Replace what is in the box? Your edits to it will be lost.')) {
       return
     }
+    // Blank or 0 means the whole history — the expensive answer, so it has to
+    // be asked for rather than fallen into. Which is why anything else that
+    // isn't a count ("5o", "50 msgs") is refused here instead of read as 0:
+    // `Number` made it NaN, NaN made it 0, and a typo in the box started a
+    // minutes-long read of everything, with nothing saying why.
+    const typed = last.trim()
+    if (typed && !/^\d+$/.test(typed)) {
+      setError(`"${typed}" isn't a number of messages — a whole number, or blank for all.`)
+      setStatus(null)
+      return
+    }
+    const n = Number(typed) || 0
     setFetching(true)
     setError(null)
     setStatus('Looking for the tab…')
@@ -846,9 +858,6 @@ function ImportModal({
     const mine = ++generation.current
     const current = () => generation.current === mine
     try {
-      // Blank, 0, or anything unreadable means the whole history — the expensive
-      // answer, so it has to be asked for rather than fallen into.
-      const n = Math.max(0, Math.floor(Number(last.trim())) || 0)
       const result = await importFromSource(
         def,
         n,
@@ -1057,13 +1066,16 @@ function ImportModal({
                 e.preventDefault()
                 jump(e.shiftKey ? cursor - 1 : cursor + 1)
               }
-              // Escape empties the box before it closes anything: the modal
+              // Escape steps out one layer at a time — clear the query, then
+              // close the find bar — and never reaches the modal from here: it
               // listens for Escape on the window, and losing a fetched log to
-              // a keystroke meant for the search field is not a trade anyone
-              // would make. An already-empty box lets it through.
-              if (e.key === 'Escape' && find) {
+              // the second of two quick presses meant for the search field is
+              // not a trade anyone would make. Letting an empty box pass it
+              // through was exactly that trade.
+              if (e.key === 'Escape') {
                 e.stopPropagation()
-                setFind('')
+                if (find) setFind('')
+                else setFinding(false)
               }
             }}
             placeholder="Find in the log"

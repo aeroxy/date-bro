@@ -2,7 +2,7 @@
 /// <reference types="bun" />
 import { afterEach, describe, expect, test } from 'bun:test'
 
-import { importFromSource, type SourceDef } from './sources'
+import { importFromSource, SOURCES, type SourceDef } from './sources'
 import type { FetchArgs, RawMessage } from './render'
 
 /**
@@ -69,6 +69,20 @@ function install(passes: Pass[], { tabs = [{ id: 7 }] }: { tabs?: FakeTab[] } = 
 
 afterEach(() => {
   delete (globalThis as Record<string, any>).chrome
+})
+
+describe('SOURCES', () => {
+  test("each stateKey is the global its driver actually parks on", () => {
+    // The driver can't import the key — `chrome.scripting` serialises it — so
+    // the same string is spelled twice, and the cleanup in `importFromSource`
+    // deletes whatever `stateKey` says. Renaming one side leaves a whole
+    // harvested history parked on the user's tab with nothing pointing at it.
+    // The serialised source is the one place both spellings can be compared.
+    for (const s of SOURCES) {
+      if (!s.stateKey) continue
+      expect(String(s.fetch)).toContain(`.${s.stateKey}`)
+    }
+  })
 })
 
 describe('importFromSource', () => {
