@@ -137,7 +137,10 @@ export function findOverlap(log: string, turns: Turn[]): Overlap | null {
       line: bestLine,
       start,
       length: lines[bestLine]!.length,
-      fresh: lines.length - bestLine - 1,
+      // Only lines with something on them: a hand-pasted log often separates
+      // messages with blank lines, and "the 12 below are new" over 6 messages
+      // is a count nobody can check against the box.
+      fresh: lines.slice(bestLine + 1).filter((l) => l.trim()).length,
       score: best,
       back,
     }

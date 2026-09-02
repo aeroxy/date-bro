@@ -643,17 +643,20 @@ function ImportModal({
   const settled = useDeferredValue(raw)
   const overlap = useMemo(() => findOverlap(settled, record.turns), [settled, record.turns])
 
-  const needle = find.toLowerCase()
+  // As typed, not lowercased: the regex below folds case per character, so a
+  // match is always exactly `needle.length` long — the number every span here
+  // is cut and selected with.
+  const needle = find
   const hits = useMemo(() => {
     if (!needle) return []
-    const hay = raw.toLowerCase()
-    const found: number[] = []
-    // Non-overlapping, so "aa" in "aaaa" is two matches and not three — the
-    // count has to mean the same thing as the number of times Next stops.
-    for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) {
-      found.push(i)
-    }
-    return found
+    // A case-insensitive regex rather than `indexOf` over a lowercased copy:
+    // lowercasing can change a string's length (`İ` becomes two code units), and
+    // every offset after such a character then points one short of the match —
+    // into the wrong span of a textarea that is about to be selected and marked.
+    // The `g` regex reports non-overlapping matches, so "aa" in "aaaa" is two
+    // and not three — the count has to mean the number of times Next stops.
+    const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+    return Array.from(raw.matchAll(re), (m) => m.index)
   }, [raw, needle])
 
   /**
@@ -1022,8 +1025,10 @@ function ImportModal({
             {overlap.back
               ? ` (your last ${overlap.back} recorded turn${overlap.back > 1 ? "s aren't" : " isn't"} in this log)`
               : ''}{' '}—{' '}
+            {/* "of text": `fresh` skips blank lines, so a blank-separated paste
+                shows more rows below the seam than the number says. */}
             {overlap.fresh
-              ? `the ${overlap.fresh} line${overlap.fresh > 1 ? 's' : ''} below ${overlap.fresh > 1 ? 'are' : 'is'} new.`
+              ? `the ${overlap.fresh} line${overlap.fresh > 1 ? 's' : ''} of text below ${overlap.fresh > 1 ? 'are' : 'is'} new.`
               : 'nothing below it is new.'}
           </span>
           {/* The match is a resemblance, not a fact — the recorded turn may have
