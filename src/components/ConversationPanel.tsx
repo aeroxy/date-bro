@@ -686,11 +686,18 @@ function ImportModal({
     // where every glyph is two columns wide even in a monospace face, so
     // `length / cols` put the target at half its true depth and the scroll
     // landed short by more than centring could absorb.
+    const before = raw.slice(0, start).split('\n')
+    // The line the match sits on is counted too, up to the match: a hit deep in
+    // a long message is several wrapped rows below that line's first one, and
+    // dropping the prefix put the scroll that many rows short — for exactly the
+    // paragraph-length messages where centring has the least slack.
+    const prefix = before.pop() ?? ''
     let rows = 0
-    for (const line of raw.slice(0, start).split('\n').slice(0, -1)) {
+    for (const line of before) {
       const width = ctx ? ctx.measureText(line).width : 0
       rows += width > 0 && inner > 0 ? Math.max(1, Math.ceil(width / inner)) : 1
     }
+    if (ctx && inner > 0) rows += Math.floor(ctx.measureText(prefix).width / inner)
     box.scrollTop = Math.max(0, rows * lh - box.clientHeight / 2)
   }
 
@@ -976,8 +983,8 @@ function ImportModal({
       {active ? (
         <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
           Reads the conversation you have open in your {active.label} tab, straight from the page —
-          the fetch itself sends nothing anywhere. Open {active.where}, click into the chat, then
-          Fetch. The log lands below for you to check before it goes in.
+          the only thing it talks to is {active.label} itself. Open {active.where}, click into the
+          chat, then Fetch. The log lands below for you to check before it goes in.
           {active.id === 'telegram' ? (
             <>
               {' '}

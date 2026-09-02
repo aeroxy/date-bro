@@ -146,6 +146,77 @@ describe('importFromSource', () => {
     expect(result.note).toMatch(/Stopped after 200 passes/)
   })
 
+  test('leaving a resumable walk early clears its state from the tab', async () => {
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: false }])
+    const controller = new AbortController()
+    const sawKey: unknown[] = []
+    const exec = (globalThis as Record<string, any>).chrome.scripting.executeScript
+    ;(globalThis as Record<string, any>).chrome.scripting.executeScript = async (opts: any) => {
+      // The cleanup injection carries the state key as its one argument; the
+      // pass injections carry FetchArgs.
+      if (typeof opts.args?.[0] === 'string') {
+        sawKey.push(opts.args[0])
+        return [{}]
+      }
+      controller.abort()
+      return exec(opts)
+    }
+
+    await expect(
+      importFromSource(fakeSource({ stateKey: '__dbWaImport' }), 0, () => {}, controller.signal),
+    ).rejects.toThrow(/cancelled/i)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sawKey).toEqual(['__dbWaImport'])
+  })
+
+  test("an earlier import's cleanup does not touch a retry that has since taken the tab", async () => {
+    // A cancelled import only notices at its next pass boundary, up to a whole
+    // pass later. In that window the user starts again on the same tab, and
+    // that import's pass 0 re-creates the state. A's cleanup must then leave it
+    // alone, or B's pass 1 finds nothing and starts the walk over.
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: false }])
+    const deletions: string[] = []
+    // Every pass injection parks on a gate the test opens by hand, so the order
+    // in which the two imports reach each point is the test's, not the clock's.
+    const gates: (() => void)[] = []
+    const exec = (globalThis as Record<string, any>).chrome.scripting.executeScript
+    ;(globalThis as Record<string, any>).chrome.scripting.executeScript = async (opts: any) => {
+      if (typeof opts.args?.[0] === 'string') {
+        deletions.push(opts.args[0])
+        return [{}]
+      }
+      await new Promise<void>((open) => gates.push(open))
+      return exec(opts)
+    }
+    const tick = () => new Promise((r) => setTimeout(r, 0))
+    const source = fakeSource({ stateKey: '__dbTgImport' })
+
+    const a = new AbortController()
+    const endA = importFromSource(source, 0, () => {}, a.signal).catch((e: Error) => e)
+    await tick()
+    expect(gates).toHaveLength(1) // A is inside its pass 0
+    a.abort() // …and won't know until that pass returns
+
+    const b = new AbortController()
+    const endB = importFromSource(source, 0, () => {}, b.signal).catch((e: Error) => e)
+    await tick()
+    expect(gates).toHaveLength(2) // B is inside its pass 0, restart: true
+    gates[1]!() // B's pass 0 completes: the state on the tab is now B's
+    await tick()
+    expect(gates).toHaveLength(3) // B has gone on to pass 1
+
+    gates[0]!() // A's hung pass finally returns; A sees the abort and leaves
+    expect(((await endA) as Error).name).toBe('AbortError')
+    await tick()
+    expect(deletions).toEqual([]) // …without touching what is now B's
+
+    b.abort()
+    gates[2]!()
+    expect(((await endB) as Error).name).toBe('AbortError')
+    await tick()
+    expect(deletions).toEqual(['__dbTgImport']) // B cleans up after itself
+  })
+
   test('an aborted signal stops the pass loop', async () => {
     // Never says `done`, so only the signal can end it.
     install([{ messages: [msg({ id: 'a', order: 1 })], done: false }])
