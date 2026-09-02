@@ -111,6 +111,16 @@ describe('findOverlap', () => {
     expect(found?.fresh).toBe(0)
   })
 
+  test('blank lines below the seam are not counted as new', () => {
+    // A hand-pasted log with a blank line between every message: two messages
+    // below the seam, not four lines.
+    const spaced = log.split('\n').join('\n\n') + '\n'
+    const found = findOverlap(spaced, [turn('them', 'oh nice, i run there sometimes')])
+
+    expect(found?.line).toBe(4)
+    expect(found?.fresh).toBe(2)
+  })
+
   test('answers null on an empty log or an empty record', () => {
     expect(findOverlap('', [turn('me', 'east coast, near the park')])).toBeNull()
     expect(findOverlap(log, [])).toBeNull()

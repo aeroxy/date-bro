@@ -142,10 +142,13 @@ export async function fetchWhatsApp(args: FetchArgs) {
       id: key,
       // `t` is whole seconds, so a burst of messages inside one second would
       // otherwise share a sort key and come back in whatever order the dedup Map
-      // happened to yield. The collection is already chronological, so its index
-      // breaks the tie; the multiplier is what keeps one second's worth of
-      // indices from spilling into the next second.
-      order: m.t * 1e6 + i,
+      // happened to yield. The collection is already chronological, so its
+      // position breaks the tie — counted from the *end*, because each pass
+      // prepends an older page and shifts every index from the front, and a
+      // message emitted on an earlier pass keeps the key it was given. Two
+      // same-second messages straddling a page boundary would then swap. The
+      // multiplier keeps one second's worth of positions out of the next second.
+      order: m.t * 1e6 + (i - models.length),
       ts: m.t * 1000,
       out: !!m.id.fromMe,
       text: textOf(m),

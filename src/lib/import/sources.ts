@@ -137,11 +137,12 @@ export async function importFromSource(
   const me = Symbol('import')
   owners.set(tabId, me)
   const clearState = async () => {
-    if (done || !source.stateKey) return
     // A newer import on this tab has re-created the state and will clear its
     // own; deleting it from here would wipe that import's pass-0 progress and
     // send its pass 1 back to the start.
     if (owners.get(tabId) !== me) return
+    owners.delete(tabId)
+    if (done || !source.stateKey) return
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
