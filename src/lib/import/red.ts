@@ -159,7 +159,15 @@ export async function fetchRed(args: FetchArgs) {
     }
     const rows: any[] = d.out_message_list || []
     pages++
-    if (!rows.length) break
+    if (!rows.length) {
+      // Reaching here means the cursor is still inside the conversation's range
+      // — the loop condition is what let us ask at all — so an empty page is the
+      // server declining to go further, not the end of the history. Same thing
+      // the no-progress guard reports, one step earlier; unreported, a truncated
+      // import would look like a clean finish.
+      note = note ?? 'stopped early: RED stopped handing back older messages'
+      break
+    }
     let low = Infinity
     for (const m of rows) {
       // Counted before the row lands, so a page the server repeats can't inflate

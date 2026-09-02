@@ -187,14 +187,23 @@ const asLabel = (s: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
 
+/** One labelled log line, read. */
+export type LogLine = { speaker: 'me' | 'them'; at?: string; text: string }
+
 /**
- * Parse a pasted chat log into turns. Handles `Name: text` lines with the
- * common label variants plus the date's own name, and an optional bracketed
- * timestamp right after the label (`Name [Tue 9pm]: text`). Unprefixed lines
- * continue the previous turn, so multi-line texts survive. Anything before
- * the first recognised label is dropped.
+ * A reader for one log line, bound to whose name counts as "them".
+ *
+ * Answers `null` for a line carrying no label it recognises, which is what
+ * separates a new turn from the continuation of a multi-line one. Built once
+ * per log rather than per line, because the set of labels meaning "them"
+ * depends only on the name.
+ *
+ * Exported because `import/overlap.ts` needs the same reading of a line, and a
+ * second label parser would be free to disagree with this one about whether
+ * "Her:" is a speaker, or where a `[Sat Aug 8, 9:10pm]` stamp ends and the
+ * message begins.
  */
-export function parsePastedLog(raw: string, theirName: string): Turn[] {
+export function logLineReader(theirName: string): (line: string) => LogLine | null {
   // Both the whole name and each of its parts, so "Jane Doe:", "Jane:" and
   // "Doe:" all resolve to them — the UI tells the user to label lines with the
   // full name, so that has to be the one form that definitely works.
@@ -205,6 +214,26 @@ export function parsePastedLog(raw: string, theirName: string): Turn[] {
   ])
   const mine = new Set(ME_PREFIXES)
 
+  return (line: string) => {
+    const match = line.trim().match(LINE_PATTERN)
+    const label = match?.[1] ? asLabel(match[1]) : undefined
+    if (!label) return null
+    const speaker = mine.has(label) ? 'me' : theirs.has(label) ? 'them' : null
+    if (!speaker) return null
+    const at = match![2]?.trim()
+    return { speaker, at: at || undefined, text: match![3]!.trim() }
+  }
+}
+
+/**
+ * Parse a pasted chat log into turns. Handles `Name: text` lines with the
+ * common label variants plus the date's own name, and an optional bracketed
+ * timestamp right after the label (`Name [Tue 9pm]: text`). Unprefixed lines
+ * continue the previous turn, so multi-line texts survive. Anything before
+ * the first recognised label is dropped.
+ */
+export function parsePastedLog(raw: string, theirName: string): Turn[] {
+  const read = logLineReader(theirName)
   const turns: Turn[] = []
   let current: Turn | null = null
 
@@ -212,18 +241,14 @@ export function parsePastedLog(raw: string, theirName: string): Turn[] {
     const trimmed = line.trim()
     if (!trimmed) continue
 
-    const match = trimmed.match(LINE_PATTERN)
-    const label = match?.[1] ? asLabel(match[1]) : undefined
-
-    let speaker: Speaker | null = null
-    if (label) {
-      if (mine.has(label)) speaker = 'me'
-      else if (theirs.has(label)) speaker = 'them'
-    }
-
-    if (speaker) {
-      const at = match![2]?.trim()
-      current = { id: crypto.randomUUID(), speaker, text: match![3]!.trim(), at: at || undefined }
+    const parsed = read(trimmed)
+    if (parsed) {
+      current = {
+        id: crypto.randomUUID(),
+        speaker: parsed.speaker,
+        text: parsed.text,
+        at: parsed.at,
+      }
       turns.push(current)
     } else if (current) {
       current.text = `${current.text}\n${trimmed}`.trim()

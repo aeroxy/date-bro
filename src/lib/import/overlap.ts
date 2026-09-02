@@ -1,3 +1,4 @@
+import { logLineReader } from '@/lib/transcript'
 import type { Turn } from '@/types/date'
 
 /**
@@ -46,18 +47,6 @@ function shape(text: string): string {
 }
 
 /**
- * The text of a rendered log line, without its `Me [when]:` label.
- *
- * The colon that ends the label is *not* the first colon on the line — the
- * timestamp has one, so `Them [Sat Aug 8, 9:10pm]: hi` split on the first colon
- * leaves `10pm]: hi` behind, and a fragment like that turns an exact match into
- * a near one. The bracket is matched as a unit instead.
- */
-function body(line: string): string {
-  return line.replace(/^[^[\]:]{0,40}(\[[^\]]*\]\s*)?:\s*/, '')
-}
-
-/**
  * 1 when identical, 0.95 when one contains the other — a fetched line often
  * carries a caption or a reaction the typed one didn't — and otherwise the
  * share of the recorded turn's words present in the line. Word overlap rather
@@ -97,7 +86,7 @@ const TOO_SHORT = 6
  */
 const TOO_FEW_WORDS = 2
 
-export function findOverlap(log: string, turns: Turn[]): Overlap | null {
+export function findOverlap(log: string, turns: Turn[], theirName: string): Overlap | null {
   const lines = log.split('\n')
   // A single-line log is allowed to be all overlap: fetching the last message
   // and finding it already recorded is worth saying, since appending it is
@@ -112,7 +101,15 @@ export function findOverlap(log: string, turns: Turn[]): Overlap | null {
   // early "where are you from" win over the actual seam.
   const recent = said.slice(-8).reverse()
 
-  const shaped = lines.map((l) => shape(body(l)))
+  // Each line as its speaker and its shaped text, read the same way
+  // `parsePastedLog` reads it — so an unlabelled continuation line is not a
+  // candidate seam, and the label is stripped by the parser that knows a
+  // timestamp's colon from the label's.
+  const read = logLineReader(theirName)
+  const candidates = lines.map((l) => {
+    const parsed = read(l)
+    return parsed ? { speaker: parsed.speaker, shaped: shape(parsed.text) } : null
+  })
 
   for (const [back, turn] of recent.entries()) {
     const wanted = shape(turn.text)
@@ -122,8 +119,13 @@ export function findOverlap(log: string, turns: Turn[]): Overlap | null {
     let best = 0
     // Last wins a tie: the same thing said twice is most usefully anchored at
     // its later occurrence, which is the one nearer the seam.
-    shaped.forEach((line, i) => {
-      const s = score(line, wanted)
+    candidates.forEach((candidate, i) => {
+      // The same words from the other person are a different message. Both
+      // sides say "see you tomorrow", and without this the seam could land on
+      // whichever of them scored first — attributing the boundary to a turn
+      // that was never the one recorded.
+      if (!candidate || candidate.speaker !== turn.speaker) return
+      const s = score(candidate.shaped, wanted)
       if (s >= best) {
         best = s
         bestLine = i

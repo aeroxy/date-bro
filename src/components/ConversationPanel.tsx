@@ -641,7 +641,10 @@ function ImportModal({
   // banner is a summary of the log, not feedback on the keystroke, so it is
   // allowed to arrive a frame late rather than hold up the character.
   const settled = useDeferredValue(raw)
-  const overlap = useMemo(() => findOverlap(settled, record.turns), [settled, record.turns])
+  const overlap = useMemo(
+    () => findOverlap(settled, record.turns, record.name),
+    [settled, record.turns, record.name],
+  )
 
   // As typed, not lowercased: the regex below folds case per character, so a
   // match is always exactly `needle.length` long — the number every span here
@@ -856,7 +859,13 @@ function ImportModal({
     const controller = new AbortController()
     running.current = controller
     const mine = ++generation.current
-    const current = () => generation.current === mine
+    // Two ways to stop being the fetch the UI is showing: another source was
+    // picked (a newer generation), or this one was cancelled. The abort half
+    // matters because a pass already in flight still finishes — so a fetch the
+    // user walked away from could complete on that last pass, exit the loop
+    // without ever rechecking the signal, and persist its count and its log
+    // into a modal that has closed.
+    const current = () => generation.current === mine && !controller.signal.aborted
     try {
       const result = await importFromSource(
         def,
