@@ -56,7 +56,14 @@ export async function fetchWhatsApp(args: FetchArgs) {
   const chatId = chat.id?._serialized || String(chat.id)
   const w = globalThis as Record<string, any>
   let st = w.__dbWaImport
-  if (args.restart || !st || st.chatId !== chatId) {
+  // Another chat opened between passes: starting over on it would hand the
+  // caller two conversations under one import, merged by its id dedup into one
+  // transcript. Refused, as in `telegram.ts`; a tab reload (no state at all)
+  // is the case that may rebuild.
+  if (!args.restart && st && st.chatId !== chatId) {
+    return { error: 'The open WhatsApp chat changed mid-import — go back to the conversation and fetch again.' }
+  }
+  if (args.restart || !st) {
     st = w.__dbWaImport = { chatId, sent: new Set<string>(), done: false }
   }
 

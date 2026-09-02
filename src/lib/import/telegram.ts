@@ -45,7 +45,16 @@ export async function fetchTelegram(args: FetchArgs) {
 
   const w = globalThis as Record<string, any>
   let st = w.__dbTgImport
-  if (args.restart || !st || st.chatId !== chatId || st.last !== args.last) {
+  // The user clicked into another chat between passes. Starting over on the
+  // new one would hand the caller a second conversation's messages under the
+  // same import, and its dedup is by id — so the two would merge, sorted into
+  // one transcript, labelled with whichever peer the last pass saw. Refused
+  // rather than restarted: no state at all (the tab was reloaded) is different,
+  // and that one may rebuild.
+  if (!args.restart && st && st.chatId !== chatId) {
+    return { error: 'The open Telegram chat changed mid-import — go back to the conversation and fetch again.' }
+  }
+  if (args.restart || !st || st.last !== args.last) {
     st = w.__dbTgImport = {
       chatId,
       last: args.last,
