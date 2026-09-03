@@ -10,7 +10,11 @@ const FETCH_TIMEOUT_MS = 20_000
 // read_page follows a URL the *model* chose, and whatever comes back is fed
 // straight into the next request as a tool message. Without a ceiling one
 // oversized page blows the context window and fails the run.
-const MAX_PAGE_CHARS = 100_000
+//
+// Exported for `capped`'s test, which has to place an emoji exactly astride the
+// cut to exercise the surrogate trim: with the number spelled twice, changing
+// it here would leave that test green while it straddled nothing.
+export const MAX_PAGE_CHARS = 100_000
 
 // The ceiling on what we'll pull off the wire at all. MAX_PAGE_CHARS bounds the
 // markdown we keep, but it can only be applied *after* the whole body has been

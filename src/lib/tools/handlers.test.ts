@@ -2,7 +2,7 @@
 /// <reference types="bun" />
 import { describe, expect, test } from 'bun:test'
 
-import { capped } from './handlers'
+import { capped, MAX_PAGE_CHARS } from './handlers'
 
 /**
  * The page cap, and specifically its surrogate trim.
@@ -14,7 +14,10 @@ import { capped } from './handlers'
  * needs one: the failure it prevents is a 400 on the whole request, not on the
  * one character, and it only shows up on pages long enough to be cut.
  */
-const MAX = 100_000
+// The cap itself, not a copy of its current value: the two emoji cases below
+// work by placing a surrogate pair exactly astride the cut, so a second
+// spelling that drifted would leave them asserting nothing.
+const MAX = MAX_PAGE_CHARS
 
 describe('capped', () => {
   test('returns a short page untouched', () => {

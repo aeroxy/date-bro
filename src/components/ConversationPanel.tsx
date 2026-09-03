@@ -612,6 +612,12 @@ function ImportModal({
   const findBox = useRef<HTMLInputElement>(null)
   const logBox = useRef<HTMLTextAreaElement>(null)
   const backdrop = useRef<HTMLDivElement>(null)
+  // One offscreen canvas for the whole modal, for `reveal`'s text measuring.
+  // Built on first use rather than per call: the live-query effect reveals on
+  // every keystroke, and each call was allocating a canvas to throw away. The
+  // font is still re-read from computed style each time, so nothing is cached
+  // that could go stale.
+  const ruler = useRef<CanvasRenderingContext2D | null>(null)
 
   // The textarea can reserve space for a scrollbar inside its own content box;
   // the backdrop, which never scrolls, cannot. Where that space is real — a
@@ -645,6 +651,14 @@ function ImportModal({
     () => findOverlap(settled, record.turns, record.name),
     [settled, record.turns, record.name],
   )
+  // `overlap`'s offsets index `settled`, which lags `raw` by a render while the
+  // log is being typed in. Painting or selecting them against the live text in
+  // that window marks the wrong characters — the mark slides by the length of
+  // the edit — so anything that *cuts* the log waits for the two to agree.
+  // The banner itself keeps reading from `overlap`: its line number arriving a
+  // frame late is the trade deferring it made, and blanking the whole row for
+  // that frame would only turn a stale number into a flicker.
+  const seam = settled === raw ? overlap : null
 
   // As typed, not lowercased: the regex below folds case per character, so a
   // match is always exactly `needle.length` long — the number every span here
@@ -685,7 +699,7 @@ function ImportModal({
     const cs = getComputedStyle(box)
     const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
     const inner = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-    const ctx = document.createElement('canvas').getContext('2d')
+    const ctx = (ruler.current ??= document.createElement('canvas').getContext('2d'))
     if (ctx) ctx.font = cs.font
     // Wrapped rows count toward the offset, and each line is *measured* rather
     // than counted: a character is not a column. RED logs are largely Chinese,
@@ -705,6 +719,35 @@ function ImportModal({
     }
     if (ctx && inner > 0) rows += Math.floor(ctx.measureText(prefix).width / inner)
     box.scrollTop = Math.max(0, rows * lh - box.clientHeight / 2)
+  }
+
+  /**
+   * Drop everything through the seam line, leaving only what is new.
+   *
+   * The banner has always said where the log stops being new; without this the
+   * only way to act on it was to select those lines and delete them by hand,
+   * which on a whole-history fetch is a lot of scrolling to do the thing you
+   * were just told to do.
+   *
+   * Confirmed only when the seam is a resemblance rather than an exact match.
+   * Above an exact seam the lines are provably already recorded, so there is
+   * nothing to lose and a prompt is friction on the path the banner recommends;
+   * below 1 the boundary is a guess, and a guess that discards a fetch which
+   * can take the better part of an hour is worth one question.
+   */
+  function trimToSeam() {
+    if (!seam) return
+    if (
+      seam.score < 1 &&
+      !confirm(
+        `Drop the first ${seam.line + 1} lines, keeping the ${seam.fresh} new one${seam.fresh > 1 ? 's' : ''}? The match is on wording, not an exact one.`,
+      )
+    ) {
+      return
+    }
+    // Past the newline that ends the seam line. A seam on the last line slices
+    // past the end, which is the empty log that says so.
+    setRaw(raw.slice(seam.start + seam.length + 1))
   }
 
   // `at` is only reset when the query changes, but editing the log or running a
@@ -746,8 +789,8 @@ function ImportModal({
             end: start + needle.length,
             current: start === hits[cursor],
           }))
-      : overlap
-        ? [{ start: overlap.start, end: overlap.start + overlap.length, current: false }]
+      : seam
+        ? [{ start: seam.start, end: seam.start + seam.length, current: false }]
         : []
     if (!ranges.length) return null
     const out: ReactNode[] = []
@@ -771,7 +814,7 @@ function ImportModal({
     // textarea reaches; without it the two can disagree by a row at the bottom.
     out.push(`${raw.slice(cut)}\n`)
     return out
-  }, [raw, hits, needle.length, cursor, overlap])
+  }, [raw, hits, needle.length, cursor, seam])
 
   /** Select the nth match, wrapping. */
   function jump(n: number) {
@@ -782,11 +825,13 @@ function ImportModal({
   }
 
   // The query changing makes every offset stale, so the first match is the only
-  // honest place to be.
+  // honest place to be. Keyed on the query alone, deliberately: `hits` is
+  // recomputed in the same render, so it is already the new one here — and
+  // adding it would re-run this on every edit to the log, throwing the user
+  // back to match 1 mid-review.
   useEffect(() => {
     setAt(0)
     if (hits.length) jump(0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needle])
 
   useEffect(() => {
@@ -830,6 +875,27 @@ function ImportModal({
     setStatus(null)
   }
 
+  /**
+   * Stop the fetch and stay where you are.
+   *
+   * Clicking the active source's own tab already did this — `selectSource`
+   * aborts — but a tab that reads as the one you are already on is not
+   * somewhere anyone looks for a cancel, which left "close the modal" as the
+   * only obvious way out of a read that can run for the better part of an hour.
+   *
+   * Bumping the generation is what makes the in-flight pass's `onProgress`
+   * stop writing over this status; the abort is only observed at the next pass
+   * boundary, so the two resumable sources keep driving the tab for up to one
+   * more pass, and Instagram and RED to the end of their single one.
+   */
+  function stopFetch() {
+    generation.current++
+    running.current?.abort()
+    setFetching(false)
+    setError(null)
+    setStatus('Stopped — nothing was imported.')
+  }
+
   /** What the last fetch put in the box, so an edit can be told from a paste. */
   const fetched = useRef('')
 
@@ -856,6 +922,12 @@ function ImportModal({
     setFetching(true)
     setError(null)
     setStatus('Looking for the tab…')
+    // Whatever was running loses the tab to this fetch, so it is ended rather
+    // than merely dropped. The Fetch/Stop swap makes a double-click unreachable
+    // today, but Fetch → Stop → Fetch is not: Stop only lands at the next pass
+    // boundary, so without this the old walk's in-flight pass would still be
+    // scrolling the same list the new pass 0 has just restarted.
+    running.current?.abort()
     const controller = new AbortController()
     running.current = controller
     const mine = ++generation.current
@@ -988,15 +1060,20 @@ function ImportModal({
               aria-label="How many recent messages"
             />
             <span className="min-w-0 text-[11.5px] text-fg-3">most recent · blank for all</span>
-            <Button
-              variant="accent"
-              size="sm"
-              className="ml-auto shrink-0"
-              disabled={fetching}
-              onClick={() => fetchFrom(active)}
-            >
-              {fetching ? <Spinner /> : <Download size={13} />} Fetch
-            </Button>
+            {fetching ? (
+              <Button variant="secondary" size="sm" className="ml-auto shrink-0" onClick={stopFetch}>
+                <Spinner /> Stop
+              </Button>
+            ) : (
+              <Button
+                variant="accent"
+                size="sm"
+                className="ml-auto shrink-0"
+                onClick={() => fetchFrom(active)}
+              >
+                <Download size={13} /> Fetch
+              </Button>
+            )}
           </>
         ) : null}
       </div>
@@ -1053,11 +1130,26 @@ function ImportModal({
               been typed by hand — so the way to check it is to go and look. */}
           <button
             type="button"
-            onClick={() => reveal(overlap.start, overlap.length)}
+            // No-op for the frame where the seam was found in text the box has
+            // since moved on from; a click that lands nowhere beats one that
+            // selects the wrong line.
+            onClick={() => seam && reveal(seam.start, seam.length)}
             className="font-semibold text-action underline-offset-2 hover:underline"
           >
             Show me
           </button>
+          {/* Only when there is something below the seam to keep: trimming to a
+              seam with nothing new empties the box, which reads as the fetch
+              having failed rather than as "you already have all of this". */}
+          {seam && seam.fresh ? (
+            <button
+              type="button"
+              onClick={trimToSeam}
+              className="font-semibold text-action underline-offset-2 hover:underline"
+            >
+              Trim above it
+            </button>
+          ) : null}
           {overlap.score < 1 ? (
             <span className="text-fg-3">Matched on wording, so check before appending.</span>
           ) : null}

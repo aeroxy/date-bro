@@ -26,6 +26,7 @@ export async function fetchInstagram(args: FetchArgs) {
   // when the API-shape error below starts appearing, this is what's out of date.
   const FALLBACK_DOC = '27502152406082940'
   const MAX_PAGES = 500
+  const REQUEST_TIMEOUT_MS = 20_000
 
   if (!location.hostname.endsWith('instagram.com')) {
     return { error: 'That tab is not on instagram.com.' }
@@ -82,7 +83,12 @@ export async function fetchInstagram(args: FetchArgs) {
     const urls = Array.from(new Set([...byRecency, ...scripts]))
     const scan = async (url: string) => {
       // credentials omitted: these are CDN statics and answer from the HTTP cache.
-      const txt = await fetch(url, { credentials: 'omit' })
+      // Timed out short, and it is the whole batch's protection: `.catch` only
+      // sees a fetch that *fails*, and one that stalls with headers received and
+      // no body never settles at all — so `Promise.all` below would wait on it
+      // forever, inside the one pass this driver ever gets. Five seconds is
+      // generous for a cached static, and giving up costs only `FALLBACK_DOC`.
+      const txt = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(5_000) })
         .then((r) => (r.ok ? r.text() : ''))
         .catch(() => '')
       const at = txt.indexOf(`"${QUERY}"`)
@@ -128,6 +134,11 @@ export async function fetchInstagram(args: FetchArgs) {
     const r = await fetch('/api/graphql', {
       method: 'POST',
       credentials: 'include',
+      // A stalled request has nowhere to be interrupted from: this driver does
+      // everything in pass 0, so `sources.ts` never reaches another `aborted`
+      // check and Stop cannot end it. The timeout is the only exit, and the
+      // paging loop turns it into an honest "stopped early" note.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
         'x-fb-friendly-name': QUERY,
@@ -152,7 +163,14 @@ export async function fetchInstagram(args: FetchArgs) {
     try {
       j = await page(after)
     } catch (e) {
-      note = `stopped early: ${(e as Error).message}`
+      // `AbortSignal.timeout` reports itself as "signal timed out", which in a
+      // note about an import reads as a bug in the extension rather than the
+      // network stalling. Named for what it was.
+      const why =
+        (e as Error).name === 'TimeoutError'
+          ? `Instagram did not answer within ${REQUEST_TIMEOUT_MS / 1000}s`
+          : (e as Error).message
+      note = `stopped early: ${why}`
       break
     }
     const thread = j?.data?.fetch__SlideThread?.as_ig_direct_thread
@@ -239,6 +257,25 @@ export async function fetchInstagram(args: FetchArgs) {
       error: `Neither sender in that Instagram thread matches the id in the url, so this can't tell which side is you. It reads one-to-one DMs, where that id is the other person.`,
     }
   }
+  // One sender, and the id in the url isn't them. Two threads look identical
+  // from here and the payload holds nothing that separates them:
+  //
+  //   - an opener nobody has answered, where the url id *is* the other person
+  //     and every line really is mine;
+  //   - an unanswered inbound DM read through a url whose id is the thread's
+  //     rather than a participant's, where every line is theirs and `out` has
+  //     the whole conversation backwards.
+  //
+  // So this can't be refused the way the two-sender case is — the honest opener
+  // is far too ordinary to break, and the checks above would have caught the
+  // bad footing if anyone had replied. It is said out loud instead: the wrong
+  // reading hands the coach a monologue the user never wrote, and unlike the
+  // errors above there is nothing else on screen that would show it. `peer`
+  // comes back null in this case too, for the same reason — nobody matched.
+  const oneSided =
+    senders.size === 1 && !senders.has(threadId)
+      ? 'only one person has spoken in that thread and the id in the url is not theirs, so every line is marked as yours — check that before importing'
+      : null
 
   const messages: RawMessage[] = []
   for (const n of nodes) {
@@ -270,6 +307,9 @@ export async function fetchInstagram(args: FetchArgs) {
     peer: peerName?.username || peerName?.name || null,
     messages,
     done: true,
-    note,
+    // Kept apart rather than folded into `note`: a thread can both stop early
+    // and be one-sided, and letting either stand in for the other would hide
+    // the one fact that changes what the transcript is worth.
+    note: [note, oneSided].filter(Boolean).join(' · ') || null,
   }
 }

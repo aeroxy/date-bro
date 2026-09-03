@@ -260,7 +260,26 @@ describe('importFromSource', () => {
     expect(result.note).toMatch(/of 3 open/)
   })
 
-  test('falls back to the active tab where lastAccessed is not reported', async () => {
+  test('the active tab only breaks a tie, so another window cannot outrank recency', async () => {
+    // `active` is per window, so a feed tab frontmost in a second window is
+    // active while the DM the user just came out of is not. Recency is the
+    // signal that knows the difference.
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: true }], {
+      tabs: [
+        { id: 1, lastAccessed: 9000 },
+        { id: 2, lastAccessed: 1000, active: true },
+      ],
+    })
+    await importFromSource(fakeSource(), 0, () => {})
+
+    expect(injectedInto).toEqual([1])
+  })
+
+  test('an unreported lastAccessed does not lose to a reported one by scale alone', async () => {
+    // Both ranks used to be folded into one number, which compared epoch
+    // milliseconds against a 0/1 flag: the active tab scored 1 against the
+    // other tab's 1.7e12 and could never win. Ranked as a pair, the tie at
+    // "no time reported" is what `active` is for.
     install([{ messages: [msg({ id: 'a', order: 1 })], done: true }], {
       tabs: [{ id: 1 }, { id: 2, active: true }],
     })
