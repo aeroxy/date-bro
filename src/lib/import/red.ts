@@ -24,6 +24,7 @@ export async function fetchRed(args: FetchArgs) {
   const API = 'https://edith.xiaohongshu.com'
   const PAGE = 100
   const MAX_PAGES = 200
+  const REQUEST_TIMEOUT_MS = 20_000
 
   if (!location.hostname.endsWith('xiaohongshu.com')) {
     return { error: 'That tab is not on xiaohongshu.com.' }
@@ -34,7 +35,23 @@ export async function fetchRed(args: FetchArgs) {
   }
 
   const api = async (path: string) => {
-    const r = await fetch(API + path, { credentials: 'include' })
+    // A stalled request has nowhere to be interrupted from: this driver does
+    // everything in pass 0, so `sources.ts` never reaches another `aborted`
+    // check and Stop cannot end it. The timeout is the only exit. Rethrown
+    // under its own name because `AbortSignal.timeout` says "signal timed out",
+    // which in an import note reads as a bug here rather than the network.
+    let r: Response
+    try {
+      r = await fetch(API + path, {
+        credentials: 'include',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      })
+    } catch (e) {
+      if ((e as Error).name === 'TimeoutError') {
+        throw new Error(`RED did not answer within ${REQUEST_TIMEOUT_MS / 1000}s`)
+      }
+      throw e
+    }
     const j = await r.json()
     if (j.code !== 0) throw new Error(`${path.split('?')[0]} → ${j.code} ${j.msg || ''}`)
     return j.data
@@ -138,6 +155,11 @@ export async function fetchRed(args: FetchArgs) {
   // last_id is an inclusive upper bound — so the next page asks for one below the
   // lowest seen, and the walk simply stops when it reaches the bottom of the range.
   const byId = new Map<string, any>()
+  // Each row's body, read once. `content` is a JSON string that for some types
+  // wraps a second one, and it is needed twice — to count what will survive the
+  // drops in the render loop, and again to render — so a long thread was paying
+  // for the same two `JSON.parse` calls per row all over again.
+  const bodies = new Map<string, ReturnType<typeof read>>()
   let cursor = top
   let pages = 0
   let kept = 0
@@ -176,8 +198,9 @@ export async function fetchRed(args: FetchArgs) {
       // outnumber the readable ones, and counting rows would have answered
       // "last 50" with a handful of lines.
       if (!byId.has(m.id)) {
-        const r = read(parse(m.content))
-        if (!r.missing && !r.system) kept++
+        const body = read(parse(m.content))
+        bodies.set(m.id, body)
+        if (!body.missing && !body.system) kept++
       }
       byId.set(m.id, m)
       const id = Number(m.store_id)
@@ -216,8 +239,9 @@ export async function fetchRed(args: FetchArgs) {
   let missing = 0
   let run = 0
   for (const m of rows) {
-    const c = parse(m.content)
-    const r = read(c)
+    // Read on the way in: every row here reached `byId` through the walk above,
+    // which is also where it was parsed.
+    const r = bodies.get(m.id)!
     if (r.missing) {
       missing++
       run++

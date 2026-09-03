@@ -33,17 +33,37 @@ export type Overlap = {
 }
 
 /**
+ * Shaped text, and its distinct words once anything has asked for them.
+ *
+ * `score` is called once per (line, turn) pair, so building the word sets in
+ * there rebuilt each line's set once per candidate turn — and the turn's own
+ * set once per *line*, which was the larger waste of the two. Hanging them off
+ * the shaped text instead makes each one at most once.
+ *
+ * Cached on demand rather than eagerly, because most pairs never reach the word
+ * path: an exact or containment match answers first, and on a log fetched from
+ * the source the seam is usually the very first turn tried. Building 40k sets
+ * up front to serve the rare fallback measured slower than the code this
+ * replaced.
+ */
+type Shaped = { text: string; words?: Set<string> }
+
+const wordsOf = (s: Shaped): Set<string> => (s.words ??= new Set(s.text.split(' ')))
+
+/**
  * Punctuation, case, and the bracketed asides only one side ever has, removed.
  * A timestamp is bracketed too, which is the point — `Me [Sat 9pm]: hey` and a
  * hand-typed `hey` have to come out the same.
  */
-function shape(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+function shape(text: string): Shaped {
+  return {
+    text: text
+      .toLowerCase()
+      .replace(/\[[^\]]*\]/g, ' ')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  }
 }
 
 /**
@@ -53,19 +73,20 @@ function shape(text: string): string {
  * than edit distance because the differences that matter here are whole words
  * added or dropped, not characters transposed.
  */
-function score(line: string, turn: string): number {
-  if (!line || !turn) return 0
-  if (line === turn) return 1
+function score(line: Shaped, turn: Shaped): number {
+  if (!line.text || !turn.text) return 0
+  if (line.text === turn.text) return 1
   // Containment only counts when the contained side is itself substantial: a
   // turn that mentions "no" once contains every one-word line saying "no", and
   // that is two people saying a common word, not a seam. `turn` is already past
   // TOO_SHORT by the time it gets here; the line has to clear the same bar.
-  if (line.includes(turn) || (line.length >= TOO_SHORT && turn.includes(line))) return 0.95
+  if (line.text.includes(turn.text) || (line.text.length >= TOO_SHORT && turn.text.includes(line.text)))
+    return 0.95
   // Distinct words on both sides. Counting the turn's words with repeats let
   // "no no no no" score four hits against a line that says "no" once — a full
   // match to an unrelated message, made of one word said with feeling.
-  const words = new Set(line.split(' '))
-  const wanted = new Set(turn.split(' '))
+  const words = wordsOf(line)
+  const wanted = wordsOf(turn)
   let shared = 0
   for (const w of wanted) if (words.has(w)) shared++
   return shared / Math.max(words.size, wanted.size)
@@ -113,8 +134,8 @@ export function findOverlap(log: string, turns: Turn[], theirName: string): Over
 
   for (const [back, turn] of recent.entries()) {
     const wanted = shape(turn.text)
-    if (wanted.length < TOO_SHORT) continue
-    if (new Set(wanted.split(' ')).size < TOO_FEW_WORDS) continue
+    if (wanted.text.length < TOO_SHORT) continue
+    if (wordsOf(wanted).size < TOO_FEW_WORDS) continue
     let bestLine = -1
     let best = 0
     // Last wins a tie: the same thing said twice is most usefully anchored at

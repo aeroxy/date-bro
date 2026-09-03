@@ -111,8 +111,21 @@ export async function importFromSource(
   // then coming back here is what an import *is*, so recency is the signal, and
   // taking whatever the array happened to list first meant a background feed tab
   // could answer "no DM is open" while the DM sat open one tab over.
-  const rank = (t: chrome.tabs.Tab) => t.lastAccessed ?? (t.active ? 1 : 0)
-  const target = [...tabs].sort((a, b) => rank(b) - rank(a))[0]
+  //
+  // Ranked as a pair, not one number. Folding the two into a single score meant
+  // comparing epoch milliseconds against a 0/1 flag — so a tab that reports no
+  // `lastAccessed` (it is Chrome 121+) lost to every tab that does, the active
+  // one included, and the fallback could never actually decide anything.
+  //
+  // Recency stays primary and `active` only breaks its ties, deliberately in
+  // that order: `active` is per *window*, so a background feed tab that happens
+  // to be frontmost in another window would otherwise outrank the DM the user
+  // was just reading here — the same wrong-tab answer, reached the other way
+  // round.
+  const seen = (t: chrome.tabs.Tab) => t.lastAccessed ?? 0
+  const target = [...tabs].sort(
+    (a, b) => seen(b) - seen(a) || (b.active ? 1 : 0) - (a.active ? 1 : 0),
+  )[0]
   const tabId = target?.id
   if (tabId === undefined) {
     throw new Error(`No ${source.label} tab is open. Open ${source.where}, go to the conversation, and try again.`)
