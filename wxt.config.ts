@@ -32,8 +32,10 @@ export default defineConfig({
     name: 'Date Bro',
     description: 'AI dating coach — build a picture of your date, and know what to say next',
     // `cookies` + `declarativeNetRequest` are for the Qwen backend only (it
-    // borrows the user's chat.qwen.ai session); `tabs` + `scripting` let it
-    // read the auth token out of an open Qwen tab. `storage` holds settings,
+    // borrows the user's chat.qwen.ai session). `tabs` + `scripting` have two
+    // users: reading the auth token out of an open Qwen tab, and the four
+    // importers in `lib/import/`, which run an injected function in a
+    // conversation tab the user already has open. `storage` holds settings,
     // everything else lives in IndexedDB inside the app page.
     permissions: ['storage', 'tabs', 'scripting', 'cookies', 'declarativeNetRequest'],
     host_permissions: ['*://*/*'],

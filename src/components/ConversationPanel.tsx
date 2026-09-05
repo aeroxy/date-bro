@@ -1,13 +1,31 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ClipboardPaste, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
+import {
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { Download, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
+import { findOverlap } from '@/lib/import/overlap'
+import {
+  getImportLast,
+  importFromSource,
+  setImportLast,
+  SOURCES,
+  type SourceDef,
+  type SourceId,
+} from '@/lib/import/sources'
 import { parsePastedLog, speakerLabel, transcriptStats } from '@/lib/transcript'
 import type { Channel, DateRecord, Speaker, Turn } from '@/types/date'
 import { Button } from './ui/Button'
 import { Chip, Eyebrow } from './ui/Card'
 import { Field, Input, Textarea } from './ui/Field'
 import { Select } from './ui/Select'
+import { Spinner } from './ui/Spinner'
 import { Modal } from './ui/Modal'
 
 const CHANNEL_ICON = {
@@ -149,7 +167,7 @@ export function ConversationPanel({
           </Button>
         ) : null}
         <Button variant="ghost" size="sm" onClick={() => setImporting(true)}>
-          <ClipboardPaste size={13} /> Paste a log
+          <Download size={13} /> Import
         </Button>
       </div>
 
@@ -565,11 +583,394 @@ function ImportModal({
   onImport: (turns: Turn[], mode: 'append' | 'replace') => void
 }) {
   const [raw, setRaw] = useState('')
+  const [source, setSource] = useState<SourceId | null>(null)
+  // Blank means the whole history: the expensive answer is the honest default,
+  // since a number picked for you silently drops the messages above it.
+  const [last, setLast] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
+  // A fetch outlives this component unless something stops it: the modal is
+  // mounted only while open, so unmounting is every way out of it at once —
+  // Cancel, the X, Escape, Append, Replace.
+  const running = useRef<AbortController | null>(null)
+  useEffect(() => () => running.current?.abort(), [])
+  // Which fetch the UI is currently showing. Aborting only stops the *work*,
+  // and only between passes — the pass already in flight still runs to its end
+  // and still calls back — so every write below is gated on this instead of on
+  // the abort having landed.
+  const generation = useRef(0)
+
+  // Find, scoped to the fetched log. The browser's own Cmd+F searches the whole
+  // page, so on a modal laid over a conversation it answers with the very turns
+  // the user opened this to replace — matches they can see, behind a dimmed
+  // panel, and cannot act on. Captured here rather than by hiding the page
+  // behind: that would also make the backdrop a blank rectangle.
+  const [find, setFind] = useState('')
+  const [finding, setFinding] = useState(false)
+  const [at, setAt] = useState(0)
+  const findBox = useRef<HTMLInputElement>(null)
+  const logBox = useRef<HTMLTextAreaElement>(null)
+  const backdrop = useRef<HTMLDivElement>(null)
+  // One offscreen canvas for the whole modal, for `reveal`'s text measuring.
+  // Built on first use rather than per call: the live-query effect reveals on
+  // every keystroke, and each call was allocating a canvas to throw away. The
+  // font is still re-read from computed style each time, so nothing is cached
+  // that could go stale.
+  const ruler = useRef<CanvasRenderingContext2D | null>(null)
+
+  // The textarea can reserve space for a scrollbar inside its own content box;
+  // the backdrop, which never scrolls, cannot. Where that space is real — a
+  // platform with classic scrollbars, or macOS set to always show them — the
+  // two wrap at different widths and drift a row apart, the same failure the
+  // leading fix removed, reached by a different route. Measured rather than
+  // assumed in either direction: on overlay scrollbars the gutter is 2px and
+  // this does nothing.
+  useLayoutEffect(() => {
+    const box = logBox.current
+    const layer = backdrop.current
+    if (!box || !layer) return
+    const border = parseFloat(getComputedStyle(box).borderRightWidth) || 0
+    const gutter = box.offsetWidth - box.clientWidth - border * 2
+    // `paddingLeft` is the untouched twin of the padding being overridden, so
+    // the base comes from the layer itself and no spacing value is hardcoded.
+    const base = parseFloat(getComputedStyle(layer).paddingLeft) || 0
+    layer.style.paddingRight = gutter > 0.5 ? `${base + gutter}px` : ''
+    // Bounded rather than run on every render: it reads layout and writes style,
+    // which is a forced reflow, and the only thing that changes a gutter is the
+    // log growing past the box.
+  }, [raw, finding])
+
+  // Where the log stops being new. Recomputed with the log because a fetch, an
+  // edit and a paste all change the answer — but deferred, because it shapes
+  // every line and a whole-history import is tens of thousands of them. The
+  // banner is a summary of the log, not feedback on the keystroke, so it is
+  // allowed to arrive a frame late rather than hold up the character.
+  const settled = useDeferredValue(raw)
+  const overlap = useMemo(
+    () => findOverlap(settled, record.turns, record.name),
+    [settled, record.turns, record.name],
+  )
+  // `overlap`'s offsets index `settled`, which lags `raw` by a render while the
+  // log is being typed in. Painting or selecting them against the live text in
+  // that window marks the wrong characters — the mark slides by the length of
+  // the edit — so anything that *cuts* the log waits for the two to agree.
+  // The banner itself keeps reading from `overlap`: its line number arriving a
+  // frame late is the trade deferring it made, and blanking the whole row for
+  // that frame would only turn a stale number into a flicker.
+  const seam = settled === raw ? overlap : null
+
+  // As typed, not lowercased: the regex below folds case per character, so a
+  // match is always exactly `needle.length` long — the number every span here
+  // is cut and selected with.
+  const needle = find
+  const hits = useMemo(() => {
+    if (!needle) return []
+    // A case-insensitive regex rather than `indexOf` over a lowercased copy:
+    // lowercasing can change a string's length (`İ` becomes two code units), and
+    // every offset after such a character then points one short of the match —
+    // into the wrong span of a textarea that is about to be selected and marked.
+    // The `g` regex reports non-overlapping matches, so "aa" in "aaaa" is two
+    // and not three — the count has to mean the number of times Next stops.
+    const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+    return Array.from(raw.matchAll(re), (m) => m.index)
+  }, [raw, needle])
+
+  /**
+   * Select a span of the log and scroll it into the middle of the box.
+   *
+   * Deliberately does **not** focus the textarea. It used to, and that made
+   * the find field unusable: the live-query effect reveals on every keystroke,
+   * so the first character typed moved focus to the log with the match
+   * selected, and the second character *replaced that match* — typing "hello"
+   * silently edited four characters into a transcript about to be appended as
+   * fact. Focus was only ever there to coax a native scroll-to-selection that
+   * Chrome does not do anyway, and Chrome paints an unfocused selection grey,
+   * so nothing is lost by leaving focus where the user put it.
+   */
+  function reveal(start: number, length: number) {
+    const box = logBox.current
+    if (!box) return
+    box.setSelectionRange(start, start + length)
+    // Chrome does not scroll a textarea to a programmatic selection — measured,
+    // not assumed: focus-then-select, blur-focus-select and select-then-refocus
+    // all leave `scrollTop` exactly where it was, so a match 100 lines down gets
+    // selected somewhere the user can't see. The row is found by hand instead.
+    const cs = getComputedStyle(box)
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
+    const inner = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    const ctx = (ruler.current ??= document.createElement('canvas').getContext('2d'))
+    if (ctx) ctx.font = cs.font
+    // Wrapped rows count toward the offset, and each line is *measured* rather
+    // than counted: a character is not a column. RED logs are largely Chinese,
+    // where every glyph is two columns wide even in a monospace face, so
+    // `length / cols` put the target at half its true depth and the scroll
+    // landed short by more than centring could absorb.
+    const before = raw.slice(0, start).split('\n')
+    // The line the match sits on is counted too, up to the match: a hit deep in
+    // a long message is several wrapped rows below that line's first one, and
+    // dropping the prefix put the scroll that many rows short — for exactly the
+    // paragraph-length messages where centring has the least slack.
+    const prefix = before.pop() ?? ''
+    let rows = 0
+    for (const line of before) {
+      const width = ctx ? ctx.measureText(line).width : 0
+      rows += width > 0 && inner > 0 ? Math.max(1, Math.ceil(width / inner)) : 1
+    }
+    if (ctx && inner > 0) rows += Math.floor(ctx.measureText(prefix).width / inner)
+    box.scrollTop = Math.max(0, rows * lh - box.clientHeight / 2)
+  }
+
+  /**
+   * Drop everything through the seam line, leaving only what is new.
+   *
+   * The banner has always said where the log stops being new; without this the
+   * only way to act on it was to select those lines and delete them by hand,
+   * which on a whole-history fetch is a lot of scrolling to do the thing you
+   * were just told to do.
+   *
+   * Confirmed only when the seam is a resemblance rather than an exact match.
+   * Above an exact seam the lines are provably already recorded, so there is
+   * nothing to lose and a prompt is friction on the path the banner recommends;
+   * below 1 the boundary is a guess, and a guess that discards a fetch which
+   * can take the better part of an hour is worth one question.
+   */
+  function trimToSeam() {
+    if (!seam) return
+    if (
+      seam.score < 1 &&
+      !confirm(
+        `Drop the first ${seam.line + 1} lines, keeping the ${seam.fresh} new one${seam.fresh > 1 ? 's' : ''}? The match is on wording, not an exact one.`,
+      )
+    ) {
+      return
+    }
+    // Past the newline that ends the seam line. A seam on the last line slices
+    // past the end, which is the empty log that says so.
+    setRaw(raw.slice(seam.start + seam.length + 1))
+  }
+
+  // `at` is only reset when the query changes, but editing the log or running a
+  // second fetch recomputes the matches under it — leaving a counter reading
+  // "7 / 2". Clamped at the point of use so the number shown and the number
+  // stepped from are the same one.
+  const cursor = hits.length ? Math.min(at, hits.length - 1) : 0
+
+  /**
+   * The log, cut into the runs that get painted and the runs that don't.
+   *
+   * A textarea cannot colour its own contents, and Chrome does not paint an
+   * unfocused selection — checked, after shipping a version that relied on it:
+   * `setSelectionRange` with focus in the find field draws nothing at all. So
+   * the highlight is a second copy of the text sitting behind the transparent
+   * textarea, in the same font at the same width, wrapping identically, with a
+   * background behind the runs that matter. Focus never has to move for it.
+   *
+   * Children are O(matches), not O(lines): the text between two marks is one
+   * string node however long it is.
+   */
+  const painted = useMemo(() => {
+    // Marks either side of the current match. Bounded because each is a DOM
+    // node and a one-letter query on a whole history matches tens of thousands
+    // of times; wide enough that scrolling never outruns it.
+    const PAINT_SPAN = 400
+    // The find owns the highlighter while it is in use; the seam gets it the
+    // rest of the time. Two overlapping range sets would have to be merged, and
+    // nobody is reading a seam marker while typing a query.
+    const ranges = hits.length
+      ? // A window around where the user is, not the first N. Capping at the
+        // front meant match 501 stepped to a selection nothing painted — the
+        // same invisible-match failure this layer exists to fix, moved behind a
+        // threshold instead of removed.
+        hits
+          .slice(Math.max(0, cursor - PAINT_SPAN), cursor + PAINT_SPAN)
+          .map((start) => ({
+            start,
+            end: start + needle.length,
+            current: start === hits[cursor],
+          }))
+      : seam
+        ? [{ start: seam.start, end: seam.start + seam.length, current: false }]
+        : []
+    if (!ranges.length) return null
+    const out: ReactNode[] = []
+    let cut = 0
+    ranges.forEach((r, i) => {
+      if (r.start > cut) out.push(raw.slice(cut, r.start))
+      out.push(
+        <mark
+          key={i}
+          className={cn(
+            'rounded-[3px] text-transparent',
+            r.current ? 'bg-action/35' : hits.length ? 'bg-action/15' : 'bg-warn/25',
+          )}
+        >
+          {raw.slice(r.start, r.end)}
+        </mark>,
+      )
+      cut = r.end
+    })
+    // The trailing newline keeps the last line scrollable to the same depth the
+    // textarea reaches; without it the two can disagree by a row at the bottom.
+    out.push(`${raw.slice(cut)}\n`)
+    return out
+  }, [raw, hits, needle.length, cursor, seam])
+
+  /** Select the nth match, wrapping. */
+  function jump(n: number) {
+    if (!hits.length) return
+    const i = ((n % hits.length) + hits.length) % hits.length
+    setAt(i)
+    reveal(hits[i]!, needle.length)
+  }
+
+  // The query changing makes every offset stale, so the first match is the only
+  // honest place to be. Keyed on the query alone, deliberately: `hits` is
+  // recomputed in the same render, so it is already the new one here — and
+  // adding it would re-run this on every edit to the log, throwing the user
+  // back to match 1 mid-review.
+  useEffect(() => {
+    setAt(0)
+    if (hits.length) jump(0)
+  }, [needle])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+      e.preventDefault()
+      setFinding(true)
+      // Next frame, because the field may not exist yet on the first press.
+      requestAnimationFrame(() => findBox.current?.select())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   // Memoised: this runs on every keystroke, and a pasted thread can be long.
   const parsed = useMemo(
     () => (raw.trim() ? parsePastedLog(raw, record.name) : []),
     [raw, record.name],
   )
+
+  const active = SOURCES.find((s) => s.id === source)
+
+  // The remembered count lands a tick after mount, so it must not overwrite a
+  // number the user has already started typing.
+  const typedLast = useRef(false)
+  useEffect(() => {
+    void getImportLast().then((v) => {
+      if (v && !typedLast.current) setLast(v)
+    })
+  }, [])
+
+  // Switching tabs drops whatever the last fetch said: an error or a "142
+  // messages" line describes a source you are no longer looking at. It also
+  // ends that fetch rather than leaving it to finish into a source nobody is
+  // looking at, and takes the spinner with it — nothing is running any more.
+  function selectSource(id: SourceId | null) {
+    generation.current++
+    running.current?.abort()
+    setFetching(false)
+    setSource(id)
+    setError(null)
+    setStatus(null)
+  }
+
+  /**
+   * Stop the fetch and stay where you are.
+   *
+   * Clicking the active source's own tab already did this — `selectSource`
+   * aborts — but a tab that reads as the one you are already on is not
+   * somewhere anyone looks for a cancel, which left "close the modal" as the
+   * only obvious way out of a read that can run for the better part of an hour.
+   *
+   * Bumping the generation is what makes the in-flight pass's `onProgress`
+   * stop writing over this status; the abort is only observed at the next pass
+   * boundary, so the two resumable sources keep driving the tab for up to one
+   * more pass, and Instagram and RED to the end of their single one.
+   */
+  function stopFetch() {
+    generation.current++
+    running.current?.abort()
+    setFetching(false)
+    setError(null)
+    setStatus('Stopped — nothing was imported.')
+  }
+
+  /** What the last fetch put in the box, so an edit can be told from a paste. */
+  const fetched = useRef('')
+
+  async function fetchFrom(def: SourceDef) {
+    // A second fetch overwrites the box, and by then the box may hold work: a
+    // run trimmed, a mangled line repaired. Guarded like Replace all, and only
+    // when there is something to lose — an untouched log, or one this fetch put
+    // there itself, is replaced without ceremony.
+    if (raw.trim() && raw !== fetched.current && !confirm('Replace what is in the box? Your edits to it will be lost.')) {
+      return
+    }
+    // Blank or 0 means the whole history — the expensive answer, so it has to
+    // be asked for rather than fallen into. Which is why anything else that
+    // isn't a count ("5o", "50 msgs") is refused here instead of read as 0:
+    // `Number` made it NaN, NaN made it 0, and a typo in the box started a
+    // minutes-long read of everything, with nothing saying why.
+    const typed = last.trim()
+    if (typed && !/^\d+$/.test(typed)) {
+      setError(`"${typed}" isn't a number of messages — a whole number, or blank for all.`)
+      setStatus(null)
+      return
+    }
+    const n = Number(typed) || 0
+    setFetching(true)
+    setError(null)
+    setStatus('Looking for the tab…')
+    // Whatever was running loses the tab to this fetch, so it is ended rather
+    // than merely dropped. The Fetch/Stop swap makes a double-click unreachable
+    // today, but Fetch → Stop → Fetch is not: Stop only lands at the next pass
+    // boundary, so without this the old walk's in-flight pass would still be
+    // scrolling the same list the new pass 0 has just restarted.
+    running.current?.abort()
+    const controller = new AbortController()
+    running.current = controller
+    const mine = ++generation.current
+    // Two ways to stop being the fetch the UI is showing: another source was
+    // picked (a newer generation), or this one was cancelled. The abort half
+    // matters because a pass already in flight still finishes — so a fetch the
+    // user walked away from could complete on that last pass, exit the loop
+    // without ever rechecking the signal, and persist its count and its log
+    // into a modal that has closed.
+    const current = () => generation.current === mine && !controller.signal.aborted
+    try {
+      const result = await importFromSource(
+        def,
+        n,
+        (found) => {
+          if (current()) setStatus(`${found} messages so far…`)
+        },
+        controller.signal,
+      )
+      if (!current()) return
+      // Stored on the way out, so what comes back next time is a count that
+      // actually ran — not one from an attempt that died on "no tab open".
+      void setImportLast(n ? String(n) : '')
+      fetched.current = result.text
+      setRaw(result.text)
+      setStatus(
+        [
+          `${result.count} messages`,
+          result.peer ? `from ${result.peer}` : null,
+          result.note,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      )
+    } catch (e) {
+      // Cancelling is something the user did, not something that went wrong.
+      if ((e as Error).name === 'AbortError' || !current()) return
+      setError((e as Error).message)
+      setStatus(null)
+    } finally {
+      if (current()) setFetching(false)
+    }
+  }
 
   return (
     <Modal
@@ -577,7 +978,7 @@ function ImportModal({
       onClose={onClose}
       wide
       eyebrow="Import"
-      title="Paste a conversation"
+      title="Import a conversation"
       footer={
         <>
           <span className="mr-auto text-[12px] text-fg-3">
@@ -616,23 +1017,225 @@ function ImportModal({
         </>
       }
     >
-      <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
-        One message per line, labelled. <code className="font-mono text-fg-2">Me:</code> for you;{' '}
-        <code className="font-mono text-fg-2">{record.name}:</code>,{' '}
-        <code className="font-mono text-fg-2">Them:</code>, or{' '}
-        <code className="font-mono text-fg-2">Her:</code>/<code className="font-mono text-fg-2">Him:</code>{' '}
-        for them. Unlabelled lines join the message above, so multi-line texts survive. Add a
-        timestamp in brackets right after the label if you have one —{' '}
-        <code className="font-mono text-fg-2">Me [Tue 9pm]:</code> — free-form, same as the "when"
-        field below; it's optional and safe to leave off.
-      </p>
-      <Textarea
-        rows={14}
-        value={raw}
-        onChange={(e) => setRaw(e.target.value)}
-        className="font-mono text-[12.5px]"
-        placeholder={`Me [Sat 11pm]: hey — how was the thing on Saturday?\n${record.name} [Sun 9am]: honestly a disaster, my sister showed up late and then\nmade it everyone's problem\nMe: oh no. the classic`}
-      />
+      {/* Everything on this row holds its width except the hint, which reflows.
+          The row is one source wider than it used to be and the modal is only as
+          wide as the window allows, so something has to give — left to itself
+          flexbox squeezed the tab strip and clipped a label to one letter.
+          The height is held at two lines of that reflowed hint whether or not a
+          source is picked, so choosing one doesn't nudge the whole modal down. */}
+      <div className="mb-3 flex min-h-10 items-center gap-2">
+        <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
+          <button
+            onClick={() => selectSource(null)}
+            className={cn(
+              'px-3 py-1 text-[12px] font-semibold whitespace-nowrap transition',
+              source === null ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
+            )}
+          >
+            Paste
+          </button>
+          {SOURCES.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => selectSource(s.id)}
+              className={cn(
+                'border-l border-border px-3 py-1 text-[12px] font-semibold whitespace-nowrap transition',
+                source === s.id ? 'bg-ink text-white' : 'bg-surface text-fg-3 hover:text-fg',
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {active ? (
+          <>
+            <Input
+              value={last}
+              onChange={(e) => {
+                typedLast.current = true
+                setLast(e.target.value)
+              }}
+              placeholder="all"
+              className="h-8 w-[92px] shrink-0 text-[12.5px]"
+              aria-label="How many recent messages"
+            />
+            <span className="min-w-0 text-[11.5px] text-fg-3">most recent · blank for all</span>
+            {fetching ? (
+              <Button variant="secondary" size="sm" className="ml-auto shrink-0" onClick={stopFetch}>
+                <Spinner /> Stop
+              </Button>
+            ) : (
+              <Button
+                variant="accent"
+                size="sm"
+                className="ml-auto shrink-0"
+                onClick={() => fetchFrom(active)}
+              >
+                <Download size={13} /> Fetch
+              </Button>
+            )}
+          </>
+        ) : null}
+      </div>
+
+      {active ? (
+        <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
+          Reads the conversation you have open in your {active.label} tab, straight from the page —
+          the only thing it talks to is {active.label} itself. Open {active.where}, click into the
+          chat, then Fetch. The log lands below for you to check before it goes in.
+          {active.id === 'telegram' ? (
+            <>
+              {' '}
+              Telegram only loads history cleanly in one direction, so a capped fetch climbs backwards
+              and can skip on a long haul — leave the count blank for the slower, complete read.
+            </>
+          ) : null}
+        </p>
+      ) : (
+        <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
+          One message per line, labelled. <code className="font-mono text-fg-2">Me:</code> for you;{' '}
+          <code className="font-mono text-fg-2">{record.name}:</code>,{' '}
+          <code className="font-mono text-fg-2">Them:</code>, or{' '}
+          <code className="font-mono text-fg-2">Her:</code>/
+          <code className="font-mono text-fg-2">Him:</code> for them. Unlabelled lines join the
+          message above, so multi-line texts survive. Add a timestamp in brackets right after the
+          label if you have one — <code className="font-mono text-fg-2">Me [Tue 9pm]:</code> —
+          free-form, same as the "when" field below; it's optional and safe to leave off.
+        </p>
+      )}
+
+      {error ? (
+        <p className="mb-3 rounded-md border border-no-strong/30 bg-no-soft px-3 py-2 text-[12.5px] leading-relaxed text-no-strong">
+          {error}
+        </p>
+      ) : status ? (
+        <p className="mb-3 text-[12px] text-fg-3">{status}</p>
+      ) : null}
+
+      {overlap ? (
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-fg-3">
+          <span>
+            {overlap.score === 1 ? 'Already recorded' : 'Looks already recorded'} through line{' '}
+            <span className="font-semibold text-fg-2">{overlap.line + 1}</span>
+            {overlap.back
+              ? ` (your last ${overlap.back} recorded turn${overlap.back > 1 ? "s aren't" : " isn't"} in this log)`
+              : ''}{' '}—{' '}
+            {/* "of text": `fresh` skips blank lines, so a blank-separated paste
+                shows more rows below the seam than the number says. */}
+            {overlap.fresh
+              ? `the ${overlap.fresh} line${overlap.fresh > 1 ? 's' : ''} of text below ${overlap.fresh > 1 ? 'are' : 'is'} new.`
+              : 'nothing below it is new.'}
+          </span>
+          {/* The match is a resemblance, not a fact — the recorded turn may have
+              been typed by hand — so the way to check it is to go and look. */}
+          <button
+            type="button"
+            // No-op for the frame where the seam was found in text the box has
+            // since moved on from; a click that lands nowhere beats one that
+            // selects the wrong line.
+            onClick={() => seam && reveal(seam.start, seam.length)}
+            className="font-semibold text-action underline-offset-2 hover:underline"
+          >
+            Show me
+          </button>
+          {/* Only when there is something below the seam to keep: trimming to a
+              seam with nothing new empties the box, which reads as the fetch
+              having failed rather than as "you already have all of this". */}
+          {seam && seam.fresh ? (
+            <button
+              type="button"
+              onClick={trimToSeam}
+              className="font-semibold text-action underline-offset-2 hover:underline"
+            >
+              Trim above it
+            </button>
+          ) : null}
+          {overlap.score < 1 ? (
+            <span className="text-fg-3">Matched on wording, so check before appending.</span>
+          ) : null}
+        </p>
+      ) : null}
+
+      {finding ? (
+        <div className="mb-2 flex items-center gap-2">
+          <Input
+            ref={findBox}
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                jump(e.shiftKey ? cursor - 1 : cursor + 1)
+              }
+              // Escape steps out one layer at a time — clear the query, then
+              // close the find bar — and never reaches the modal from here: it
+              // listens for Escape on the window, and losing a fetched log to
+              // the second of two quick presses meant for the search field is
+              // not a trade anyone would make. Letting an empty box pass it
+              // through was exactly that trade.
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                if (find) setFind('')
+                else setFinding(false)
+              }
+            }}
+            placeholder="Find in the log"
+            className="h-8 flex-1 text-[12.5px]"
+            aria-label="Find in the imported log"
+          />
+          <span className="min-w-[64px] text-[11.5px] tabular-nums text-fg-3">
+            {!find ? '' : hits.length ? `${cursor + 1} / ${hits.length}` : 'no matches'}
+          </span>
+          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(cursor - 1)}>
+            Prev
+          </Button>
+          <Button variant="secondary" size="sm" disabled={!hits.length} onClick={() => jump(cursor + 1)}>
+            Next
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setFinding(false)
+              setFind('')
+            }}
+          >
+            Done
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="relative rounded-md bg-surface">
+        <div
+          ref={backdrop}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-transparent px-3 py-2 font-mono text-[12.5px] leading-relaxed text-transparent"
+        >
+          {painted}
+        </div>
+        <Textarea
+          ref={logBox}
+          rows={14}
+          // The backdrop only lines up while it shows the same text at the same
+          // offset, so the textarea hands over its scroll on every change to it.
+          onScroll={(e) => {
+            const b = backdrop.current
+            if (!b) return
+            b.scrollTop = e.currentTarget.scrollTop
+            b.scrollLeft = e.currentTarget.scrollLeft
+          }}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          // `leading-relaxed` and `block` are load-bearing, not decoration. The
+          // base already sets the leading, but `tailwind-merge` reads a v4
+          // `text-*` as owning line-height too, so `text-[12.5px]` silently
+          // dropped it and the two layers computed 1.5 against 1.625 — the
+          // highlight drifting a row lower every twelve lines. `block` removes
+          // the inline-block line box that made the backdrop 5px the taller.
+          className="relative block bg-transparent font-mono text-[12.5px] leading-relaxed"
+          placeholder={`Me [Sat 11pm]: hey — how was the thing on Saturday?\n${record.name} [Sun 9am]: honestly a disaster, my sister showed up late and then\nmade it everyone's problem\nMe: oh no. the classic`}
+        />
+      </div>
       {parsed.length ? (
         <div className="mt-3 space-y-1.5">
           <Eyebrow>Preview</Eyebrow>

@@ -50,6 +50,17 @@ a dead socket still fails. And `postSSE` stops retrying once it has delivered an
 already on screen and state already accumulated by then, so a replay would double it. A failure before
 the first event (including a non-2xx, whose body arrives whole) retries normally.
 
+**Everything leaving the page is scrubbed** by `wellFormed`, which walks a value's strings and drops
+any half of a UTF-16 surrogate pair left without its partner. `JSON.stringify` emits such a half as a
+literal `\ud83d`, which a strict parser (serde_json — the Anthropic API, and any Rust proxy in front of
+it) rejects outright, so one invisible character 400s the whole request. Those halves come from text
+clipped by UTF-16 unit instead of code point; `clip` in `import/render.ts` is where that stopped being
+produced, and this is what heals logs imported before it. It runs on the value, never on the serialized
+JSON, where the escape we want gone is indistinguishable from the six characters a user typed. All three
+backends go through it: `postJSON` and `postSSE` serialize once outside their retry loop, and
+`qwenCompletion` scrubs separately because its payload crosses to the background worker by structured
+clone — which carries a lone surrogate through intact — and is serialized there.
+
 **OpenAI path.** POSTs `{base_url}/chat/completions` with `Authorization: Bearer`. `response_format`
 is `json_schema` when the user enabled structured output and a schema was passed, `json_object`
 otherwise. `temperature` is omitted entirely when unset so the provider's own default applies —
@@ -416,8 +427,80 @@ can't produce a false staleness chip. It also runs the four migrations; see
 | `numberTurns(record)` | Gives every turn a citation number and remembers the next one to hand out, returning a `NumberedRecord` so the invariant travels in the type rather than in a comment. Uniqueness of numbers *already* stored is assumed, not enforced — a duplicate is carried rather than repaired, because which turn an existing `[12]` meant is unanswerable and renumbering one silently re-aims it; what is enforced is that the counter clears every number any turn holds, so a duplicate can't become a triplicate. Pure, total, idempotent — returns the record by identity when there is nothing to do, like the `db.ts` migrations, so a hundred reads render the same bytes and nothing churns React. Two sources for "next", and the persisted `nextTurnNumber` is allowed to win: the turns can only say what survives, the counter says what has ever been handed out, which is exactly what deletion breaks (`max(number) + 1` re-issues a deleted number, and a profile citing it then points at different content). A record with no numbers at all is pre-field and gets 1…n **by position** — what the old renderer showed, so every `[4]` in a stored profile keeps its meaning. Applied in `normalize` (read), `saveDate` (write) and `useDates.update` (so memory matches what the UI renders) |
 | `speakerLabel(record, speaker)` | `ME`, `NOTE`, `COACH`, or the person's name uppercased — the same label in prompts, UI, and pasted logs |
 | `adviceTurn(suggestion)` | A suggestion as the `coach` turn that goes in the pool: the priority plus the option labels, two lines out of a four-hundred-word generation. Derived here rather than asked of the model — no output field to get wrong, no tokens spent, and the same suggestion always renders the same way. The whole `Suggestion` rides along in `Turn.advice` for the panel; only `text` reaches the prompt. The turn takes the suggestion's own id, so the two can't drift apart — and its `at`, stamped from `generatedAt` in the shape the user's own "when" entries use ("Sat, 15 Aug 2026, 11:36 pm", plus the year because this one is exact). The only turn in the app with a real timestamp; guarded with `Number.isFinite` because `db.ts` also builds these from suggestions stored by older versions, and an untimed turn is normal where `"Invalid Date"` in a prompt is not |
+| `logLineReader(theirName)` | One labelled log line, read into `{ speaker, at, text }` — or `null` when the label isn't one this recognises, which is what separates a new turn from the continuation of a multi-line one. Built once per log, since the labels meaning "them" depend only on the name. Exported because `import/overlap.ts` needs *the same* reading: matching a recorded turn against a log line has to compare speakers, and a second label parser would be free to disagree about whether `Her:` is a speaker or where a `[Sat Aug 8, 9:10pm]` stamp ends — that stamp's colon is why splitting on the first `:` doesn't work |
 | `parsePastedLog(raw, theirName)` | `Name: text` lines with the common label variants plus the person's own name, plus an optional bracketed timestamp right after the label — `Name [Tue 9pm]: text`. The bracket is free-form, same string the manual composer's "when" field takes; omit it and the line parses exactly as before. Unlabelled lines join the previous turn, so multi-line messages survive. Anything before the first recognised label is dropped. |
 | `transcriptStats(record)` | Turn, word, and question counts per side — the UI header, and nothing else. The prompt used to carry them as `<counts>`; it doesn't, and the reasoning is in `transcriptSegments`. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |
+
+## `import/`
+
+Reading a conversation out of WhatsApp Web, Telegram Web, Instagram or RED (小红书), so the
+transcript can arrive without a round trip through a terminal. The sources differ in how they
+*reach* a message and agree on nothing else, so the module splits along that seam: one
+self-contained extractor each, and one renderer they share.
+
+| Export | Purpose |
+|---|---|
+| `render.ts` — `RawMessage`, `FetchArgs`, `renderLog(messages)` | The half that isn't source-specific: a side, a time, some text, and the asides that only exist bracketed (media, quoted reply, forward, reactions, shared link). Renders the same `Me [Wed Oct 30, 7:08pm]: text` lines a hand-pasted log uses, so **`parsePastedLog` is the only parser** and an imported log is indistinguishable from a typed one. `RawMessage.order` is deliberately *not* the timestamp — Telegram's bubbles don't all carry a time but its ids are sequential, so each source supplies whichever of the two it can always produce and ordering never rests on the one it can't. An untimed message borrows the previous stamp marked `~`, which survives the round trip because the parser's bracket is free-form |
+| `whatsapp.ts`, `telegram.ts`, `instagram.ts`, `red.ts` | One injected function each, run in the tab's **MAIN world**. WhatsApp encrypts message bodies at rest and Instagram keeps its auth tokens in the page's module registry, so both need `window.require`; RED needs the world for a different reason — its IM API rejects unsigned calls, and the page patches `window.fetch` to sign on the way out, so a plain `fetch()` from inside the page is signed for free where a reimplementation of the obfuscated signer would break on RED's next deploy. That, not convenience, is why the world matters. Telegram only reads the DOM but runs there too, so the two sources that resume — WhatsApp and Telegram — keep their progress in one place. Instagram and RED resume nothing: each finishes in a single pass |
+| `red.ts` — the parts with no sibling | The only source **matched down to the conversation's path** (`*://*.xiaohongshu.com/chat/*`), because it's the only one whose thread id is in the url; a feed tab then fails the tab lookup instead of being injected into. Two things RED alone forces: its chat list is the only place carrying the peer's nickname, the user's own id and the thread's `store_id` bounds, so it is read before any history; and a message the web tier has no body for (`content_type: 0`, sent from the mobile app) comes back as a **fabricated row** stamped with the time of the request and the caller as sender, so those can never become turns — the run is marked in place on the next real message and counted in the fetch note |
+| `instagram.ts` — which side is which | `out` rests on the id in `/direct/t/<id>` being the other participant's fbid, which holds for a 1:1 DM and not otherwise. Two guards refuse a thread where that footing is gone: more than two senders, and exactly two of whom neither is the url id. **One** sender who isn't the url id is deliberately *not* refused — an opener nobody has answered and an unanswered inbound DM read through a thread-shaped url are indistinguishable from the payload, and the first is far too ordinary to break — so it comes back as a note saying every line was marked as yours. Left silent, the second case hands the coach a monologue the user never wrote, which is the one failure worth surfacing without an error. `ACCOUNT_ID` is not the fix: measured on a logged-in page it is the string `"0"` and matches no sender |
+| `overlap.ts` — `findOverlap(log, turns, theirName)` | Where a fetched log stops being new. An import is the same conversation continued, so most of what comes back is already recorded, and appending it all duplicates the overlap. It cannot be found by equality: the recorded turns may have been typed or hand-pasted while the log carries the render's own asides, so it matches on **shape** — case, punctuation and every bracketed aside stripped — then falls back to word overlap above 0.6, and reports the score so the UI can say "looks already recorded" rather than claim it. The modal acts on it with **Trim above it**, which drops everything through the seam line — confirmed only when the score is under 1, since above an exact seam the lines are provably recorded already and a prompt is friction on the path the banner just recommended, while a guess that discards an hour-long fetch is worth one question. Hidden when nothing below the seam is new, because trimming to that empties the box and reads as a failed fetch. Words come from `Intl.Segmenter`, not a space split: Chinese, Japanese and Thai put no spaces between words, so a space split saw one "word" per message however long, and the distinct-word gate then threw out every turn in such a conversation *except* those containing punctuation — a test of punctuation rather than of content. Once a turn anchors, the seam **extends forward** through the turns after it, matched against the lines after it within a small window: the gates exist to stop a weak turn anchoring, but a two-character trailing reply is confirmed by sitting exactly where the record says it does, and without that the seam stopped at the newest turn that could carry itself. Scores only lines whose **speaker matches the turn's** — both people say "see you tomorrow", and without that the seam could land on whichever of the two scored first, attributing the boundary to a turn that was never recorded; it reads each line through `transcript.ts`'s `logLineReader`, so an unlabelled continuation line is not a candidate boundary. Walks the last 8 said turns newest-first (a whole history lets an early "where are you from" win over the seam), skips a turn under 6 shaped characters (`ok` matches half a conversation), and ignores `context`/`coach` turns, which no source can have said. The only part of the modal whose answer can be wrong, which is why it is the part that lives here and has tests |
+| `sources.ts` — `SOURCES`, `importFromSource(source, last, onProgress, signal?)` | The registry, and the loop that drives one source until it reports `done`. Each pass is time-boxed so the injected function returns while the page is still listening and resumes on the next one; the sources hold their own progress in the tab. The two resumable drivers refuse a pass whose open chat is not the one they started on — restarting on the new chat would hand this loop a second conversation, and its id dedup would merge the two into one transcript. **`signal` is only checked between passes**, because there is no reaching into a running `executeScript` — so Stop ends a WhatsApp or Telegram read within one pass, and for Instagram and RED, which do everything in pass 0, it stops the UI listening but not the work (what caps those is their own `MAX_PAGES`). The modal's Stop exists because the abort was previously reachable only by switching source or closing the modal, neither of which reads as a cancel for a walk that can run the better part of an hour |
+
+These are load-bearing and easy to undo by accident.
+
+**It runs from the app page, not the service worker.** The existing `chrome.scripting` calls live in
+`qwen/`, which is worker-side, so the convention points the other way — but a whole history is
+minutes of passes, and the app page is the context with no lifetime to worry about. It's the same
+split the LLM backends make: keyed `fetch` from the page, only the Qwen stream bridged.
+
+**The injected functions cannot close over anything.** `chrome.scripting` serialises them, so an
+import or a module constant that looks harmless is `undefined` at the far end — which is why the
+shared rendering sits outside them and every helper is inlined. `minify: false` keeps the serialised
+source readable, and the build carries no transpiler helpers, so what is written is what is injected.
+
+**`last` is the cheap direction, and the whole history is the expensive one.** Three of the four page
+backwards from newest, so a capped fetch stops early rather than reading everything and trimming.
+Telegram is the exception worth knowing: it only loads history cleanly going *forward*, so a whole
+read rewinds to the first message and rides the list down, while a capped one climbs from where the
+chat sits and can skip on a long haul. That's why the result lands in the modal's textarea for review
+rather than importing itself — and why the trim happens *after* fetching, since the overshoot is what
+resolves a reply quoting a message just outside the window.
+
+**Every request a driver makes carries its own timeout.** `AbortSignal.timeout` on all three fetches
+in `instagram.ts` and `red.ts`, because those two do everything in pass 0 — so `sources.ts` never
+reaches another `signal?.aborted` check and **Stop cannot end them**. A fetch that stalls with headers
+received and no body never settles, so `.catch` never fires and `await` never returns: the pass would
+hang forever and the app page would sit on it until the user closed the source tab. The timeout is the
+only exit, and each is rethrown under its own wording — `AbortSignal.timeout` reports "signal timed
+out", which in an import note reads as a bug in the extension rather than the network stalling.
+
+**Every driver takes the same `FetchArgs`, including the parts it ignores.** Instagram and RED are
+plain request loops with no page to keep mounted, so they run to completion in one pass and always
+answer `done: true` — but they still take `budgetMs` and `restart`, because `SourceDef.fetch` is the
+contract and TypeScript compares function parameters bivariantly: a driver narrowed to what it
+happens to read today type-checks perfectly while silently opting out of a field rename.
+
+**Which tab gets read is a choice, and it's made by recency.** A match pattern usually has to cover
+the whole site, so several tabs can match — for Instagram one usually does, since a feed tab is as
+good a match as the DM. RED is the exception that shows what the rule costs: its thread id is in the
+url, so its pattern can name `/chat/*` and never match a tab it has nothing to say about. The most
+recently accessed matching tab wins, with `active` breaking ties: clicking into the conversation and
+coming back here is what an import *is*, so recency is the signal. Array order was the bug — a
+background feed tab could answer "no DM is open" while the DM sat open one tab over. The two ranks are
+compared **as a pair, not folded into one number** — that put epoch milliseconds against a 0/1 flag,
+so a tab reporting no `lastAccessed` (Chrome 121+) lost to every tab that does and the fallback could
+never decide anything. Recency stays primary because `active` is per *window*: a feed tab frontmost in
+a second window would otherwise outrank the DM just read here. When there was more than one candidate the result says so, because the peer
+name confirms *which conversation* but nothing else would show that a choice had been made.
+
+**What's tested is the orchestration, not the drivers.** `sources.test.ts` fakes `chrome.tabs` and
+`chrome.scripting` and covers the tab lookup, the pass loop and its `restart` flag, dedup across
+passes, `order` sorting, the tail trim, the `MAX_PASSES` note and the error paths. The drivers
+themselves are deliberately uncovered: the same serialisation constraint that forbids them an import
+also denies them a seam, and their brittle surface is site selectors (`.MessageList[data-list-key^=]`,
+`WAWebCollections`) that only a real page can falsify — a mock of Telegram's DOM would test the mock.
+Treat a site rename as a field failure, which is why a fetch lands in a textarea for review.
 
 ## `export-markdown.ts`
 

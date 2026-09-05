@@ -10,7 +10,11 @@ const FETCH_TIMEOUT_MS = 20_000
 // read_page follows a URL the *model* chose, and whatever comes back is fed
 // straight into the next request as a tool message. Without a ceiling one
 // oversized page blows the context window and fails the run.
-const MAX_PAGE_CHARS = 100_000
+//
+// Exported for `capped`'s test, which has to place an emoji exactly astride the
+// cut to exercise the surrogate trim: with the number spelled twice, changing
+// it here would leave that test green while it straddled nothing.
+export const MAX_PAGE_CHARS = 100_000
 
 // The ceiling on what we'll pull off the wire at all. MAX_PAGE_CHARS bounds the
 // markdown we keep, but it can only be applied *after* the whole body has been
@@ -231,11 +235,18 @@ export async function readPage(url: string, ctx: ToolHandlerContext = {}): Promi
   return capped(parseHtmlToMarkdown(html), truncated)
 }
 
+// Exported for its own test: the surrogate trim below is the kind of line that
+// reads as a pointless `replace` and gets "simplified" back into a bare slice.
 // Says so explicitly, so the model treats it as a partial read instead of
 // concluding the page simply ends there. Both tools go through this: a search
 // results page is normally small, but "normally" isn't a bound, and a silently
 // clipped result reads to the model as the complete set.
-function capped(markdown: string, truncated: boolean): string {
+export function capped(markdown: string, truncated: boolean): string {
   if (markdown.length <= MAX_PAGE_CHARS && !truncated) return markdown
-  return `${markdown.slice(0, MAX_PAGE_CHARS)}\n\n[Truncated: the page was longer than this tool returns. Search for a more specific source if what you need isn't above.]`
+  // `slice` counts UTF-16 units, and pages are full of emoji: a cut landing
+  // inside a surrogate pair leaves an orphaned half that strict JSON parsers
+  // reject, failing the whole turn rather than the one character. Trimming the
+  // trailing high half is enough — no other position can be left unpaired.
+  const head = markdown.slice(0, MAX_PAGE_CHARS).replace(/[\uD800-\uDBFF]$/, '')
+  return `${head}\n\n[Truncated: the page was longer than this tool returns. Search for a more specific source if what you need isn't above.]`
 }
