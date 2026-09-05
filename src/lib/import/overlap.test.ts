@@ -133,6 +133,54 @@ describe('findOverlap', () => {
     expect(find(wrapped, [turn('them', 'i booked the place for eight')])?.line).toBe(0)
   })
 
+  // A script written without spaces between words, where both of the gates that
+  // guard the anchor were counting the wrong things.
+  const zh = [
+    'Me [Sat Sep 5, 9:00pm]: 明天下午三点在中央公园见面可以吗',
+    'Them [Sat Sep 5, 9:02pm]: 可以的',
+    'Them [Sat Sep 5, 9:02pm]: 不过',
+    'Me [Sun Sep 6, 9:00am]: 那我们改到四点吧',
+  ].join('\n')
+
+  test('anchors on a Chinese turn, which carries no spaces to count', () => {
+    // Every word gate that splits on spaces sees one "word" here however long
+    // the sentence runs, and threw the turn out — leaving the seam on whichever
+    // older message happened to contain a comma.
+    const found = find(zh, [turn('me', '明天下午三点在中央公园见面可以吗')])
+
+    expect(found?.line).toBe(0)
+    expect(found?.score).toBe(1)
+  })
+
+  test('extends the seam through short trailing turns the anchor confirms', () => {
+    // 可以的 and 不过 are far too short and too common to anchor anything, and
+    // the seam used to stop above them — marking as new two messages the record
+    // already had. Sitting exactly where the record says they do is the evidence
+    // their text cannot supply.
+    const found = find(zh, [
+      turn('me', '明天下午三点在中央公园见面可以吗'),
+      turn('them', '可以的'),
+      turn('them', '不过'),
+    ])
+
+    expect(found?.line).toBe(2)
+    expect(found?.back).toBe(0)
+    expect(found?.fresh).toBe(1)
+  })
+
+  test('stops extending at the first turn the log does not contain', () => {
+    const found = find(zh, [
+      turn('me', '明天下午三点在中央公园见面可以吗'),
+      turn('them', '可以的'),
+      turn('them', '这句话在日志里根本不存在过'),
+    ])
+
+    // Confirmed one step, then nothing to confirm — so the seam holds there
+    // rather than running on to a line that only happens to be nearby.
+    expect(found?.line).toBe(1)
+    expect(found?.back).toBe(1)
+  })
+
   test('ignores notes and coach lines, which no source can have said', () => {
     expect(find(log, [turn('context', 'she mentioned a sister who lives nearby')])).toBeNull()
     expect(find(log, [turn('coach', 'ask about the running, it is the open thread')])).toBeNull()

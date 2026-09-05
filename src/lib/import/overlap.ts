@@ -48,7 +48,29 @@ export type Overlap = {
  */
 type Shaped = { text: string; words?: Set<string> }
 
-const wordsOf = (s: Shaped): Set<string> => (s.words ??= new Set(s.text.split(' ')))
+/**
+ * `split(' ')` is a Latin assumption. Chinese, Japanese and Thai are written
+ * without spaces between words, so a message in one of them was a single "word"
+ * however long it ran — and the distinct-word gate below then threw out every
+ * turn in a Chinese conversation *except* those that happened to contain a
+ * comma, since `shape` turns punctuation into a space. That made the gate a
+ * test of punctuation rather than of content, and left the seam anchored on
+ * whichever older turn had one. `Intl.Segmenter` knows where words actually
+ * begin; the split stays as the fallback for a runtime without it.
+ */
+const SEGMENTER =
+  typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? new Intl.Segmenter(undefined, { granularity: 'word' })
+    : null
+
+const wordsOf = (s: Shaped): Set<string> =>
+  (s.words ??= new Set(
+    SEGMENTER
+      ? Array.from(SEGMENTER.segment(s.text))
+          .filter((part) => part.isWordLike)
+          .map((part) => part.segment)
+      : s.text.split(' ').filter(Boolean),
+  ))
 
 /**
  * Punctuation, case, and the bracketed asides only one side ever has, removed.
@@ -107,6 +129,14 @@ const TOO_SHORT = 6
  */
 const TOO_FEW_WORDS = 2
 
+/**
+ * How many candidate lines past an anchored one to search for the next turn's
+ * confirmation. Two people's messages interleave, and a log can carry a message
+ * the record never got, so this is deliberately more than one — and small, for
+ * the reason in the walk below.
+ */
+const CONFIRM_WINDOW = 4
+
 export function findOverlap(log: string, turns: Turn[], theirName: string): Overlap | null {
   const lines = log.split('\n')
   // A single-line log is allowed to be all overlap: fetching the last message
@@ -154,18 +184,60 @@ export function findOverlap(log: string, turns: Turn[], theirName: string): Over
     })
     if (best < FLOOR || bestLine < 0) continue
 
+    // Position is evidence that the text alone can't supply. The gates above
+    // exist to stop a weak turn *anchoring* the seam — but once an anchor
+    // holds, the turns after it can be checked against the lines after it, and
+    // a trailing "因为", far too short and too common to anchor anything, is
+    // recognised as recorded because it sits exactly where the record says.
+    // Without this the seam stopped at the newest turn that could carry itself,
+    // marking everything since as new: on a real Chinese thread that was five
+    // turns and six lines early.
+    let seam = bestLine
+    let worst = best
+    let reached = back
+    for (let k = back - 1; k >= 0; k--) {
+      const next = recent[k]!
+      const wantedNext = shape(next.text)
+      if (!wantedNext.text) break
+      let hit = -1
+      let hitScore = 0
+      // A small window, not the rest of the log: the record and the log run in
+      // the same order, so the turn after an anchored one is a line or two
+      // below it. Searching further would let an unrelated later line pass for
+      // a confirmation and drag the seam past messages that really are new.
+      let looked = 0
+      for (let i = seam + 1; i < candidates.length && looked < CONFIRM_WINDOW; i++) {
+        const candidate = candidates[i]
+        if (!candidate) continue
+        looked++
+        if (candidate.speaker !== next.speaker) continue
+        const s = score(candidate.shaped, wantedNext)
+        if (s >= FLOOR) {
+          hit = i
+          hitScore = s
+          break
+        }
+      }
+      if (hit < 0) break
+      seam = hit
+      // The weakest link decides how the banner is worded: one fuzzy step makes
+      // the whole run a resemblance rather than a fact.
+      worst = Math.min(worst, hitScore)
+      reached = k
+    }
+
     let start = 0
-    for (let i = 0; i < bestLine; i++) start += lines[i]!.length + 1
+    for (let i = 0; i < seam; i++) start += lines[i]!.length + 1
     return {
-      line: bestLine,
+      line: seam,
       start,
-      length: lines[bestLine]!.length,
+      length: lines[seam]!.length,
       // Only lines with something on them: a hand-pasted log often separates
       // messages with blank lines, and "the 12 below are new" over 6 messages
       // is a count nobody can check against the box.
-      fresh: lines.slice(bestLine + 1).filter((l) => l.trim()).length,
-      score: best,
-      back,
+      fresh: lines.slice(seam + 1).filter((l) => l.trim()).length,
+      score: worst,
+      back: reached,
     }
   }
   return null
