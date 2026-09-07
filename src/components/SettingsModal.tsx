@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react'
 
 import { cn } from '@/lib/cn'
@@ -147,6 +147,33 @@ export function SettingsModal({
     onClose()
   }
 
+  // Order is the order they're stored in, so a drop is just a splice. Native
+  // HTML5 drag keeps this dependency-free; reordering on dragover means the row
+  // shows the result while you're still holding the pill.
+  //
+  // Placed before or after the hovered pill by which half the pointer is in,
+  // never swapped with it. A swap moved the hovered pill back under a pointer
+  // that hadn't moved, the browser's periodic dragover then fired on *it*, and
+  // that swapped back — a flicker on every tick whenever the pill being dragged
+  // was the narrower of the two. Which half the pointer is in doesn't change
+  // when the order does, so this settles.
+  const dragged = useRef<string | null>(null)
+  const reorder = (overId: string, after: boolean) => {
+    const from = dragged.current
+    if (!from || from === overId) return
+    setProfiles((prev) => {
+      const i = prev.findIndex((p) => p.id === from)
+      if (i < 0) return prev
+      const rest = prev.filter((p) => p.id !== from)
+      const j = rest.findIndex((p) => p.id === overId)
+      if (j < 0) return prev
+      const at = after ? j + 1 : j
+      if (at === i) return prev // already there: same array, no re-render
+      rest.splice(at, 0, prev[i]!)
+      return rest
+    })
+  }
+
   const addProfile = () => {
     const p = newLLMProfile(`Profile ${profiles.length + 1}`)
     setProfiles((prev) => [...prev, p])
@@ -218,9 +245,38 @@ export function SettingsModal({
               {profiles.map((p) => (
                 <button
                   key={p.id}
+                  draggable
+                  onDragStart={(e) => {
+                    dragged.current = p.id
+                    e.dataTransfer.effectAllowed = 'move'
+                    // Chrome paints the default ghost of anything under the
+                    // modal's backdrop-blur onto an opaque backing, so the
+                    // corners outside the rounded border came out white. A
+                    // clone parked on the body paints just the pill.
+                    const pill = e.currentTarget
+                    const ghost = pill.cloneNode(true) as HTMLElement
+                    ghost.style.position = 'fixed'
+                    ghost.style.top = '-100vh'
+                    ghost.style.left = '0'
+                    ghost.style.margin = '0'
+                    document.body.appendChild(ghost)
+                    const box = pill.getBoundingClientRect()
+                    e.dataTransfer.setDragImage(ghost, e.clientX - box.left, e.clientY - box.top)
+                    // Removed once the browser has taken its snapshot.
+                    requestAnimationFrame(() => ghost.remove())
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    const { left, width } = e.currentTarget.getBoundingClientRect()
+                    reorder(p.id, e.clientX > left + width / 2)
+                  }}
+                  onDragEnd={() => {
+                    dragged.current = null
+                  }}
                   onClick={() => setActive(p.id)}
+                  title="Drag to reorder"
                   className={cn(
-                    'rounded-full border px-3 py-1 text-[12px] font-medium transition',
+                    'cursor-grab rounded-full border px-3 py-1 text-[12px] font-medium transition active:cursor-grabbing',
                     p.id === activeId
                       ? 'border-action-300 bg-action-soft text-action-700'
                       : 'border-border bg-surface text-fg-3 hover:text-fg',

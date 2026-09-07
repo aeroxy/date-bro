@@ -925,8 +925,8 @@ function ImportModal({
     // Whatever was running loses the tab to this fetch, so it is ended rather
     // than merely dropped. The Fetch/Stop swap makes a double-click unreachable
     // today, but Fetch → Stop → Fetch is not: Stop only lands at the next pass
-    // boundary, so without this the old walk's in-flight pass would still be
-    // scrolling the same list the new pass 0 has just restarted.
+    // boundary, and `importFromSource` queues this fetch behind that pass on
+    // the same tab, so the abort is what keeps the wait to at most one pass.
     running.current?.abort()
     const controller = new AbortController()
     running.current = controller

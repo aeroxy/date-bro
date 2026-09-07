@@ -130,6 +130,12 @@ const TOO_SHORT = 6
 const TOO_FEW_WORDS = 2
 
 /**
+ * Both gates at once. A turn that fails either cannot anchor the seam — and
+ * once the seam is anchored, it is confirmed only by a line that is it verbatim.
+ */
+const weak = (s: Shaped) => s.text.length < TOO_SHORT || wordsOf(s).size < TOO_FEW_WORDS
+
+/**
  * How many candidate lines past an anchored one to search for the next turn's
  * confirmation. Two people's messages interleave, and a log can carry a message
  * the record never got, so this is deliberately more than one — and small, for
@@ -164,8 +170,7 @@ export function findOverlap(log: string, turns: Turn[], theirName: string): Over
 
   for (const [back, turn] of recent.entries()) {
     const wanted = shape(turn.text)
-    if (wanted.text.length < TOO_SHORT) continue
-    if (wordsOf(wanted).size < TOO_FEW_WORDS) continue
+    if (weak(wanted)) continue
     let bestLine = -1
     let best = 0
     // Last wins a tie: the same thing said twice is most usefully anchored at
@@ -199,6 +204,11 @@ export function findOverlap(log: string, turns: Turn[], theirName: string): Over
       const next = recent[k]!
       const wantedNext = shape(next.text)
       if (!wantedNext.text) break
+      // A turn too weak to anchor is too weak to be matched loosely, too: "no"
+      // is contained in "not now" and "i know", and containment's 0.95 would
+      // confirm the seam onto a line that says something else. Position earns
+      // such a turn a look, not a discount — it has to be the line, verbatim.
+      const verbatim = weak(wantedNext)
       let hit = -1
       let hitScore = 0
       // A small window, not the rest of the log: the record and the log run in
@@ -211,7 +221,9 @@ export function findOverlap(log: string, turns: Turn[], theirName: string): Over
         if (!candidate) continue
         looked++
         if (candidate.speaker !== next.speaker) continue
-        const s = score(candidate.shaped, wantedNext)
+        const s = verbatim
+          ? candidate.shaped.text === wantedNext.text ? 1 : 0
+          : score(candidate.shaped, wantedNext)
         if (s >= FLOOR) {
           hit = i
           hitScore = s
