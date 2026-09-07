@@ -29,9 +29,19 @@ export async function fetchRed(args: FetchArgs) {
   if (!location.hostname.endsWith('xiaohongshu.com')) {
     return { error: 'That tab is not on xiaohongshu.com.' }
   }
-  const peerId = (location.pathname.match(/\/chat\/([^/?#]+)/) || [])[1]
+  // Two urls reach the same thread: `/chat/<id>` when the conversation was
+  // opened from the chat list, and `/chat?openUid=<id>` from the message page.
+  // Same page, same peer id, so both are read here rather than making the user
+  // find the one form this understood.
+  const peerId =
+    (location.pathname.match(/\/chat\/([^/?#]+)/) || [])[1] ||
+    new URLSearchParams(location.search).get('openUid') ||
+    ''
   if (!peerId) {
-    return { error: 'No RED chat is open — click into the conversation, so the address bar reads /chat/…' }
+    return {
+      error:
+        'No RED chat is open — click into the conversation, so the address bar reads /chat/… or /chat?openUid=…',
+    }
   }
 
   const api = async (path: string) => {

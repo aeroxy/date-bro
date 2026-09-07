@@ -57,12 +57,19 @@ export const SOURCES: SourceDef[] = [
   {
     id: 'red',
     label: 'RED',
-    // The only source matched down to the conversation's own path, because it
+    // The only source matched down to the conversation's own page, because it
     // is the only one where the id of the thread to read lives in the url — so
     // narrowing here means the tab lookup can never hand the driver a tab it
     // has nothing to say about, and "no RED tab is open" is the honest error
     // for a feed tab rather than something the driver has to discover.
-    match: '*://*.xiaohongshu.com/chat/*',
+    //
+    // `/chat*` rather than `/chat/*`: RED reaches the same conversation two
+    // ways, `/chat/<id>` and the message page's `/chat?openUid=<id>`, and a
+    // match pattern's path is matched against the query too — so the trailing
+    // slash form excluded exactly the url the message page hands out. It costs
+    // nothing that `/chat` with no id also matches now: the driver reads the id
+    // itself and says which forms it accepts when there isn't one.
+    match: '*://*.xiaohongshu.com/chat*',
     where: 'xiaohongshu.com',
     fetch: fetchRed,
   },
