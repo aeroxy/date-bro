@@ -77,21 +77,23 @@ afterEach(() => {
  * Cleanup injections — the ones whose argument is a state key — pass straight
  * through and are recorded. Wraps whatever `install` put in place.
  */
-function gated() {
+function gated({ holdCleanup = false } = {}) {
   const gates: (() => void)[] = []
   const deletions: string[] = []
+  const cleanups: (() => void)[] = []
   const targets: number[] = []
   const exec = (globalThis as Record<string, any>).chrome.scripting.executeScript
   ;(globalThis as Record<string, any>).chrome.scripting.executeScript = async (opts: any) => {
     if (typeof opts.args?.[0] === 'string') {
       deletions.push(opts.args[0])
+      if (holdCleanup) await new Promise<void>((open) => cleanups.push(open))
       return [{}]
     }
     targets.push(opts.target.tabId)
     await new Promise<void>((open) => gates.push(open))
     return exec(opts)
   }
-  return { gates, deletions, targets }
+  return { gates, deletions, cleanups, targets }
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
@@ -242,6 +244,41 @@ describe('importFromSource', () => {
     // cleaned up after itself.
     expect(calls.map((c) => c.restart)).toEqual([true, true])
     expect(deletions).toEqual(['__dbTgImport', '__dbTgImport'])
+  })
+
+  test("the slot is held until the cancelled import's cleanup has landed", async () => {
+    // Cleanup is its own injection, and nothing orders two injections on one
+    // tab but the order they were issued in. Let go of the slot before the
+    // delete has resolved and B's pass 0 races it — parked state deleted under
+    // it, pass 1 back to the start. So the delete has to resolve first.
+    install([{ messages: [msg({ id: 'a', order: 1 })], done: false }])
+    const { gates, deletions, cleanups } = gated({ holdCleanup: true })
+    const source = fakeSource({ stateKey: '__dbTgImport' })
+
+    const a = new AbortController()
+    const endA = importFromSource(source, 0, () => {}, a.signal).catch((e: Error) => e)
+    await tick()
+    a.abort()
+    const b = new AbortController()
+    const endB = importFromSource(source, 0, () => {}, b.signal).catch((e: Error) => e)
+    await tick()
+
+    gates[0]!() // A's pass returns and A starts clearing up…
+    await tick()
+    expect(deletions).toEqual(['__dbTgImport'])
+    expect(cleanups).toHaveLength(1) // …but the delete has not landed yet
+    expect(gates).toHaveLength(1) // so B is still waiting
+
+    cleanups[0]!()
+    expect(((await endA) as Error).name).toBe('AbortError')
+    await tick()
+    expect(gates).toHaveLength(2) // only now does B's pass 0 go in
+
+    b.abort()
+    gates[1]!()
+    await tick()
+    cleanups[1]!()
+    expect(((await endB) as Error).name).toBe('AbortError')
   })
 
   test('cancelling while waiting for the tab leaves without touching it', async () => {

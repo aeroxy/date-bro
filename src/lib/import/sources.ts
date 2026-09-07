@@ -222,7 +222,12 @@ export async function importFromSource(
       done = !!data.done
     }
   } finally {
-    void clearState()
+    // Awaited, not fired and forgotten: the slot is what keeps the next import's
+    // pass 0 off the tab, so it has to stay held until this one's cleanup has
+    // actually landed. Released first, the two injections raced, and the loser
+    // was the new import — its freshly parked state deleted under it, its pass
+    // 1 sent back to the start.
+    await clearState()
     // The tab is free once the loop is out of it; the trim and render below
     // never touch it. Only forget the slot if it is still ours — a later import
     // may already be queued in it.
