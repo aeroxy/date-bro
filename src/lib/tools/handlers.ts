@@ -136,17 +136,31 @@ function isDdgBotChallenge(html: string): boolean {
   return html.includes('Unfortunately, bots use DuckDuckGo too')
 }
 
-// Open the DDG search URL in a tab so the user can clear the challenge. Reuse
-// an existing html.duckduckgo.com tab instead of stacking new ones on retries.
+/**
+ * Open the DDG search URL in a tab so the user can clear the challenge. Reuse
+ * an existing html.duckduckgo.com tab instead of stacking new ones on retries.
+ *
+ * Opened in the *background*. A search is something the coach does mid-answer,
+ * several times per run, and pulling focus to a CAPTCHA interrupts whatever the
+ * user was typing — over a run that searches four times, four times. It also
+ * only helped in the case where the page needs a click: the challenge often
+ * clears on load alone, and a foreground tab made that invisible fix a visible
+ * interruption. The tab is in the strip either way, and the thrown message
+ * below is what actually tells the user it's there.
+ *
+ * Never activates the reused tab either, for the same reason — and note that a
+ * background navigation is enough for the cookie, which is the whole point of
+ * `credentials: 'include'` on the fetch.
+ */
 async function openDdgChallengeTab(url: string): Promise<void> {
   try {
     const existing = await chrome.tabs.query({ url: 'https://html.duckduckgo.com/*' })
     const tabId = existing[0]?.id
     if (tabId != null) {
-      await chrome.tabs.update(tabId, { active: true, url })
+      await chrome.tabs.update(tabId, { url })
       return
     }
-    await chrome.tabs.create({ url, active: true })
+    await chrome.tabs.create({ url, active: false })
   } catch (e) {
     console.warn('[Date Bro] Failed to open DuckDuckGo challenge tab:', e)
   }
@@ -165,8 +179,9 @@ export async function webSearch(query: string, ctx: ToolHandlerContext = {}): Pr
   if (isDdgBotChallenge(html)) {
     await openDdgChallengeTab(url)
     throw new Error(
-      'DuckDuckGo is showing a bot-verification page. A browser tab has been opened — ' +
-        'ask the user to complete the verification there, then retry this search.',
+      'DuckDuckGo is showing a bot-verification page. A background tab has been opened ' +
+        'on that search — tell the user to switch to it and clear the check, then retry ' +
+        'this search.',
     )
   }
   return capped(cleanDdgRedirects(parseHtmlToMarkdown(html)), truncated)

@@ -168,6 +168,22 @@ describe('findOverlap', () => {
     expect(found?.fresh).toBe(1)
   })
 
+  test('a short trailing turn has to be its line verbatim, not merely inside it', () => {
+    // "no" sits inside "i know". Position lets a turn this short be checked at
+    // all; it does not let a line that only contains it pass for it.
+    const found = find(
+      [
+        'Me [Sat Aug 8, 9:02pm]: east coast, near the park',
+        'Them [Sat Aug 8, 9:10pm]: i know that area well',
+      ].join('\n'),
+      [turn('me', 'east coast, near the park'), turn('them', 'no')],
+    )
+
+    expect(found?.line).toBe(0)
+    expect(found?.back).toBe(1)
+    expect(found?.fresh).toBe(1)
+  })
+
   test('stops extending at the first turn the log does not contain', () => {
     const found = find(zh, [
       turn('me', '明天下午三点在中央公园见面可以吗'),

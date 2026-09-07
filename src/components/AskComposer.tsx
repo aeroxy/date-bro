@@ -113,7 +113,8 @@ export function AskComposer({
   onDraft: (draft: string) => void
   onDismiss?: () => void
   /**
-   * Resolves false when the run failed, and the box keeps what was typed.
+   * Resolves false when the run failed *or was stopped*, and the box keeps what
+   * was typed — stopping a run is how you go back and reword the request.
    * `next`'s note used to be written to storage before the call for exactly this
    * reason — a network error shouldn't also eat the sentence that triggered it —
    * and nothing persists it now, so the guarantee has to live here instead.

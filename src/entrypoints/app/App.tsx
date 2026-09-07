@@ -285,9 +285,13 @@ export default function App() {
         if ((e as Error).name !== 'AbortError') {
           setErrors((prev) => ({ ...prev, [id]: { tab: which, message: (e as Error).message } }))
         }
-        // An abort counts as sent: the user stopped it on purpose, and handing
-        // their text back as if the app had failed is just noise.
-        return (e as Error).name === 'AbortError'
+        // Nothing landed, so nothing was sent — including an abort. Stopping a
+        // run is how you go back and change what you asked for, and the box
+        // clearing itself is the one outcome that makes that impossible: the
+        // sentence is gone and it was never stored anywhere. Same reason a
+        // network error keeps it. The header's "What do I say?" already
+        // behaved this way, because only a landing bumps `nextRunSeq`.
+        return false
       } finally {
         release(id)
       }
@@ -369,7 +373,8 @@ export default function App() {
         if ((e as Error).name !== 'AbortError') {
           setErrors((prev) => ({ ...prev, [id]: { tab: engine, message: (e as Error).message } }))
         }
-        return (e as Error).name === 'AbortError'
+        // An abort keeps the instruction too — see `run`.
+        return false
       } finally {
         release(id)
       }

@@ -237,10 +237,11 @@ export async function fetchInstagram(args: FetchArgs) {
   // sender at all, and `String(undefined)` made it a third "person": a 1:1
   // thread refused outright, with copy sending the user to look for a group
   // that does not exist. A guard against silent misattribution must not be
-  // trippable by rows it does not govern.
+  // trippable by rows it does not govern — so an absent id is dropped before it
+  // is stringified, where `null` would slip through as the word "null".
   const said = nodes.filter((n) => (n.content?.__typename || n.content_type) !== 'SlideMessageAdminText')
   const senders = new Set(
-    said.map((n) => String(n.sender_fbid)).filter((id) => id && id !== 'undefined'),
+    said.map((n) => n.sender_fbid).filter((id) => id != null && id !== '').map(String),
   )
   if (senders.size > 2) {
     return {

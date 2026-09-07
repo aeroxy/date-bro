@@ -75,13 +75,15 @@ const BUDGET_MS = 20_000
 const MAX_PASSES = 200
 
 /**
- * Which import currently owns each tab's parked state. A cancelled import only
- * notices at its next pass boundary, up to a whole pass later — and in that
- * window the user can start again on the same tab, whose pass 0 re-creates the
- * state with `restart`. The old import's cleanup then lands on the new import's
- * progress. Ownership says whose it is.
+ * The import currently driving each tab, so the next one on it waits its turn.
+ * A cancelled import only notices at its next pass boundary, up to a whole pass
+ * later — and in that window the user can start again on the same tab. Run side
+ * by side, two injected passes scroll the same list, and the old one's `done`
+ * deletes the state the new pass 0 has just parked, sending its pass 1 back to
+ * the start. Queued instead: the wait is at most one pass, and the signal is
+ * checked before the first pass, so cancelling during it costs nothing.
  */
-const owners = new Map<number, symbol>()
+const inflight = new Map<number, Promise<void>>()
 
 export type ImportResult = {
   text: string
@@ -137,25 +139,26 @@ export async function importFromSource(
   const ambiguous =
     tabs.length > 1 ? `read the ${source.label} tab you were in last, of ${tabs.length} open` : null
 
+  const previous = inflight.get(tabId)
+  let release!: () => void
+  const settled = new Promise<void>((r) => (release = r))
+  inflight.set(tabId, settled)
+
   const byId = new Map<string, RawMessage>()
   let peer: string | null = null
   let note: string | null = null
   let done = false
+  let began = false
 
   // A walk that ends without `done` — cancelled, or thrown out of — leaves the
   // driver's progress on the user's own tab, which for a long Telegram history
   // is a Map of every message harvested, sitting there until they reload the
   // site. Cancelling is exactly when the most has piled up, so the exit path
   // clears it rather than leaving it to the next import's `restart`.
-  const me = Symbol('import')
-  owners.set(tabId, me)
   const clearState = async () => {
-    // A newer import on this tab has re-created the state and will clear its
-    // own; deleting it from here would wipe that import's pass-0 progress and
-    // send its pass 1 back to the start.
-    if (owners.get(tabId) !== me) return
-    owners.delete(tabId)
-    if (done || !source.stateKey) return
+    // Nothing is parked if the walk finished — the driver frees its own state
+    // on `done` — or never began, cancelled while still waiting for the tab.
+    if (done || !began || !source.stateKey) return
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -171,6 +174,11 @@ export async function importFromSource(
   }
 
   try {
+    // Inside the try so the slot is released whatever happens from here on: an
+    // import left waiting on a slot nobody releases would wait forever.
+    // `settled` never rejects, and a wait the user gives up on ends at the
+    // signal check below.
+    if (previous) await previous
     for (let pass = 0; pass < MAX_PASSES && !done; pass++) {
       // Checked between passes rather than inside one: there is no way to reach
       // into a running `executeScript`. That bounds what this can do, and the
@@ -183,6 +191,7 @@ export async function importFromSource(
       if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError')
       let injected
       try {
+        began = true
         injected = await chrome.scripting.executeScript({
           target: { tabId },
           // WhatsApp and Instagram need the page's own module registry and RED
@@ -207,6 +216,11 @@ export async function importFromSource(
     }
   } finally {
     void clearState()
+    // The tab is free once the loop is out of it; the trim and render below
+    // never touch it. Only forget the slot if it is still ours — a later import
+    // may already be queued in it.
+    release()
+    if (inflight.get(tabId) === settled) inflight.delete(tabId)
   }
 
   const all = Array.from(byId.values()).sort((a, b) => a.order - b.order)
