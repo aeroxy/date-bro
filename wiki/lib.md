@@ -481,17 +481,21 @@ answer `done: true` — but they still take `budgetMs` and `restart`, because `S
 contract and TypeScript compares function parameters bivariantly: a driver narrowed to what it
 happens to read today type-checks perfectly while silently opting out of a field rename.
 
-**Which tab gets read is a choice, and it's made by recency.** A match pattern usually has to cover
-the whole site, so several tabs can match — for Instagram one usually does, since a feed tab is as
-good a match as the DM. RED is the exception that shows what the rule costs: its thread id is in the
-url, so its pattern can name `/chat*` and never match a tab it has nothing to say about. The most
-recently accessed matching tab wins, with `active` breaking ties: clicking into the conversation and
-coming back here is what an import *is*, so recency is the signal. Array order was the bug — a
-background feed tab could answer "no DM is open" while the DM sat open one tab over. The two ranks are
-compared **as a pair, not folded into one number** — that put epoch milliseconds against a 0/1 flag,
-so a tab reporting no `lastAccessed` (Chrome 121+) lost to every tab that does and the fallback could
-never decide anything. Recency stays primary because `active` is per *window*: a feed tab frontmost in
-a second window would otherwise outrank the DM just read here. When there was more than one candidate the result says so, because the peer
+**Which tab gets read is a choice, and it's made twice: by the pattern, then by recency.** Where the
+thread id lives in the url the pattern is narrowed to that page — RED's `/chat*`, Instagram's
+`/direct/*` — so a feed tab is never a candidate at all. That narrowing is not a tidy-up: with
+`*://*.instagram.com/*` a feed tab matched as well as the DM, and since the lookup can only pick one,
+an open DM plus an open feed answered "No Instagram DM is open" whenever the feed was the tab touched
+last. Instagram stops at `/direct/*` rather than `/direct/t/*` on purpose — from the inbox the
+driver's own error is the better one, since it names the `/direct/t/…` url to go to. WhatsApp and
+Telegram keep whole-site patterns because their open chat is only knowable from inside the page.
+Among the tabs that do match, the most recently accessed wins with `active` breaking ties: clicking
+into the conversation and coming back here is what an import *is*, so recency is the signal, and
+array order was the bug. The two ranks are compared **as a pair, not folded into one number** — that
+put epoch milliseconds against a 0/1 flag, so a tab reporting no `lastAccessed` (Chrome 121+) lost to
+every tab that does and the fallback could never decide anything. Recency stays primary because
+`active` is per *window*: a stale tab frontmost in a second window would otherwise outrank the
+conversation just read here. When there was more than one candidate the result says so, because the peer
 name confirms *which conversation* but nothing else would show that a choice had been made.
 
 **What's tested is the orchestration, not the drivers.** `sources.test.ts` fakes `chrome.tabs` and

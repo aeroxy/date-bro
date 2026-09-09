@@ -2,7 +2,7 @@
 /// <reference types="bun" />
 import { afterEach, describe, expect, test } from 'bun:test'
 
-import { importFromSource, SOURCES, type SourceDef } from './sources'
+import { importFromSource, SOURCES, type SourceDef, type SourceId } from './sources'
 import type { FetchArgs, RawMessage } from './render'
 
 /**
@@ -109,6 +109,25 @@ describe('SOURCES', () => {
       if (!s.stateKey) continue
       expect(String(s.fetch)).toContain(`.${s.stateKey}`)
     }
+  })
+
+  test('a source whose thread id lives in the url is matched down to that page', () => {
+    // A whole-site pattern makes a feed tab as good a match as the conversation,
+    // and the tab lookup can only ever pick one of them — so an open DM plus an
+    // open feed tab answered "No Instagram DM is open" whenever the feed was
+    // touched last. Narrowing the pattern is what keeps the feed out of the
+    // running; recency only decides between tabs that are all candidates.
+    const matches = (pattern: string, url: string) =>
+      new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$').test(url)
+    const pattern = (id: SourceId) => SOURCES.find((s) => s.id === id)!.match
+
+    expect(matches(pattern('instagram'), 'https://www.instagram.com/direct/t/123/')).toBe(true)
+    expect(matches(pattern('instagram'), 'https://www.instagram.com/direct/inbox/')).toBe(true)
+    expect(matches(pattern('instagram'), 'https://www.instagram.com/')).toBe(false)
+    expect(matches(pattern('instagram'), 'https://www.instagram.com/bara/')).toBe(false)
+
+    expect(matches(pattern('red'), 'https://www.xiaohongshu.com/chat?openUid=1')).toBe(true)
+    expect(matches(pattern('red'), 'https://www.xiaohongshu.com/explore')).toBe(false)
   })
 })
 
