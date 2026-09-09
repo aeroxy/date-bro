@@ -50,18 +50,27 @@ export const SOURCES: SourceDef[] = [
   {
     id: 'instagram',
     label: 'Instagram',
-    match: '*://*.instagram.com/*',
+    // Narrowed to the DM section rather than the whole site, for the reason RED
+    // is: with `/*`, a feed tab matched as readily as the conversation, and the
+    // tab ranking below can only ever pick one of them — so an open DM plus an
+    // open feed tab answered "No Instagram DM is open" whenever the feed was the
+    // one touched last, with the thread sitting one tab over.
+    //
+    // `/direct/*` and not `/direct/t/*`: the inbox is still the DM section, and
+    // the driver's own error is the one worth reaching from there — it names the
+    // `/direct/t/…` url to go to, which "no Instagram tab is open" does not.
+    match: '*://*.instagram.com/direct/*',
     where: 'instagram.com',
     fetch: fetchInstagram,
   },
   {
     id: 'red',
     label: 'RED',
-    // The only source matched down to the conversation's own page, because it
-    // is the only one where the id of the thread to read lives in the url — so
-    // narrowing here means the tab lookup can never hand the driver a tab it
-    // has nothing to say about, and "no RED tab is open" is the honest error
-    // for a feed tab rather than something the driver has to discover.
+    // Matched down to the conversation's own page, because the id of the thread
+    // to read lives in the url — so narrowing here means the tab lookup can
+    // never hand the driver a tab it has nothing to say about, and "no RED tab
+    // is open" is the honest error for a feed tab rather than something the
+    // driver has to discover.
     //
     // `/chat*` rather than `/chat/*`: RED reaches the same conversation two
     // ways, `/chat/<id>` and the message page's `/chat?openUid=<id>`, and a
@@ -114,12 +123,12 @@ export async function importFromSource(
   signal?: AbortSignal,
 ): Promise<ImportResult> {
   const tabs = await chrome.tabs.query({ url: source.match, discarded: false })
-  // More than one tab can match, and for Instagram it usually does: the pattern
-  // has to cover the whole site, so a feed tab matches as readily as the DM. Take
-  // the one the user was in most recently — clicking into the conversation and
-  // then coming back here is what an import *is*, so recency is the signal, and
-  // taking whatever the array happened to list first meant a background feed tab
-  // could answer "no DM is open" while the DM sat open one tab over.
+  // More than one tab can match — two threads open at once, an inbox beside a
+  // conversation, two windows on the same site. Take the one the user was in
+  // most recently: clicking into the conversation and then coming back here is
+  // what an import *is*, so recency is the signal, and taking whatever the array
+  // happened to list first meant a stale background tab could answer for a
+  // conversation the user had left.
   //
   // Ranked as a pair, not one number. Folding the two into a single score meant
   // comparing epoch milliseconds against a 0/1 flag — so a tab that reports no
@@ -127,10 +136,10 @@ export async function importFromSource(
   // one included, and the fallback could never actually decide anything.
   //
   // Recency stays primary and `active` only breaks its ties, deliberately in
-  // that order: `active` is per *window*, so a background feed tab that happens
-  // to be frontmost in another window would otherwise outrank the DM the user
-  // was just reading here — the same wrong-tab answer, reached the other way
-  // round.
+  // that order: `active` is per *window*, so a stale tab that happens to be
+  // frontmost in another window would otherwise outrank the conversation the
+  // user was just reading here — the same wrong-tab answer, reached the other
+  // way round.
   const seen = (t: chrome.tabs.Tab) => t.lastAccessed ?? 0
   const target = [...tabs].sort(
     (a, b) => seen(b) - seen(a) || (b.active ? 1 : 0) - (a.active ? 1 : 0),
