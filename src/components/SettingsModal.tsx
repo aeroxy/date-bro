@@ -87,6 +87,7 @@ export function SettingsModal({
   const [profiles, setProfiles] = useState<LLMProfile[]>([])
   const [activeId, setActive] = useState<string>('')
   const [customPrompt, setCustomPrompt] = useState('')
+  const [moved, setMoved] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   // A bare `'idle' | 'working' | string` collapses to `string`, which stops the
@@ -172,6 +173,27 @@ export function SettingsModal({
       rest.splice(at, 0, prev[i]!)
       return rest
     })
+  }
+
+  // The same splice, reached without a pointer: a pill can only be dragged, so
+  // this was the one control in the modal a keyboard couldn't work at all. Plain
+  // arrows rather than a modifier — the pills are a plain row of buttons with no
+  // roving tabindex, so nothing else is listening for them, and Tab still moves
+  // between pills.
+  //
+  // The move is announced out loud because nothing else says it happened: focus
+  // stays on the same element and its name doesn't change, so a screen reader
+  // has only the live region to go on. Drags don't write to it — `dragover`
+  // fires on a timer while the pointer is held, and every tick would be another
+  // interruption describing a move still in progress.
+  const moveByKey = (p: LLMProfile, after: boolean) => {
+    const i = profiles.findIndex((x) => x.id === p.id)
+    const neighbour = profiles[after ? i + 1 : i - 1]
+    if (!neighbour) return
+    dragged.current = p.id
+    reorder(neighbour.id, after)
+    dragged.current = null
+    setMoved(`${p.name}, ${after ? i + 2 : i} of ${profiles.length}`)
   }
 
   const addProfile = () => {
@@ -273,8 +295,14 @@ export function SettingsModal({
                   onDragEnd={() => {
                     dragged.current = null
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+                    e.preventDefault()
+                    moveByKey(p, e.key === 'ArrowRight')
+                  }}
                   onClick={() => setActive(p.id)}
-                  title="Drag to reorder"
+                  title="Drag, or ←/→, to reorder"
+                  aria-keyshortcuts="ArrowLeft ArrowRight"
                   className={cn(
                     'cursor-grab rounded-full border px-3 py-1 text-[12px] font-medium transition active:cursor-grabbing',
                     p.id === activeId
@@ -302,6 +330,9 @@ export function SettingsModal({
                 </button>
               ) : null}
             </div>
+            <span role="status" aria-live="polite" className="sr-only">
+              {moved}
+            </span>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
