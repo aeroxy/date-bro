@@ -1025,9 +1025,16 @@ function ImportModal({
           and with six sources the fixed parts leave it 32px — a word a line, and a
           row twice as tall. The height is held at one line of the box whether or
           not a source is picked, so choosing one doesn't nudge the whole modal
-          down. */}
+          down.
+          The strip wraps too, and that takes both classes: it can't shrink, so
+          once the row is narrower than it (about 490px of window) it had nothing
+          to give and stuck out, and because the modal body scrolls vertically the
+          overflow turned into a horizontal scrollbar across the whole body.
+          `flex-wrap` alone does nothing — `shrink-0` keeps the strip at its full
+          width, so it never has less room than it needs — and `max-w-full` is
+          what gives it less. */}
       <div className="mb-3 flex min-h-10 flex-wrap items-center gap-x-2 gap-y-2">
-        <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
+        <div className="flex max-w-full shrink-0 flex-wrap overflow-hidden rounded-md border border-border">
           <button
             onClick={() => selectSource(null)}
             className={cn(
