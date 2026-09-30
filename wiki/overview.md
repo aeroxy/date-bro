@@ -10,7 +10,7 @@ happens only when the user asks for one, in a tab they are already signed into.
 
 1. **Stores people.** One record per person: name, stage, and what the user wants out of it.
 2. **Stores the conversation.** Turns typed one at a time, or bulk-imported — from a pasted log, or
-   read straight out of an open WhatsApp Web, Telegram, Instagram or RED (小红书) tab
+   read straight out of an open WhatsApp Web, Telegram, Instagram, RED (小红书) or Discord tab
    (`lib/import/`) — plus
    `NOTE` entries for anything the user knows that nobody typed. One pool — there is no separate
    "what you know about them" field, and no fact about the connection lives outside this list. The
