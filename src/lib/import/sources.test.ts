@@ -117,8 +117,18 @@ describe('SOURCES', () => {
     // open feed tab answered "No Instagram DM is open" whenever the feed was
     // touched last. Narrowing the pattern is what keeps the feed out of the
     // running; recency only decides between tabs that are all candidates.
+    //
+    // `*.host` is the host itself or any subdomain, bare domain included, which is
+    // how Chrome reads it — a plain `*` → `.*` would make `discord.com` fail to
+    // match the pattern that is written to match it.
     const matches = (pattern: string, url: string) =>
-      new RegExp('^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$').test(url)
+      new RegExp(
+        '^' +
+          pattern
+            .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*\\\.|\*/g, (star) => (star === '*' ? '.*' : '(?:[^/]*\\.)?')) +
+          '$',
+      ).test(url)
     const pattern = (id: SourceId) => SOURCES.find((s) => s.id === id)!.match
 
     expect(matches(pattern('instagram'), 'https://www.instagram.com/direct/t/123/')).toBe(true)
@@ -128,6 +138,16 @@ describe('SOURCES', () => {
 
     expect(matches(pattern('red'), 'https://www.xiaohongshu.com/chat?openUid=1')).toBe(true)
     expect(matches(pattern('red'), 'https://www.xiaohongshu.com/explore')).toBe(false)
+
+    // A DM, the DM list (where the driver's own error names the url to go to), and
+    // the other two builds of the client — but not a server channel, which sits
+    // under `/channels/` too, nor a host that merely ends the same way.
+    expect(matches(pattern('discord'), 'https://discord.com/channels/@me/1111111111111111111')).toBe(true)
+    expect(matches(pattern('discord'), 'https://discord.com/channels/@me')).toBe(true)
+    expect(matches(pattern('discord'), 'https://ptb.discord.com/channels/@me/1')).toBe(true)
+    expect(matches(pattern('discord'), 'https://discord.com/channels/123456789/987654321')).toBe(false)
+    expect(matches(pattern('discord'), 'https://discord.com/store')).toBe(false)
+    expect(matches(pattern('discord'), 'https://notdiscord.com/channels/@me/1')).toBe(false)
   })
 })
 

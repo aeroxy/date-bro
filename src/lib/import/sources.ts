@@ -1,10 +1,11 @@
 import { renderLog, type FetchArgs, type RawMessage } from './render'
+import { fetchDiscord } from './discord'
 import { fetchInstagram } from './instagram'
 import { fetchRed } from './red'
 import { fetchTelegram } from './telegram'
 import { fetchWhatsApp } from './whatsapp'
 
-export type SourceId = 'whatsapp' | 'telegram' | 'instagram' | 'red'
+export type SourceId = 'whatsapp' | 'telegram' | 'instagram' | 'red' | 'discord'
 
 type FetchResult = {
   peer?: string | null
@@ -25,7 +26,7 @@ export type SourceDef = {
   /**
    * The global a resumable driver parks its progress under, so a walk that never
    * reaches `done` can still be cleaned up. Only the two that keep state between
-   * passes have one; Instagram and RED finish in pass 0 and hold nothing.
+   * passes have one; Instagram, RED and Discord finish in pass 0 and hold nothing.
    */
   stateKey?: string
 }
@@ -81,6 +82,22 @@ export const SOURCES: SourceDef[] = [
     match: '*://*.xiaohongshu.com/chat*',
     where: 'xiaohongshu.com',
     fetch: fetchRed,
+  },
+  {
+    id: 'discord',
+    label: 'Discord',
+    // Narrowed to the DM section, for the reason Instagram is: a server channel
+    // lives under `/channels/` too, and is something this has nothing to say
+    // about — so `@me` is literal, and a server tab never becomes a candidate.
+    //
+    // `@me*` and not `@me/*`, for the same reason Instagram stops at `/direct/*`:
+    // the friends list at `/channels/@me` is still the DM section, and the
+    // driver's own error is the one worth reaching from there — it names the
+    // `/channels/@me/…` url to go to. `*.discord.com` takes the bare domain too,
+    // which is the one the web app actually lives on, and ptb. and canary.
+    match: '*://*.discord.com/channels/@me*',
+    where: 'discord.com',
+    fetch: fetchDiscord,
   },
 ]
 
@@ -200,9 +217,9 @@ export async function importFromSource(
       // into a running `executeScript`. That bounds what this can do, and the
       // bound is worth naming — it stops the two resumable sources, where a
       // whole-history fetch walked away from would otherwise keep driving the tab
-      // for up to `MAX_PASSES` × `BUDGET_MS`. Instagram and RED do the whole
-      // import in pass 0, so cancelling them stops the UI from listening but not
-      // the work; what caps those is their own `MAX_PAGES`, minutes rather than
+      // for up to `MAX_PASSES` × `BUDGET_MS`. Instagram, RED and Discord do the
+      // whole import in pass 0, so cancelling them stops the UI from listening but
+      // not the work; what caps those is their own `MAX_PAGES`, minutes rather than
       // an hour.
       if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError')
       let injected
@@ -210,10 +227,10 @@ export async function importFromSource(
         began = true
         injected = await chrome.scripting.executeScript({
           target: { tabId },
-          // WhatsApp and Instagram need the page's own module registry and RED
-          // needs its patched `fetch`, none of which exist anywhere else. Telegram
-          // only reads the DOM, but runs there too so all four keep their progress
-          // in one place.
+          // WhatsApp, Instagram and Discord need the page's own module registry
+          // and RED needs its patched `fetch`, none of which exist anywhere else.
+          // Telegram only reads the DOM, but runs there too so all five keep their
+          // progress in one place.
           world: 'MAIN',
           func: source.fetch,
           args: [{ last, budgetMs: BUDGET_MS, restart: pass === 0 }],

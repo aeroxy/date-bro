@@ -886,7 +886,7 @@ function ImportModal({
    * Bumping the generation is what makes the in-flight pass's `onProgress`
    * stop writing over this status; the abort is only observed at the next pass
    * boundary, so the two resumable sources keep driving the tab for up to one
-   * more pass, and Instagram and RED to the end of their single one.
+   * more pass, and Instagram, RED and Discord to the end of their single one.
    */
   function stopFetch() {
     generation.current++
@@ -1017,13 +1017,16 @@ function ImportModal({
         </>
       }
     >
-      {/* Everything on this row holds its width except the hint, which reflows.
-          The row is one source wider than it used to be and the modal is only as
-          wide as the window allows, so something has to give — left to itself
-          flexbox squeezed the tab strip and clipped a label to one letter.
-          The height is held at two lines of that reflowed hint whether or not a
-          source is picked, so choosing one doesn't nudge the whole modal down. */}
-      <div className="mb-3 flex min-h-10 items-center gap-2">
+      {/* Everything on this row holds its width, and what doesn't fit wraps under
+          rather than squeezing — left to itself flexbox squeezed the tab strip and
+          clipped a label to one letter. The hint for the count lives in the
+          paragraph below instead of beside the box: it used to sit here and
+          absorb whatever width was left, the only part of the row that could give,
+          and with six sources the fixed parts leave it 32px — a word a line, and a
+          row twice as tall. The height is held at one line of the box whether or
+          not a source is picked, so choosing one doesn't nudge the whole modal
+          down. */}
+      <div className="mb-3 flex min-h-10 flex-wrap items-center gap-x-2 gap-y-2">
         <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
           <button
             onClick={() => selectSource(null)}
@@ -1059,7 +1062,6 @@ function ImportModal({
               className="h-8 w-[92px] shrink-0 text-[12.5px]"
               aria-label="How many recent messages"
             />
-            <span className="min-w-0 text-[11.5px] text-fg-3">most recent · blank for all</span>
             {fetching ? (
               <Button variant="secondary" size="sm" className="ml-auto shrink-0" onClick={stopFetch}>
                 <Spinner /> Stop
@@ -1082,7 +1084,8 @@ function ImportModal({
         <p className="mb-3 text-[12.5px] leading-relaxed text-fg-3">
           Reads the conversation you have open in your {active.label} tab, straight from the page —
           the only thing it talks to is {active.label} itself. Open {active.where}, click into the
-          chat, then Fetch. The log lands below for you to check before it goes in.
+          chat, then Fetch. The box takes how many of the most recent messages to read — blank
+          reads the whole history. The log lands below for you to check before it goes in.
           {active.id === 'telegram' ? (
             <>
               {' '}
