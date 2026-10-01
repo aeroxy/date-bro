@@ -151,9 +151,10 @@ export function findOverlap(log: string, turns: Turn[], theirName: string): Over
   if (!log.trim()) return null
 
   // Only what two people actually said: a NOTE is something nobody typed into
-  // the conversation, and a COACH line is this app talking about it, so neither
-  // can appear in a log fetched from the source.
-  const said = turns.filter((t) => t.speaker === 'me' || t.speaker === 'them')
+  // the conversation, a COACH line is this app talking about it, and a photo's
+  // text is a description of a picture — none can appear in a log fetched from
+  // the source, and each would take one of the eight slots below for nothing.
+  const said = turns.filter((t) => (t.speaker === 'me' || t.speaker === 'them') && !t.photo)
   // Newest first, and only the tail. Walking the whole history would let an
   // early "where are you from" win over the actual seam.
   const recent = said.slice(-8).reverse()

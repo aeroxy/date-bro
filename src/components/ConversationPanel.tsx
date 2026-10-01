@@ -7,7 +7,16 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { Download, Pencil, Phone, Plus, Sparkles, Trash2, Users } from 'lucide-react'
+import {
+  Download,
+  Image as ImageIcon,
+  Pencil,
+  Phone,
+  Plus,
+  Sparkles,
+  Trash2,
+  Users,
+} from 'lucide-react'
 
 import { cn } from '@/lib/cn'
 import { findOverlap } from '@/lib/import/overlap'
@@ -19,8 +28,10 @@ import {
   type SourceDef,
   type SourceId,
 } from '@/lib/import/sources'
+import { addDescription, placeDescription, removeDescription } from '@/lib/photo-attachment'
 import { parsePastedLog, speakerLabel, transcriptStats } from '@/lib/transcript'
 import type { Channel, DateRecord, Speaker, Turn } from '@/types/date'
+import { PhotoPicker, PhotoStrip, usePhotoReader } from './PhotoReader'
 import { Button } from './ui/Button'
 import { Chip, Eyebrow } from './ui/Card'
 import { Field, Input, Textarea } from './ui/Field'
@@ -66,6 +77,11 @@ export function ConversationPanel({
   const [inserting, setInserting] = useState<{ before: string; turn: Turn } | null>(null)
   const [importing, setImporting] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  // What each does to the box, and why, is in `addDescription` / `removeDescription`.
+  const reader = usePhotoReader({
+    onDescribed: (description) => setText((prev) => addDescription(prev, description)),
+    onDiscarded: (description) => setText((prev) => removeDescription(prev, description)),
+  })
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
@@ -118,7 +134,10 @@ export function ConversationPanel({
   const isNote = speaker === 'context'
 
   const add = () => {
-    if (!text.trim()) return
+    // Not while a photo is still being read: the description would arrive after
+    // this turn was added and land in an empty box, next to a thumbnail of a
+    // picture that is already in the conversation.
+    if (!text.trim() || reader.photo.status === 'reading') return
     const turn: Turn = {
       id: crypto.randomUUID(),
       speaker,
@@ -126,10 +145,12 @@ export function ConversationPanel({
       at: at.trim() || undefined,
       channel: isNote || channel === 'text' ? undefined : channel,
       note: isNote ? undefined : note.trim() || undefined,
+      photo: reader.photo.status === 'read' ? true : undefined,
     }
     onChange([...record.turns, turn])
     setText('')
     setNote('')
+    reader.clear()
     // `at` too. It describes the message just added, not the next one, and
     // leaving it filled meant the following turn silently inherited a timestamp
     // that was only ever right for the one before it.
@@ -183,6 +204,10 @@ export function ConversationPanel({
               Anything you know that nobody typed — how you met, what they do, what you're like
               around them — goes in with <span className="font-semibold text-fg-2">NOTE</span>. This
               is the only place the coach reads from, so everything lives here.
+            </p>
+            <p className="mt-3 text-[13.5px] leading-relaxed text-fg-3">
+              Paste a photo or a screenshot — of their profile, say — anywhere on this page, and
+              it's read into text for you to check.
             </p>
           </div>
         ) : null}
@@ -308,6 +333,9 @@ export function ConversationPanel({
                           (mine
                             ? 'bg-ink text-white'
                             : 'border border-border bg-surface text-fg shadow-xs'),
+                        // A description, not something said — set apart from a
+                        // paragraph she wrote, which it would otherwise read as.
+                        turn.photo && 'italic',
                       )}
                     >
                       {turn.text}
@@ -322,6 +350,15 @@ export function ConversationPanel({
                     <span className="font-mono uppercase tracking-[0.1em]">
                       {speakerLabel(record, turn.speaker)}
                     </span>
+                    {turn.photo ? (
+                      <span
+                        className="inline-flex items-center gap-1"
+                        title="A description of a photo, not words anyone typed"
+                      >
+                        <ImageIcon size={11} />
+                        photo
+                      </span>
+                    ) : null}
                     {turn.at ? <span>{turn.at}</span> : null}
                     {turn.channel && turn.channel !== 'text' ? (
                       <span className="inline-flex items-center gap-1">
@@ -373,6 +410,8 @@ export function ConversationPanel({
         </ol>
       </div>
 
+      {/* Photos are pasted from anywhere on the page, not just into this box: the
+          listener is on the document (see `usePhotoReader`). */}
       <div className="border-t border-border bg-surface-sunken px-5 py-3">
         <div className="mb-2 flex items-center gap-2">
           <div className="flex overflow-hidden rounded-md border border-border">
@@ -417,9 +456,12 @@ export function ConversationPanel({
             </>
           )}
         </div>
+        <PhotoStrip reader={reader} />
         <div className="flex items-end gap-2">
           <Textarea
-            rows={2}
+            // Tall enough to read a description in while checking it against the
+            // thumbnail; two rows is for a message.
+            rows={reader.photo.status === 'read' ? 7 : 2}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
@@ -427,12 +469,13 @@ export function ConversationPanel({
             }}
             placeholder={
               isNote
-                ? `Something you know that isn't in the messages — ${record.name} said it on a call, a friend mentioned it, you remembered it.   (⌘↵ to add)`
-                : `What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add)`
+                ? `Something you know that isn't in the messages — ${record.name} said it on a call, a friend mentioned it, you remembered it.   (⌘↵ to add — or paste a photo)`
+                : `What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add — or paste a photo)`
             }
             className="flex-1"
           />
-          <Button onClick={add} disabled={!text.trim()}>
+          <PhotoPicker reader={reader} />
+          <Button onClick={add} disabled={!text.trim() || reader.photo.status === 'reading'}>
             {isNote ? 'Add note' : 'Add turn'}
           </Button>
         </div>
@@ -506,6 +549,29 @@ function EditTurnModal({
   const isNote = draft.speaker === 'context'
   const noun = isNote ? 'note' : 'turn'
 
+  // A photo can be read into an existing turn, which is the only way an imported
+  // `[image]` ever becomes something the coach can use: the importers can name a
+  // picture and never see it. The description replaces the placeholder
+  // (`placeDescription`), and the reader callbacks run long after the render that
+  // made them, so they read the draft through a ref.
+  const latest = useRef(draft)
+  latest.current = draft
+  const undo = useRef<((current: string) => string) | null>(null)
+  const reader = usePhotoReader({
+    inModal: true,
+    onDescribed: (description) => {
+      const placed = placeDescription(latest.current.text, description)
+      undo.current = placed.undo
+      setDraft((d) => ({ ...d, text: placed.text }))
+    },
+    onDiscarded: () => {
+      const take = undo.current
+      undo.current = null
+      if (take) setDraft((d) => ({ ...d, text: take(d.text) }))
+    },
+  })
+  const reading = reader.photo.status === 'reading'
+
   return (
     <Modal
       open
@@ -517,20 +583,57 @@ function EditTurnModal({
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="accent" size="sm" onClick={() => onSave(draft)}>
+          {/* Not mid-read: closing the dialog aborts it, and a description that was
+              going to land would be lost to a click made a second too soon. A photo
+              that has been read flags the turn, as adding one from the composer does;
+              otherwise the flag is whatever the checkbox below left it. */}
+          <Button
+            variant="accent"
+            size="sm"
+            disabled={reading}
+            onClick={() => onSave({ ...draft, photo: reader.photo.status === 'read' ? true : draft.photo })}
+          >
             Save
           </Button>
         </>
       }
     >
       <div className="space-y-3">
-        <Field label={isNote ? 'What you know' : 'Said'}>
+        <Field
+          label={
+            draft.photo || reader.photo.status === 'read'
+              ? 'What the photo shows'
+              : isNote
+                ? 'What you know'
+                : 'Said'
+          }
+          hint={<PhotoPicker reader={reader} compact />}
+        >
+          <PhotoStrip reader={reader} />
           <Textarea
-            rows={5}
+            rows={reader.photo.status === 'read' ? 8 : 5}
             value={draft.text}
             onChange={(e) => setDraft({ ...draft, text: e.target.value })}
           />
         </Field>
+        {/* The flag is the user's to own once the turn exists — see `Turn.photo` for
+            why it is sticky when it is set. Keyed on the turn as opened rather than
+            the draft, so unticking it doesn't make the box disappear before Save. */}
+        {turn.photo ? (
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={!!draft.photo}
+              onChange={(e) => setDraft({ ...draft, photo: e.target.checked ? true : undefined })}
+              className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-action)]"
+            />
+            <span className="text-[12.5px] leading-relaxed text-fg-2">
+              <span className="font-semibold text-fg">A description of a photo</span> — not words
+              anyone typed, so the coach reads it as a report and it isn't counted as something
+              they said. Untick it if this is actually their message.
+            </span>
+          </label>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Who">
             <Select

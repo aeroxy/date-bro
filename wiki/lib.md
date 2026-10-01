@@ -39,6 +39,23 @@ which is all OpenAI's automatic prefix caching needs, and it's free there, unlik
 OpenAI bodies go through `toOpenAIMessages`, which strips `segments`: the array is passed to `fetch`
 verbatim, and strict providers reject unknown message fields.
 
+**Pictures.** `ChatMessage.images` (`{ mediaType, data }` — base64, no `data:` prefix) rides beside
+`content` and is translated per backend. `toOpenAIMessages` turns a message that has any into a parts
+array — the images as `image_url` data URLs first, then a text part, dropped when blank because some
+servers reject an empty one — and leaves every message *without* one as the bare string it always
+was, so nothing that never carried a picture changes shape. `toAnthropicMessages` does the same with
+`image` blocks (below). **Qwen refuses**, before anything crosses to the worker: its payload is
+`{ role, content }` and nothing else, so an image would be dropped without a word and the model would
+answer a question about a picture it was never shown — a confident description of nothing. The same
+reasoning as the tools guard on `chatCompletionWithTools`, and it lives in `qwenCompletion` so no
+route to the bridge can skip it. `dataUrl(image)`, beside `ImagePart`, is the one place the `data:` URL is
+spelled: the OpenAI wire and the `<img>` thumbnails both use it, so the picture the user checks a
+description against is the one the model was sent.
+
+`CompletionOptions.prose` turns off the one thing on the OpenAI path that assumes JSON:
+`response_format: json_object`, sent by default because every engine wants an object. The photo
+reader is the only caller that wants a paragraph back. Anthropic has no JSON mode to opt out of.
+
 **Shared HTTP.** Two transports, one policy. `postJSON` (OpenAI) and `postSSE` (Anthropic) both retry
 `[3s, 10s]` on 429/5xx and on transient network/timeout errors, never on a user abort or on an error we
 threw ourselves, and both build headers through `withCustomHeaders`, which merges the profile's
@@ -179,7 +196,9 @@ turn, and assistant `tool_calls` become `tool_use` blocks with `arguments` re-pa
 Same-role turns are merged, which is what puts a whole round of parallel tool results into one user
 turn — splitting them trains the model out of calling tools in parallel. Blank text blocks are
 dropped rather than sent (the API rejects them), which is incidentally what keeps the merge legal
-when the agent loop's nudge path pushes a whitespace-only assistant turn.
+when the agent loop's nudge path pushes a whitespace-only assistant turn. A message's `images`
+become base64 `image` blocks placed *before* its text, as the API's own examples order them; blank
+text is still dropped, so a picture with nothing said about it is only the image.
 
 **Prompt caching.** A `ChatMessage` may carry `segments` — the same text as `content`, split at its
 mutation-rate boundaries (see [coach.md](coach.md) for the strata). This path is the only consumer:
@@ -208,6 +227,124 @@ arrive as `input_json_delta` fragments that are only valid JSON once concatenate
 so blocks are accumulated raw and parsed at `message_stop`. A stream cut mid-fragment yields `{}` rather
 than throwing — the `tool_use` keeps its `tool_result` and the handler's own "requires a non-empty query"
 error goes back to the model as something it can act on. Dropping the block would strand it instead.
+
+## `image.ts`
+
+`prepareImage(blob)` makes a picture the user gave us safe to send: **one image for nearly everything
+and several for a scrolled capture, always JPEG, none longer than 2576px on a side**, returned in the
+order they read. Decode and canvas only exist in a browser, so what is tested is the arithmetic —
+`planImage(width, height)` decides the size and the slices, and `prepareImage` carries the plan out.
+
+**Why re-encode even a small image.** A pasted screenshot is a PNG, a phone photo may be WebP or HEIC,
+and what each provider accepts differs, so one output format is one thing that can't be rejected, and
+a few hundred KB an image stays under every request-size limit between the page and the model.
+Whatever Chrome can decode, this can send.
+
+**2576, not 1568.** It was 1568 first — where Anthropic's older vision models start downscaling on
+their own — and that was too small for what people actually paste. The newer models read up to 2576 at
+full size (at up to ~4,800 tokens an image), and a reader that can't use the extra downscales it
+itself, so there it costs bytes and nothing else. A phone screenshot (1170×2532) went out at 62% of its
+size under the old cap and goes out untouched under this one.
+
+**A scrolled capture is cut, not shrunk.** More than three times as tall as it is wide, and an image
+keeps its own width (down to the limit) and is sliced top to bottom into equal-height images with
+`OVERLAP` (160px, a few lines of a phone screenshot) repeated between neighbours. Shrinking is the wrong
+answer for these and no provider will do better than we can: a 1170×10,000 capture of a whole profile
+fit into one image is a strip a few hundred pixels wide, and whatever reads it reads that. Cut, a
+1170×12,000 capture is five slices of 1170×2528 and every line is as large as it was on the phone. The
+slices go in **one request, in order**, followed by a line saying they are consecutive slices of one
+screenshot (`readingRequest`) — a model not told that describes each as a picture of its own, and the
+overlap twice.
+
+The overlap is what makes a cut safe: a line of text or a row of details that lands on the boundary is
+whole in one of the two slices either side of it. Checked by saving the slices a stand-in endpoint
+received and reading the boundary — the `y=2500` label cut off at the bottom of slice 0 is whole at the
+top of slice 1, and the last slice ends on the last row. The slices are equal height, with the last
+flush to the bottom, rather than full-size ones and a stub.
+
+**Aspect ratio, not size, decides which.** A 48-megapixel photo shrinks by far more than any
+screenshot and must never be cut — a face in two images is two descriptions of half a face — and no
+photo, and no single phone screen (about 2.2), is anywhere near three times taller than wide. A very
+wide image is only shrunk. **At most `MAX_TILES` (8) slices**; past that (about 19,500px at 1170 wide) it
+is the whole picture that shrinks, because a provider bills, and a local model's context runs out, by
+the pixels sent. This needs a reader that accepts several images in one request: the hosted APIs do,
+and some local servers take one — where they don't, the provider's own error says so and Retry can't
+help, so a shorter capture is the way round it.
+
+Two details that fail silently: it is **drawn on white first**, since a transparent PNG comes out of
+JPEG encoding black and a describer told the picture is black has been told something false; and it
+asks for `imageOrientation: 'from-image'` by name, because a phone stores a portrait shot sideways with
+a flag saying so and a decode that ignores the flag hands the model a picture on its side (checked with
+a hand-built orientation-6 JPEG: 200×100 in, 100×200 out). What Chrome can't decode — HEIC above all,
+or a capture too tall to decode — throws a message that says so.
+
+## `photo-attachment.ts`
+
+The life of one attached picture — resized, read, checked, then added or thrown away — with no React in
+it: `createPhotoAttachment` takes `prepare`, `describe`, `onState`, `onDescribed` and `onDiscarded`, and
+`usePhotoReader` in `components/PhotoReader.tsx` is the thin binding that supplies the real resize, the
+real model call and `setState`. It is separate so the races can be tested with two promises held open
+by hand, and they are where this goes wrong: a paste, a cancel and a slow reply each arrive on their
+own schedule.
+
+Two rules carry it. **One picture at a time, and a second is ignored rather than replacing the first**
+— replacing would leave two descriptions in one turn or quietly discard one the user hadn't added yet;
+`occupied` is set synchronously, before anything is awaited, because two pastes can land in one tick.
+**Each attempt owns an `AbortController`, and anything that finds it aborted returns without touching
+state**: whoever aborted it (a discard, a cancel, a newer attach) has already moved the state on, so a
+reply that lands late, or an abort that surfaces as a rejection, must neither write a description into
+the box nor paint the strip with a failure that never happened. `stop()` (an unmount) aborts and
+changes nothing else — it is not a teardown, because React's development double-mount reuses the
+object.
+
+Three pure helpers live beside it. `thumbnailsKind(photo)` is what heads the strip — slices once there
+are any, a spinner only while there are about to be, and nothing when there never will be (a file that
+would not open has no slices and is not still working; the strip once got this wrong, and it is tested
+now). `addDescription` puts a description beneath whatever is typed. `removeDescription` takes it back
+out only while it is still there verbatim, and tidies only the seam: the whitespace touching where it
+was becomes one blank line between the two sides, or nothing if one side is empty, and the rest of the
+box is left exactly as the user typed it.
+
+`placeDescription(text, description)` is where a description goes in a turn that **already exists**, which for a photo
+imported as `[image]` is *in place of* that, not underneath it (`addDescription` is the composer's rule, for a box being typed in).
+Leaving the placeholder in front of its own description would say the same thing twice, one of them a stub. It recognises what the
+importers write where a message was only a picture — `[image]` (Instagram, Discord), `[photo]` (WhatsApp, Telegram),
+`[disappearing photo]`, `[view-once photo]` — and deliberately not `[video]`, `[sticker]`, `[voice message …]` or `[2 × image]`. Whatever
+else the line carried stays on its own side of it: a reply tag before, a reaction after, a caption as its own paragraph rather than
+welded onto the description. It returns the new text and `undo`, because discarding the picture should leave the turn as it was and
+only the one who knows what was displaced can say: untouched since, `undo` returns the original *exactly*; edited elsewhere, the
+placeholder goes back where the description sat; once the description itself has been edited it is the user's sentences and is left
+alone. Built from slices, never `String.replace`, because a description is free text and a replacement string reads `$&` as
+"the whole match" — "tea costs $&" must not come out as "tea costs [image]".
+
+Tested: start to finish; two pastes in one tick; a second attach mid-read and while waiting to be
+checked; a cancel during the resize, during the read, and as a rejection; a newer attach undisturbed
+by the older one finishing; Retry re-sending the very same images, and doing nothing when there were
+none; `stop` on unmount; every helper. Each guard was removed in turn to confirm a test fails.
+
+## `clipboard-image.ts`
+
+`imageFromClipboard(data)` answers one question about a paste: is it *for the picture*, and which one?
+It takes the first `image/*` file on the clipboard unless there is also text that isn't merely naming it.
+Two opposite mistakes are both easy and the clipboard doesn't say which it is. A copied spreadsheet range
+or a rich-text selection carries a rendering of itself as an image beside its text — taking the image
+swallows what the user was pasting. But leaving any image that has text beside it fails the commonest
+paste there is: Chrome's "Copy image" on Windows and Linux writes the image's URL as plain text next to
+the picture, and copying a file in a file manager writes its name, so the user got a URL in the box and
+no photo. The rule is therefore that text which is one URL (`http`, `https`, `data`, `blob`, `file`) or the
+file's own name doesn't count as text; anything else does. Plain text decides alone — the HTML that "Copy
+image" writes is never read, and a screenshot and "Copy image" on a Mac carry no text at all.
+
+What is tested is each shape: a screenshot; the Mac and Windows/Linux "Copy image"; a file-manager copy
+(including a name with spaces, as a screenshot's has); a spreadsheet range; prose; a URL inside a
+sentence; a non-image file; several files at once. A caveat that holds for all of it: these are shapes
+built as scripts see them, not a real OS clipboard. That "Copy image" writes the URL as text on Windows
+and Linux and not on a Mac is how Chromium is understood to behave, not something measured against a real
+clipboard here — which is why the rule is tolerant of either, and why a real copy-and-paste on each
+platform is the thing to check if a paste ever misbehaves.
+
+Where a paste is heard is `usePhotoReader`'s business, not this module's: on the document, anywhere on
+the page, except while a modal is open. See [components.md](components.md#feature-components).
 
 ## `agent.ts` + `tools/`
 
@@ -384,6 +521,13 @@ live snapshot exists per document per record.
 Thin wrappers over `chrome.storage.local`. `ensureActiveProfile()` creates a default profile on
 first run and repairs a dangling active id; `getActiveConfig()` is what `coach/run.ts` calls.
 
+`getPhotoConfig()` is `getActiveConfig()` for photos: the profile named by
+`CoachSettings.photoProfileId`, else the active one, and a chosen profile that has since been deleted
+falls back to the active one — the repair `ensureActiveProfile` already makes for a dangling active
+id. It doesn't refuse a Qwen profile; `chatCompletion` does, with the message that says what to do,
+for every route to it. It is separate from `getActiveConfig` because the model that writes the coach's
+answers and the model that can look at a picture are often not the same one.
+
 `getMind()` / `saveMind()` hold the coach itself — see [coach.md](coach.md#mindts). Here rather
 than on a `DateRecord` because every record shares it: filing it under one would mean choosing which
 record owns the coach, and losing it when that record is deleted. Empty `markdown` means "still
@@ -423,13 +567,13 @@ can't produce a false staleness chip. It also runs the four migrations; see
 
 | Export | Purpose |
 |---|---|
-| `formatTurn(record, turn)` | One turn as the model sees it — number, speaker label, optional time/channel, and the user's own note inline. Takes a **`NumberedTurn`**, so it cannot be handed a turn without a number and has no fallback to invent one. It briefly did fall back to `index + 1`, which quietly reinstated the positional scheme and could *collide*: an unnumbered turn dropped at index 60 of a record already holding 60 and 61 rendered as `[61]`, giving two turns one citation. A type that can't be satisfied without a number is cheaper than a test for every route into that state. A pure function of `(turn, name)`, which is what makes the prefix cache work: the prompt sends one block per turn, so appending turn n+1 leaves the first n byte-identical. Dropping the positional dependency strengthened that — inserting a turn mid-transcript used to renumber and so rewrite every block below it, invalidating the cache from there down for a one-line change. There is deliberately no `formatTranscript` joining them — the prompt is the only consumer and needs them separate |
+| `formatTurn(record, turn)` | One turn as the model sees it — number, speaker label, optional time/channel, and the user's own note inline. Takes a **`NumberedTurn`**, so it cannot be handed a turn without a number and has no fallback to invent one. It briefly did fall back to `index + 1`, which quietly reinstated the positional scheme and could *collide*: an unnumbered turn dropped at index 60 of a record already holding 60 and 61 rendered as `[61]`, giving two turns one citation. A type that can't be satisfied without a number is cheaper than a test for every route into that state. A pure function of `(turn, name)`, which is what makes the prefix cache work: the prompt sends one block per turn, so appending turn n+1 leaves the first n byte-identical. Dropping the positional dependency strengthened that — inserting a turn mid-transcript used to renumber and so rewrite every block below it, invalidating the cache from there down for a one-line change. There is deliberately no `formatTranscript` joining them — the prompt is the only consumer and needs them separate. **A photo turn** (`Turn.photo`) renders as `[12] MIRA: [photo] <description>`; `PHOTO_TAG` is one constant shared with the export and with the prompt's explanation of it, so the three can't drift on the literal, and every other turn is byte-identical to before |
 | `numberTurns(record)` | Gives every turn a citation number and remembers the next one to hand out, returning a `NumberedRecord` so the invariant travels in the type rather than in a comment. Uniqueness of numbers *already* stored is assumed, not enforced — a duplicate is carried rather than repaired, because which turn an existing `[12]` meant is unanswerable and renumbering one silently re-aims it; what is enforced is that the counter clears every number any turn holds, so a duplicate can't become a triplicate. Pure, total, idempotent — returns the record by identity when there is nothing to do, like the `db.ts` migrations, so a hundred reads render the same bytes and nothing churns React. Two sources for "next", and the persisted `nextTurnNumber` is allowed to win: the turns can only say what survives, the counter says what has ever been handed out, which is exactly what deletion breaks (`max(number) + 1` re-issues a deleted number, and a profile citing it then points at different content). A record with no numbers at all is pre-field and gets 1…n **by position** — what the old renderer showed, so every `[4]` in a stored profile keeps its meaning. Applied in `normalize` (read), `saveDate` (write) and `useDates.update` (so memory matches what the UI renders) |
 | `speakerLabel(record, speaker)` | `ME`, `NOTE`, `COACH`, or the person's name uppercased — the same label in prompts, UI, and pasted logs |
 | `adviceTurn(suggestion)` | A suggestion as the `coach` turn that goes in the pool: the priority plus the option labels, two lines out of a four-hundred-word generation. Derived here rather than asked of the model — no output field to get wrong, no tokens spent, and the same suggestion always renders the same way. The whole `Suggestion` rides along in `Turn.advice` for the panel; only `text` reaches the prompt. The turn takes the suggestion's own id, so the two can't drift apart — and its `at`, stamped from `generatedAt` in the shape the user's own "when" entries use ("Sat, 15 Aug 2026, 11:36 pm", plus the year because this one is exact). The only turn in the app with a real timestamp; guarded with `Number.isFinite` because `db.ts` also builds these from suggestions stored by older versions, and an untimed turn is normal where `"Invalid Date"` in a prompt is not |
 | `logLineReader(theirName)` | One labelled log line, read into `{ speaker, at, text }` — or `null` when the label isn't one this recognises, which is what separates a new turn from the continuation of a multi-line one. Built once per log, since the labels meaning "them" depend only on the name. Exported because `import/overlap.ts` needs *the same* reading: matching a recorded turn against a log line has to compare speakers, and a second label parser would be free to disagree about whether `Her:` is a speaker or where a `[Sat Aug 8, 9:10pm]` stamp ends — that stamp's colon is why splitting on the first `:` doesn't work |
 | `parsePastedLog(raw, theirName)` | `Name: text` lines with the common label variants plus the person's own name, plus an optional bracketed timestamp right after the label — `Name [Tue 9pm]: text`. The bracket is free-form, same string the manual composer's "when" field takes; omit it and the line parses exactly as before. Unlabelled lines join the previous turn, so multi-line messages survive. Anything before the first recognised label is dropped. |
-| `transcriptStats(record)` | Turn, word, and question counts per side — the UI header, and nothing else. The prompt used to carry them as `<counts>`; it doesn't, and the reasoning is in `transcriptSegments`. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself |
+| `transcriptStats(record)` | Turn, word, and question counts per side — the UI header, and nothing else. The prompt used to carry them as `<counts>`; it doesn't, and the reasoning is in `transcriptSegments`. Built by *selecting* `them` and `me` rather than by excluding the rest, so anything that isn't one of the two people showing up stays out by construction: a `context` entry is the user writing something down, a `coach` entry is this app talking to itself. **A photo turn counts as a turn** — sending one is something a person did — **but adds no words and no questions**: its text is a description she never wrote, and a hundred-word one would otherwise read as her being talkative |
 
 ## `import/`
 
@@ -445,7 +589,7 @@ self-contained extractor each, and one renderer they share.
 | `red.ts` — the parts with no sibling | The only source **matched down to the conversation's page** (`*://*.xiaohongshu.com/chat*`), because it's the only one whose thread id is in the url; a feed tab then fails the tab lookup instead of being injected into. Two urls reach the same thread — `/chat/<id>` from the chat list and `/chat?openUid=<id>` from the message page — and both are read, path first. `/chat*` not `/chat/*`: a match pattern's path is compared against the query too, so the trailing-slash form excluded exactly the url the message page hands out. Two things RED alone forces: its chat list is the only place carrying the peer's nickname, the user's own id and the thread's `store_id` bounds, so it is read before any history; and a message the web tier has no body for (`content_type: 0`, sent from the mobile app) comes back as a **fabricated row** stamped with the time of the request and the caller as sender, so those can never become turns — the run is marked in place on the next real message and counted in the fetch note |
 | `discord.ts` — the parts with no sibling | The only driver that has to **find its own credentials**: Discord deletes `window.localStorage` and keeps the session token in an in-memory store, so the function walks the page's webpack registry for it, and two things about that walk are not obvious. The client is *several* webpack runtimes on one chunk array, and pushing a chunk calls back once per runtime, newest first — keeping the last `require` found a 100-module runtime holding none of the app, when the app (thousands of modules) is the first call, so every runtime is collected. And the store is recognised by `getName() === 'AuthenticationStore'` rather than by a method or an export key: Flux gives every store that name and it survives minification, where the key is `A`, `Ay` or `default` depending on the build, and a catch-all proxy in the registry answers *every* method name with a function, so `getToken` alone matches it. The token is used for same-origin requests to discord.com and is never returned, logged or put in an error. Past that it is the public REST API — `/channels/<id>/messages`, a hundred a page, `before=` paging — so unlike the others the payload is documented. The one other question it asks is `GET /channels/<id>`: in a one-to-one DM `recipients` is exactly the other person, so `out` is simply "the author isn't them" with no guess from the url, and a group DM or anything else is refused. Default messages, replies and calls become turns; everything else is a notice (an undocumented type 67 is the oldest row of a fresh DM). A forward is an empty message wrapping a snapshot, so the snapshot is read and marked `forwarded`; a reply quotes the copy Discord attaches. `order` is the timestamp: the snowflake id is 19 digits, past what a number holds exactly, and two messages in one DM cannot share a millisecond. The end is an **empty page**, not a short one — the docs promise at most `limit`, not a full page while more remain. A 429 is retried up to three times on its own `retry_after`; the page is shown no `x-ratelimit-*` headers on this route (measured), so there is nothing to pace against in advance. **Checked against a live DM** — default messages, stickers, the type-67 notice, paging, `last`, the early stop, and each failure path (429, 401, a 502 mid-walk, a non-list, a stalled request) with `fetch` stubbed to produce it. **Not exercised on real data:** calls, forwards, attachments, reactions, replies and link embeds, which are written from the documented payloads and degrade to a plainer label when a field is missing; a wrong label there is a field failure, like a renamed selector |
 | `instagram.ts` — which side is which | `out` rests on the id in `/direct/t/<id>` being the other participant's fbid, which holds for a 1:1 DM and not otherwise. Two guards refuse a thread where that footing is gone: more than two senders, and exactly two of whom neither is the url id. **One** sender who isn't the url id is deliberately *not* refused — an opener nobody has answered and an unanswered inbound DM read through a thread-shaped url are indistinguishable from the payload, and the first is far too ordinary to break — so it comes back as a note saying every line was marked as yours. Left silent, the second case hands the coach a monologue the user never wrote, which is the one failure worth surfacing without an error. `ACCOUNT_ID` is not the fix: measured on a logged-in page it is the string `"0"` and matches no sender |
-| `overlap.ts` — `findOverlap(log, turns, theirName)` | Where a fetched log stops being new. An import is the same conversation continued, so most of what comes back is already recorded, and appending it all duplicates the overlap. It cannot be found by equality: the recorded turns may have been typed or hand-pasted while the log carries the render's own asides, so it matches on **shape** — case, punctuation and every bracketed aside stripped — then falls back to word overlap above 0.6, and reports the score so the UI can say "looks already recorded" rather than claim it. The modal acts on it with **Trim above it**, which drops everything through the seam line — confirmed only when the score is under 1, since above an exact seam the lines are provably recorded already and a prompt is friction on the path the banner just recommended, while a guess that discards an hour-long fetch is worth one question. Hidden when nothing below the seam is new, because trimming to that empties the box and reads as a failed fetch. Words come from `Intl.Segmenter`, not a space split: Chinese, Japanese and Thai put no spaces between words, so a space split saw one "word" per message however long, and the distinct-word gate then threw out every turn in such a conversation *except* those containing punctuation — a test of punctuation rather than of content. Once a turn anchors, the seam **extends forward** through the turns after it, matched against the lines after it within a small window: the gates exist to stop a weak turn anchoring, but a two-character trailing reply is confirmed by sitting exactly where the record says it does, and without that the seam stopped at the newest turn that could carry itself. Scores only lines whose **speaker matches the turn's** — both people say "see you tomorrow", and without that the seam could land on whichever of the two scored first, attributing the boundary to a turn that was never recorded; it reads each line through `transcript.ts`'s `logLineReader`, so an unlabelled continuation line is not a candidate boundary. Walks the last 8 said turns newest-first (a whole history lets an early "where are you from" win over the seam), skips a turn under 6 shaped characters (`ok` matches half a conversation), and ignores `context`/`coach` turns, which no source can have said. The only part of the modal whose answer can be wrong, which is why it is the part that lives here and has tests |
+| `overlap.ts` — `findOverlap(log, turns, theirName)` | Where a fetched log stops being new. An import is the same conversation continued, so most of what comes back is already recorded, and appending it all duplicates the overlap. It cannot be found by equality: the recorded turns may have been typed or hand-pasted while the log carries the render's own asides, so it matches on **shape** — case, punctuation and every bracketed aside stripped — then falls back to word overlap above 0.6, and reports the score so the UI can say "looks already recorded" rather than claim it. The modal acts on it with **Trim above it**, which drops everything through the seam line — confirmed only when the score is under 1, since above an exact seam the lines are provably recorded already and a prompt is friction on the path the banner just recommended, while a guess that discards an hour-long fetch is worth one question. Hidden when nothing below the seam is new, because trimming to that empties the box and reads as a failed fetch. Words come from `Intl.Segmenter`, not a space split: Chinese, Japanese and Thai put no spaces between words, so a space split saw one "word" per message however long, and the distinct-word gate then threw out every turn in such a conversation *except* those containing punctuation — a test of punctuation rather than of content. Once a turn anchors, the seam **extends forward** through the turns after it, matched against the lines after it within a small window: the gates exist to stop a weak turn anchoring, but a two-character trailing reply is confirmed by sitting exactly where the record says it does, and without that the seam stopped at the newest turn that could carry itself. Scores only lines whose **speaker matches the turn's** — both people say "see you tomorrow", and without that the seam could land on whichever of the two scored first, attributing the boundary to a turn that was never recorded; it reads each line through `transcript.ts`'s `logLineReader`, so an unlabelled continuation line is not a candidate boundary. Walks the last 8 said turns newest-first (a whole history lets an early "where are you from" win over the seam), skips a turn under 6 shaped characters (`ok` matches half a conversation), and ignores `context`/`coach` turns and photo descriptions, which no source can have said — a photo would otherwise take one of the eight slots for nothing. The only part of the modal whose answer can be wrong, which is why it is the part that lives here and has tests |
 | `sources.ts` — `SOURCES`, `importFromSource(source, last, onProgress, signal?)` | The registry, and the loop that drives one source until it reports `done`. Each pass is time-boxed so the injected function returns while the page is still listening and resumes on the next one; the sources hold their own progress in the tab. The two resumable drivers refuse a pass whose open chat is not the one they started on — restarting on the new chat would hand this loop a second conversation, and its id dedup would merge the two into one transcript. **`signal` is only checked between passes**, because there is no reaching into a running `executeScript` — so Stop ends a WhatsApp or Telegram read within one pass, and for Instagram, RED and Discord, which do everything in pass 0, it stops the UI listening but not the work (what caps those is their own `MAX_PAGES`). The modal's Stop exists because the abort was previously reachable only by switching source or closing the modal, neither of which reads as a cancel for a walk that can run the better part of an hour. **Imports queue per tab**: because the abort lands a pass late, Fetch → Stop → Fetch inside that pass put two injected passes on the same list, the old one's `done` deleting the state the new pass 0 had just parked. A new import now waits for the one still on its tab to settle — at most one pass — and checks its signal before its first pass, so cancelling during the wait costs nothing and clears nothing. The slot is held until the leaving import's cleanup injection has *resolved*, not merely been issued: nothing orders two injections on one tab but the order they land in, and released a beat early the delete raced the new pass 0 and could take its freshly parked state with it |
 
 These are load-bearing and easy to undo by accident.
@@ -539,3 +683,7 @@ drops a level (`nest`) and the document keeps a single outline. A `coach` turn c
 two-line summary plus **the drafts** — the actual words that were offered, which nothing else records
 — and not the read, the reasoning or the timing, which are panel furniture that would bury the
 conversation they sit inside.
+
+A photo turn's quote opens with `[photo]` — the same `PHOTO_TAG` the prompt uses — because this file is
+read by someone who was not there, and a paragraph under her name that she never wrote is exactly the
+thing to mark.

@@ -156,6 +156,16 @@ in an uncached segment below it.
   off. Both are worth having, and neither costs anything to collect. Two guards ride with it —
   don't repeat a move that already failed in this thread, and *your own advice is not evidence about
   either person*. A run that has just read its own confident advice will otherwise cite itself.
+- **`[photo]` lines are second-hand twice over.** A turn with `Turn.photo` is a vision model's
+  description of a picture the coach never sees, and `photoEntryNote` says so — only when the record
+  has one, the same gating as the two above, and in the uncached closing segment, so a transcript
+  without photos is byte-identical to before and the note never sits inside a cached prefix. It says
+  three things. This isn't typed, so read a detail as *reported*, not verified — a place, a face or a
+  word can be misread, and a detail the advice would lean on is worth asking the user to confirm
+  rather than assuming. What someone *chose to send* is evidence about them, the way a message is.
+  And the description's wording is not evidence about how either person writes — the one a careless
+  run breaks, by taking the describer's sentences for her voice. The speaker is whose picture it is:
+  one they sent, one the user sent, or (under NOTE) one the user was shown.
 - **Open questions are askable, not just readable.** Both schemas already end a run by naming what
   the engine doesn't know (`open_questions` — 3-6 for them, 2-5 for the user). `ContextView` renders
   each as a button: answer it in a few words and the answer lands in the pool as a `context` turn
@@ -276,6 +286,41 @@ which is the durable half, and the half that gets consolidated and pruned rather
 
 The one thing it cannot survive is **Start over**, which clears the profile and re-reads the
 conversation — and a one-shot seed was never in the conversation. Both confirm dialogs say so.
+
+## `photo.ts`
+
+A fourth call, and not one of the three engines: one picture in, one paragraph out.
+`describePhoto(config, images, signal)` sends `PHOTO_TASK` as the system message and the picture as the
+user turn, `prose: true`, to whichever profile `getPhotoConfig` names. `images` is one entry for nearly
+everything and several for a scrolled capture (see `image.ts` in [lib.md](lib.md#imagets)); the user
+turn is then `readingRequest(n)` — "these n images are consecutive slices of one long screenshot,
+describe it as one picture" — and `PHOTO_TASK` says once what to do with slices: read them in order,
+describe the repeated part once, join what a boundary cuts.
+
+**It gets its own short task, not the coach's mind.** The reader is often a different model from a
+different provider, and has no use for the identity or the knowledge base — they would be paid for on
+every photo. **Nothing about the person or the conversation goes in**, for the same reason twice:
+reading a picture doesn't need it, and the reader may be a provider the user trusts with an image
+and not with the transcript.
+
+**The prompt is written around what happens to the description.** It is read later by a model that
+can't look at the image, and it is the user's evidence, cited by number like a message — so it
+separates seeing from concluding. `KB_EVIDENCE` tells the coach to keep observation and inference
+apart, and a describer that has already decided she looks "into you" has done the inference before the
+coach can weigh it, in the one place the coach can't check. Concretely: say only what is visible
+("looks like", "possibly"; say when something is cut off or unreadable rather than filling it in);
+name no one unless a caption or name tag in the image does, and then quote it; don't rate looks or
+guess at age, character, mood or intent toward anyone; describe an expression as it looks ("looking
+off camera"), not what it means; transcribe a screenshot exactly, in reading order, saying where each
+piece sits (which side of the chat a bubble is on, which profile prompt an answer belongs to). A whole
+dating profile — the case that made slicing necessary — is the basics first, then every prompt with its
+answer word for word, then each photo in order, a sentence or two apiece. Plain prose, no markdown,
+80–250 words for a photograph and as much as it takes for a screenshot, where completeness matters more
+than brevity — it goes into a text box and then onto a transcript line.
+
+Nothing validates the output beyond non-empty, on purpose. The user reads it against a thumbnail
+before it goes anywhere, which is the only check that can catch a confidently wrong description — and
+the same check catches a server that silently drops the image part and answers from nothing.
 
 ## `schemas.ts`
 

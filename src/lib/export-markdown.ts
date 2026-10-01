@@ -1,7 +1,7 @@
 import type { PersonProfile, SelfProfile } from '@/types/coach'
 import { STAGES, type DateRecord, type NumberedRecord, type NumberedTurn } from '@/types/date'
 import { describeBirthday } from './birthday'
-import { numberTurns, speakerLabel, transcriptStats } from './transcript'
+import { numberTurns, PHOTO_TAG, speakerLabel, transcriptStats } from './transcript'
 
 /**
  * One record as a document — everything the app holds about one person, in the
@@ -213,7 +213,9 @@ function turnBlock(record: DateRecord, turn: NumberedTurn): string {
   return [
     `**[${turn.number}] ${speakerLabel(record, turn.speaker)}**${meta ? ` · ${meta}` : ''}`,
     turn.asked?.trim() ? `_Answering: ${turn.asked.trim()}_` : null,
-    quote(turn.text),
+    // Tagged, as in the prompt: this file is read by someone who was not there,
+    // and a paragraph under her name that she never wrote is the thing to mark.
+    quote(turn.photo ? `${PHOTO_TAG} ${turn.text}` : turn.text),
     turn.note?.trim() ? `_Your note: ${turn.note.trim()}_` : null,
     drafts(turn),
   ]
