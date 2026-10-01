@@ -2,7 +2,7 @@
 /// <reference types="bun" />
 import { afterEach, describe, expect, test } from 'bun:test'
 
-import { chatCompletion, wellFormed } from './llm-client'
+import { chatCompletion, wellFormed, type ChatMessage } from './llm-client'
 import type { LLMConfig } from '@/types/settings'
 
 /** A JSON escape for either half of a surrogate pair, alone on the wire. */
@@ -99,5 +99,99 @@ describe('the send paths scrub what they serialize', () => {
     await chatCompletion(config(), poisoned)
     expect(sent).toHaveLength(1)
     expect(sent[0]).not.toMatch(LONE_ESCAPE)
+  })
+})
+
+/**
+ * A picture is only worth sending if it reaches the wire in the shape each
+ * provider reads, and the failure to fear is the silent one — an image dropped on
+ * the way out, and a model that answers as though it had been shown nothing.
+ */
+describe('pictures', () => {
+  const realFetch = globalThis.fetch
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
+
+  const config = (over: Partial<LLMConfig> = {}): LLMConfig => ({
+    backend: 'openai',
+    base_url: 'https://example.invalid/v1',
+    model: 'test-model',
+    stream: false,
+    ...over,
+  })
+
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'You read pictures.' },
+    {
+      role: 'user',
+      content: 'Describe this image.',
+      images: [{ mediaType: 'image/jpeg', data: 'QUJD' }],
+    },
+  ]
+
+  const send = async (options: Parameters<typeof chatCompletion>[2] = {}) => {
+    const sent: string[] = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      sent.push(String(init.body))
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }),
+      )
+    }) as unknown as typeof fetch
+    await chatCompletion(config(), messages, options)
+    return JSON.parse(sent[0]!) as {
+      messages: { role: string; content: unknown }[]
+      response_format?: unknown
+    }
+  }
+
+  test('the OpenAI path sends an image as a data URL part, ahead of the text', async () => {
+    const body = await send()
+    expect(body.messages[1]!.content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,QUJD' } },
+      { type: 'text', text: 'Describe this image.' },
+    ])
+  })
+
+  test('and leaves a message with no picture as the plain string it always was', async () => {
+    const body = await send()
+    expect(body.messages[0]!.content).toBe('You read pictures.')
+  })
+
+  test('a picture with nothing said about it is just the picture', async () => {
+    const sent: string[] = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      sent.push(String(init.body))
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }),
+      )
+    }) as unknown as typeof fetch
+    await chatCompletion(config(), [
+      { role: 'user', content: '  ', images: [{ mediaType: 'image/png', data: 'QUJD' }] },
+    ])
+    expect(JSON.parse(sent[0]!).messages[0].content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,QUJD' } },
+    ])
+  })
+
+  test('asks for a JSON object by default, and not when the answer is prose', async () => {
+    expect((await send()).response_format).toEqual({ type: 'json_object' })
+    expect((await send({ prose: true })).response_format).toBeUndefined()
+  })
+
+  test('the Qwen bridge refuses a picture rather than describe nothing', async () => {
+    const seen: unknown[] = []
+    ;(globalThis as { chrome?: unknown }).chrome = {
+      runtime: { sendMessage: async (m: unknown) => (seen.push(m), { ok: true, result: 'ok' }) },
+    }
+    try {
+      await expect(chatCompletion(config({ backend: 'qwen-chat' }), messages)).rejects.toThrow(
+        /no way to send an image/,
+      )
+    } finally {
+      delete (globalThis as { chrome?: unknown }).chrome
+    }
+    // Refused before anything crossed to the worker.
+    expect(seen).toHaveLength(0)
   })
 })

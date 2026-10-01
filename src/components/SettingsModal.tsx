@@ -87,6 +87,8 @@ export function SettingsModal({
   const [profiles, setProfiles] = useState<LLMProfile[]>([])
   const [activeId, setActive] = useState<string>('')
   const [customPrompt, setCustomPrompt] = useState('')
+  // '' is "the active profile reads photos" — the same thing an unset id means.
+  const [photoId, setPhotoId] = useState('')
   const [moved, setMoved] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -112,6 +114,7 @@ export function SettingsModal({
         setProfiles(p)
         setActive(id)
         setCustomPrompt(settings.customPrompt)
+        setPhotoId(settings.photoProfileId ?? '')
       } catch (e) {
         // Without this the modal is just blank forever, with the reason only in
         // the console as an unhandled rejection.
@@ -128,6 +131,14 @@ export function SettingsModal({
   const headersError = headersProblem(current?.config.custom_headers)
   const extraBodyError = extraBodyProblem(current?.config.extra_body)
 
+  // Qwen is left out of the list rather than shown and refused: it can't carry an
+  // image, so a choice that can only fail isn't a choice. Derived rather than
+  // cleaned up where it goes stale — deleting the chosen profile, or switching it
+  // to Qwen, leaves `photoId` pointing at something that isn't on offer, and this
+  // reads that as "the active profile" (which is also what Save then stores).
+  const readers = profiles.filter((p) => p.config.backend !== 'qwen-chat')
+  const photoReader = readers.some((p) => p.id === photoId) ? photoId : ''
+
   const patch = (change: Partial<LLMConfig>) =>
     setProfiles((prev) =>
       prev.map((p) => (p.id === activeId ? { ...p, config: { ...p.config, ...change } } : p)),
@@ -139,7 +150,11 @@ export function SettingsModal({
   const save = async () => {
     setSaveError(null)
     try {
-      await saveAllSettings({ profiles, activeId, settings: { customPrompt } })
+      await saveAllSettings({
+        profiles,
+        activeId,
+        settings: { customPrompt, photoProfileId: photoReader || undefined },
+      })
     } catch (e) {
       setSaveError((e as Error).message)
       return
@@ -596,6 +611,35 @@ export function SettingsModal({
               </div>
             </div>
           )}
+
+          {/* Coach-wide, like house rules, so it sits outside the profile being
+              edited above. */}
+          <Field label="Photo reader" hint="which model turns a pasted photo into text">
+            <Select
+              value={photoReader}
+              onChange={setPhotoId}
+              options={[
+                { value: '', label: 'Same as the active profile' },
+                ...readers.map((p) => ({
+                  value: p.id,
+                  label: `${p.name}${p.config.model ? ` — ${p.config.model}` : ''}`,
+                })),
+              ]}
+            />
+            {!photoReader && current.config.backend === 'qwen-chat' ? (
+              <p className="mt-1 text-[11.5px] leading-snug text-warn-strong">
+                The active profile is Qwen, which can't read images — pick another profile here or
+                photos will fail.
+              </p>
+            ) : (
+              <p className="mt-1 text-[11.5px] leading-snug text-fg-3">
+                Paste or upload a photo in the conversation and this model writes what's in it; that
+                description, not the picture, is what the coach sees and what's stored. It needs a
+                model that accepts images. The picture (and nothing else) is sent to whichever
+                provider you pick here.
+              </p>
+            )}
+          </Field>
 
           <Field
             label="House rules"

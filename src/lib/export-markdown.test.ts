@@ -251,3 +251,17 @@ describe('exportFilename', () => {
     expect(exportFilename(record({ name: '???' }), NOW)).toBe('date-2026-08-13.md')
   })
 })
+
+describe('recordToMarkdown and photos', () => {
+  test('tags a description, so it is not read as something she wrote', () => {
+    const turns: Turn[] = [
+      { id: 'p', number: 1, speaker: 'them', text: 'Selfie by a lake.\nGreen coat.', photo: true },
+      { id: 'm', number: 2, speaker: 'them', text: 'look at this!' },
+    ]
+    const md = recordToMarkdown(record({ turns, nextTurnNumber: 3 }), NOW)
+    // Every line quoted, and the tag once, at the head of the block.
+    expect(md).toContain('> [photo] Selfie by a lake.\n> Green coat.')
+    expect(md).toContain('> look at this!')
+    expect(md).not.toContain('> [photo] look at this!')
+  })
+})

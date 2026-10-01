@@ -238,3 +238,25 @@ describe('findOverlap', () => {
     expect(found?.fresh).toBe(1)
   })
 })
+
+describe('findOverlap and photos', () => {
+  // A description is text nobody typed into the conversation, so no fetched log can
+  // contain it. What it must not do is spend one of the eight slots the seam is
+  // looked for in: eight of them after the turn that matches would push that turn
+  // out of the window, and the banner would say nothing was recorded.
+  test('ignores photo descriptions, so they cannot crowd the real seam out', () => {
+    const photos: Turn[] = Array.from({ length: 8 }, (_, i) => ({
+      ...turn('them', `A photo of a lake at dusk, number ${i}, boats moored along the shore`),
+      photo: true as const,
+    }))
+    const found = find(log, [turn('them', 'oh nice, i run there sometimes'), ...photos])
+    expect(found?.line).toBe(2)
+  })
+
+  test('a log of nothing but photos matches nothing', () => {
+    const only: Turn[] = [
+      { ...turn('them', 'oh nice, i run there sometimes'), photo: true as const },
+    ]
+    expect(find(log, only)).toBeNull()
+  })
+})

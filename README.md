@@ -60,11 +60,24 @@ Three backends, all zero-install:
 Chrome's built-in Gemini Nano is deliberately absent — it's far too small to hold a transcript plus
 a knowledge base and return structured judgement.
 
+**Photos.** Paste a photo anywhere on the page — right-click an image, *Copy image*, and ⌘V (or
+right-click → Paste) here — or use the photo button, and a vision model writes what's in it — a selfie she sent, a screenshot of a dating profile, a chat. A long scrolling
+screenshot — a whole profile, say — is cut into slices at full size instead of being shrunk until it's
+unreadable, and read as one. The description lands in the box for you to check against the picture and
+correct, then goes into the conversation as a turn from her, from you, or as a note. Only the text is
+kept, never the photo. A chat imported with its photos as `[image]` placeholders can be fixed the same
+way: open **Edit** on that line and paste or upload the picture there, and the description replaces
+the placeholder. Which profile
+reads photos is a separate choice in Settings ("Photo reader"), because the model that writes the
+coach's answers isn't always one that can see: **Qwen can't read images**, so if it's your main
+profile, add a second profile with a vision-capable model and pick that.
+
 ## Privacy
 
 Everything lives in this browser. Dates, conversations, and rebuilt contexts go to IndexedDB;
 settings and your API key go to `chrome.storage.local`. Nothing is uploaded anywhere except the
-model endpoint you choose, when you press one of the three buttons.
+model endpoint you choose, when you press one of the three buttons — and, when you add a photo, the
+picture itself (and nothing else) to the photo reader you picked.
 
 ## Development
 

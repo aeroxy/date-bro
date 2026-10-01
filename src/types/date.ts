@@ -73,6 +73,35 @@ export interface Turn {
    */
   asked?: string
   /**
+   * `text` is a description of a picture, written by a vision model and checked
+   * by the user, not words anyone typed. `speaker` is whose picture it is: one
+   * she sent, one you did, or — as a NOTE — one you were shown.
+   *
+   * A flag rather than a prefix inside `text`, because the description is the one
+   * thing in the pool nobody said, and three places have to know: the prompt
+   * tells the model once that a `[photo]` line is a second-hand reading of an
+   * image it never sees; `transcriptStats` keeps its words and questions out of
+   * how much either person wrote; and `findOverlap` keeps it out of what an
+   * import can match, since no source log can contain it. A string test on the
+   * text would be a guess at all three.
+   *
+   * The picture itself is not kept. The record is text and the coach only reads
+   * text, so what survives is the description — which is also the part the user
+   * can correct.
+   *
+   * **Sticky on purpose.** It is decided by whether a photo was attached when the
+   * turn was added, not by whether the text still matches what the model wrote —
+   * because correcting the description is what the user is asked to do, and any
+   * edit would then drop the flag. The two ways to be wrong are not equal. Set on
+   * words the user typed, it tags their sentence and leaves it out of a word
+   * count: visible at once in the bubble, and undone with the checkbox in the
+   * edit modal. Missing from a description, it files a model's paragraph as
+   * something a person said — the conflation this flag exists to prevent, and one
+   * nothing on screen would show. So when in doubt it stays set, and the user,
+   * who is the only one who can tell, owns it.
+   */
+  photo?: true
+  /**
    * `coach` entries only: the whole suggestion this line is the summary of.
    *
    * Stored on the turn rather than in a list the turn points at, because the

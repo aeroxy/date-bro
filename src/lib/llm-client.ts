@@ -32,6 +32,19 @@ export interface ContentSegment {
   cache?: boolean
 }
 
+/** An image as it travels: base64 with no `data:` prefix, and its media type. */
+export interface ImagePart {
+  mediaType: string
+  data: string
+}
+
+/**
+ * An image as a `data:` URL: how an OpenAI-style request carries it, and what an
+ * `<img>` can show. One definition, because the picture the user is shown to check
+ * a description against and the one the model was sent have to be the same bytes.
+ */
+export const dataUrl = (image: ImagePart) => `data:${image.mediaType};base64,${image.data}`
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
@@ -42,6 +55,12 @@ export interface ChatMessage {
    * the identical bytes, which is all OpenAI's automatic prefix caching needs.
    */
   segments?: ContentSegment[]
+  /**
+   * Pictures for the model to look at, sent ahead of `content`. The keyed
+   * backends translate them (`image_url` parts, `image` blocks); Qwen has no way
+   * to carry one and refuses rather than answer as if none had been sent.
+   */
+  images?: ImagePart[]
   tool_call_id?: string
   tool_calls?: ToolCall[]
 }
@@ -55,11 +74,25 @@ export function layeredUser(segments: ContentSegment[]): ChatMessage {
   return { role: 'user', content: kept.map((s) => s.text).join('\n\n'), segments: kept }
 }
 
-/** Drop fields the OpenAI wire format doesn't know about. */
+/**
+ * Drop fields the OpenAI wire format doesn't know about, and turn `images` into
+ * the parts array that format wants — `content` stays a bare string for every
+ * message without one, so nothing that never carried a picture changes shape.
+ */
 function toOpenAIMessages(messages: ChatMessage[]): Record<string, unknown>[] {
-  return messages.map(({ role, content, tool_call_id, tool_calls }) => ({
+  return messages.map(({ role, content, images, tool_call_id, tool_calls }) => ({
     role,
-    content,
+    content: images?.length
+      ? [
+          ...images.map((image) => ({
+            type: 'image_url',
+            image_url: { url: dataUrl(image) },
+          })),
+          // A blank text part is rejected by some servers, and a picture with
+          // nothing to say about it is a legitimate message.
+          ...(content.trim() ? [{ type: 'text', text: content }] : []),
+        ]
+      : content,
     ...(tool_call_id ? { tool_call_id } : {}),
     ...(tool_calls ? { tool_calls } : {}),
   }))
@@ -93,6 +126,13 @@ export interface CompletionOptions {
   signal?: AbortSignal
   /** Strict server-side structured output. Ignored by the Qwen backend. */
   jsonSchema?: JsonSchemaSpec
+  /**
+   * The answer is prose, not a JSON object. Only the OpenAI path has anything to
+   * turn off: it asks for `response_format: json_object` by default, which is
+   * right for every engine and would make a provider wrap a paragraph in braces.
+   * Anthropic has no JSON mode to opt out of, and Qwen never had one.
+   */
+  prose?: boolean
   /**
    * The model's reasoning, so the UI has something to show for a long think. Each
    * call replaces the last.
@@ -213,6 +253,15 @@ async function qwenCompletion(
   messages: ChatMessage[],
   options: CompletionOptions,
 ): Promise<string> {
+  // Loud on purpose. The payload below is `{role, content}` and nothing else, so a
+  // picture would be dropped without a word and the model would answer a question
+  // about an image it was never shown — a confident description of nothing.
+  if (messages.some((m) => m.images?.length)) {
+    throw new Error(
+      'The Qwen backend has no way to send an image, so the model would describe nothing. Use an OpenAI-compatible or Anthropic profile with a vision model.',
+    )
+  }
+
   const requestId = crypto.randomUUID()
   const payload = {
     type: 'QWEN_CHAT_REQUEST',
@@ -402,7 +451,7 @@ async function openAICompletion(
       type: 'json_schema',
       json_schema: { name: options.jsonSchema.name, schema: options.jsonSchema.schema, strict: true },
     }
-  } else {
+  } else if (!options.prose) {
     body.response_format = { type: 'json_object' }
   }
 

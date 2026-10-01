@@ -12,9 +12,9 @@ date-bro/
 │   │       ├── main.tsx
 │   │       └── App.tsx          # Layout, the three actions, tab state
 │   ├── components/              # UI, with ui/ holding the design-system primitives
-│   ├── coach/                   # knowledge.ts, prompts.ts, schemas.ts, run.ts
+│   ├── coach/                   # knowledge.ts, prompts.ts, schemas.ts, run.ts, photo.ts
 │   ├── hooks/useDates.ts
-│   ├── lib/                     # llm-client, agent, storage, db, transcript, cn, qwen/, tools/, import/
+│   ├── lib/                     # llm-client, agent, storage, db, transcript, image, cn, qwen/, tools/, import/
 │   ├── types/                   # date, coach, settings, globals
 │   └── assets/index.css         # Design tokens (@theme) + editorial layer
 ├── public/assets/icon.svg       # Toolbar icon master → icon-{16,32,48,128}.png
@@ -55,6 +55,24 @@ app.html (extension page — full chrome.* access, no lifetime limit)
                                           header rewrite + 10s idle-timer poke)
 ```
 
+A fourth call sits beside the three actions and is not one of them — reading a photo:
+
+```text
+paste / upload ─► lib/image.prepareImage   (≤2576px, always JPEG; a scrolled capture
+                    │                        is cut into overlapping slices, not shrunk)
+                    └─► coach/photo.describePhoto
+                          ├─ storage.getPhotoConfig ─► the chosen "photo reader" profile,
+                          │                            else the active one
+                          └─ llm-client.chatCompletion(…, { prose: true })
+                                ├─ 'openai'    ─► image_url parts, data: URLs
+                                ├─ 'anthropic' ─► base64 image blocks
+                                └─ 'qwen-chat' ─► throws: the bridge carries text only
+                    └─► the description lands in the composer's box, for the user to check
+```
+
+It runs from the app page like everything else, holds no lock (it isn't a per-person run) and
+stores nothing itself: what is kept is whatever the user adds to the conversation afterwards.
+
 **Why Qwen is bridged and the keyed backends aren't.** Both `chrome.cookies` and
 `declarativeNetRequest` are reachable from the app page, so the bridge isn't about permissions — it's
 that the Qwen call is a long SSE stream and the service worker is the context with a 30-second idle
@@ -88,7 +106,7 @@ Plus one background → app page broadcast, `QWEN_CHAT_THINKING` (`{ requestId, 
 | IndexedDB `date-bro` v1 | `dates` (keyPath `id`, index `by-updated`) | `DateRecord[]` — the person, the stated goal, all turns (messages, NOTE entries and COACH advice), both markdown profiles with their judgments, accumulated research notes, and the two clocks (`updatedAt` for any write, `turnsUpdatedAt` for evidence writes only — see Freshness) |
 | `chrome.storage.local` | `dateBroLLMProfiles` | `LLMProfile[]` |
 | `chrome.storage.local` | `dateBroActiveProfileId` | `string` |
-| `chrome.storage.local` | `dateBroSettings` | `CoachSettings` (the house-rules prompt) |
+| `chrome.storage.local` | `dateBroSettings` | `CoachSettings` (the house-rules prompt, and `photoProfileId` — which profile reads photos; unset means the active one) |
 | `chrome.storage.local` | `dateBroCoachMind` | `Mind` — the coach itself: its identity, its whole playbook, and what it has learned. Not a `DateRecord` field precisely because every record shares it; see [coach.md](coach.md#mindts) |
 | `chrome.storage.local` | `dateBroLastOpened` | last-selected date id, so the app reopens where you left it |
 | `chrome.storage.local` | `dateBroImportLast` | the "last N messages" the previous import fetched with; blank (the default) means the whole history |
@@ -157,6 +175,23 @@ records once and writes each mutation straight through.
   the user did next, which is the only evidence that exists about whether it worked. Only the
   two-line summary reaches the prompt — `formatTurn` renders `text` and nothing else, so the panel
   gets three drafts and later requests pay for two lines.
+
+**A photo isn't a fifth speaker — it is a flag (`Turn.photo`) on a `them`, `me` or `context` turn.**
+`text` is a vision model's description of a picture, checked by the user, and `speaker` says whose
+picture it is: one she sent, one you did, or (as a NOTE) one you were shown. Only the description is
+stored. The record is text, the coach only reads text, and the description is the part the user can
+correct — a stored image would need a second store, a migration, and a place in the export, and buy
+nothing the coach can use.
+
+A flag rather than a `[photo]` prefix inside `text`, because the description is the one thing in the
+pool nobody said and three places have to know: the prompt tells the model once that a `[photo]` line
+is a second-hand reading of an image it never sees (`photoEntryNote`); `transcriptStats` counts it as
+a turn but adds no words and no questions, or a hundred-word paragraph she never wrote reads as her
+being talkative; and `findOverlap` leaves it out of the eight turns an import is matched against,
+since no source log can contain it. A string test on the text would be a guess at all three.
+
+**The flag is sticky on purpose.** It is decided by whether a photo was attached when the turn was added, not by whether the text still matches what the model wrote, because correcting the description is exactly what the user is asked to do and any edit would otherwise drop the flag. The two ways to be wrong aren't equal. Set on words the user typed, it tags their sentence and leaves it out of a word count — visible at once in the bubble, and undone with the checkbox the edit modal shows on a flagged turn. Missing from a description, it files a model's paragraph as something a person said, which is the conflation the flag exists to prevent and which nothing on screen would show. So when unsure it stays set, and the user, who is the only one who can tell, owns it. (A review proposed computing it as `text.includes(description)`; that fails the second way on every correction.) Adding
+one bumps `turnsUpdatedAt` like any message does: what she chose to send is evidence.
 
 **`turnsUpdatedAt` tracks evidence, not writes to `turns`.** Adding a `context` entry or a message
 bumps it and marks every existing read stale, which is right — a new fact is exactly what should

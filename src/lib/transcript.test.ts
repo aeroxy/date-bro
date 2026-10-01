@@ -223,3 +223,52 @@ describe('formatTurn cites the turn number, not the position', () => {
     expect(new Set(cited).size).toBe(cited.length)
   })
 })
+
+// A description of a picture is the one thing in the pool nobody said. It has to
+// be marked where the model reads it, and it has to stay out of every measure of
+// how much either person wrote.
+describe('photo turns', () => {
+  const described = (over: Partial<Turn> = {}) => ({
+    id: 'p',
+    number: 9,
+    speaker: 'them' as const,
+    text: 'A selfie in a green coat beside a lake.',
+    photo: true as const,
+    ...over,
+  })
+
+  test('render behind a [photo] tag, after the label and before the words', () => {
+    expect(formatTurn(record([]), described())).toBe(
+      '[9] MIRA: [photo] A selfie in a green coat beside a lake.',
+    )
+    expect(formatTurn(record([]), described({ at: 'Tue 9pm' }))).toBe(
+      '[9] MIRA (Tue 9pm): [photo] A selfie in a green coat beside a lake.',
+    )
+  })
+
+  test('are tagged whoever they belong to, NOTE included', () => {
+    expect(formatTurn(record([]), described({ speaker: 'context' }))).toStartWith(
+      '[9] NOTE: [photo] ',
+    )
+    expect(formatTurn(record([]), described({ speaker: 'me' }))).toStartWith('[9] ME: [photo] ')
+  })
+
+  test('leave every other turn byte-identical', () => {
+    const said = { id: 'a', number: 3, speaker: 'them' as const, text: 'hey you' }
+    expect(formatTurn(record([]), said)).toBe('[3] MIRA: hey you')
+  })
+
+  test('count as a turn but add no words and no questions', () => {
+    const stats = transcriptStats(
+      record([
+        { id: '1', speaker: 'them', text: 'hi there' },
+        // Nine words and a question mark, none of them hers.
+        described({ text: 'A selfie. Is that a dog behind her? A long description of it all.' }),
+      ]),
+    )
+    expect(stats.total).toBe(2)
+    expect(stats.themTurns).toBe(2)
+    expect(stats.themWords).toBe(2)
+    expect(stats.themQuestions).toBe(0)
+  })
+})

@@ -12,7 +12,8 @@ happens only when the user asks for one, in a tab they are already signed into.
 2. **Stores the conversation.** Turns typed one at a time, or bulk-imported — from a pasted log, or
    read straight out of an open WhatsApp Web, Telegram, Instagram, RED (小红书) or Discord tab
    (`lib/import/`) — plus
-   `NOTE` entries for anything the user knows that nobody typed. One pool — there is no separate
+   `NOTE` entries for anything the user knows that nobody typed, and photos, which enter as a
+   vision model's written description of the picture (the picture itself is never kept). One pool — there is no separate
    "what you know about them" field, and no fact about the connection lives outside this list. The
    one thing that does is `goal`, which isn't a fact about them: it's what the user is asking the
    coach to optimise for, so nothing the conversation does can make it stale.
@@ -59,7 +60,10 @@ happens only when the user asks for one, in a tab they are already signed into.
   The background worker exists only to open the app tab and to proxy Qwen.
 - **No Chrome built-in AI.** Gemini Nano can't hold a transcript plus a knowledge base and return
   structured judgement. Deliberately omitted rather than offered and broken.
-- **Everything is local.** Nothing leaves the browser except the model call the user triggers.
+- **Everything is local.** Nothing leaves the browser except the model call the user triggers. A
+  photo is one such call: the picture (and nothing else) goes to the *photo reader* profile the
+  user picked, which need not be the profile that writes the coach's answers — Qwen can't read
+  images at all.
 - **The knowledge base is versioned as prose, and is only the seed.** `src/coach/knowledge.ts` is
   the source of record for what ships — no separate research document — but it is assembled into an
   editable document (`src/coach/mind.ts`) that the user and the coach both rewrite. Editing the

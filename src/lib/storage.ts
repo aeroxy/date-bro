@@ -71,6 +71,23 @@ export async function getSettings(): Promise<CoachSettings> {
 }
 
 /**
+ * The config that reads photos: the profile chosen in Settings, else the active
+ * one. Kept apart from `getActiveConfig` because the model that writes the coach's
+ * answers and the model that can look at a picture are often not the same one —
+ * Qwen, the zero-key default, cannot see at all.
+ *
+ * A chosen profile that has since been deleted falls back to the active one, the
+ * same repair `ensureActiveProfile` makes for a dangling active id. Nothing here
+ * refuses a Qwen profile: `chatCompletion` does that, with the message that says
+ * what to do about it, and it does so for every route to it.
+ */
+export async function getPhotoConfig(): Promise<LLMConfig> {
+  const [{ profiles, activeId }, settings] = await Promise.all([ensureActiveProfile(), getSettings()])
+  const chosen = profiles.find((p) => p.id === settings.photoProfileId)
+  return (chosen ?? profiles.find((p) => p.id === activeId))?.config ?? { ...DEFAULT_CONFIG }
+}
+
+/**
  * The coach itself — see `coach/mind.ts`.
  *
  * Here rather than on a `DateRecord` because it isn't about a particular person.

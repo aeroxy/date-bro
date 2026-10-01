@@ -84,6 +84,16 @@ export interface LLMProfile {
 export interface CoachSettings {
   /** Appended to every system prompt. House rules, tone, personal constraints. */
   customPrompt: string
+  /**
+   * The profile that turns a pasted photo into a description — see
+   * `getPhotoConfig`. Unset means the active profile reads them.
+   *
+   * A profile id rather than a second config block: it needs exactly what a
+   * profile already holds (endpoint, key, model), and a person who keeps Qwen as
+   * their main backend and a vision-capable one for photos has already written
+   * the second.
+   */
+  photoProfileId?: string
 }
 
 export const DEFAULT_CONFIG: LLMConfig = {

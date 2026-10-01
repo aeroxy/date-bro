@@ -20,6 +20,7 @@ const EPHEMERAL = { type: 'ephemeral' } as const
 
 type RequestBlock =
   | { type: 'text'; text: string; cache_control?: typeof EPHEMERAL }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string }
 
@@ -109,7 +110,12 @@ export function toAnthropicMessages(messages: ChatMessage[]): {
       continue
     }
 
-    const blocks: RequestBlock[] = []
+    // Pictures first, as the API's own examples order them: the question comes
+    // after the thing it is about.
+    const blocks: RequestBlock[] = (message.images ?? []).map((image) => ({
+      type: 'image',
+      source: { type: 'base64', media_type: image.mediaType, data: image.data },
+    }))
     if (message.segments?.length) {
       // One block per stratum, so a `cache_control` marker can sit at the
       // boundary between what's stable and what isn't. A single block would

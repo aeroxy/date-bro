@@ -153,8 +153,16 @@ export function formatTurn(record: Pick<DateRecord, 'name'>, turn: NumberedTurn)
     .join(', ')
   const head = `[${turn.number}] ${speakerLabel(record, turn.speaker)}${meta ? ` (${meta})` : ''}:`
   const note = turn.note?.trim() ? `\n    (user's note: ${turn.note.trim()})` : ''
-  return `${head} ${turn.text.trim()}${note}`
+  return `${head} ${turn.photo ? `${PHOTO_TAG} ` : ''}${turn.text.trim()}${note}`
 }
+
+/**
+ * What marks a line as a description of a picture rather than something said.
+ * One constant, because the prompt's explanation of it and the two places that
+ * render it (`formatTurn` and the export) have to agree on the literal, and a
+ * copy in each is free to drift.
+ */
+export const PHOTO_TAG = '[photo]'
 
 // There is deliberately no `formatTranscript` joining these into one string. The
 // prompt is the only consumer and it needs them as separate blocks; a
@@ -264,14 +272,22 @@ export function parsePastedLog(raw: string, theirName: string): Turn[] {
  * isn't one of the two people showing up in the conversation stays out by
  * construction — a `context` entry is the user writing something down, and a
  * `coach` entry is this app talking to itself. Neither is a turn either of them
- * took, and that includes `total`, which gates whether the counts appear at all.
+ * took, and that includes `total`, which gates whether counts appear at all.
+ *
+ * A photo *is* a turn — sending one is something a person did — but its text is a
+ * vision model's description, so it counts as a turn and adds no words and no
+ * questions. A hundred-word paragraph she never wrote would otherwise read as her
+ * being talkative.
  */
 export function transcriptStats(record: DateRecord) {
   const them = record.turns.filter((t) => t.speaker === 'them')
   const me = record.turns.filter((t) => t.speaker === 'me')
   const words = (turns: Turn[]) =>
-    turns.reduce((n, t) => n + t.text.trim().split(/\s+/).filter(Boolean).length, 0)
-  const questions = (turns: Turn[]) => turns.filter((t) => t.text.includes('?')).length
+    turns.reduce(
+      (n, t) => (t.photo ? n : n + t.text.trim().split(/\s+/).filter(Boolean).length),
+      0,
+    )
+  const questions = (turns: Turn[]) => turns.filter((t) => !t.photo && t.text.includes('?')).length
   return {
     total: them.length + me.length,
     themTurns: them.length,

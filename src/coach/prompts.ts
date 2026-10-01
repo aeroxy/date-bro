@@ -35,7 +35,7 @@
 
 import { layeredUser, type ChatMessage, type ContentSegment } from '@/lib/llm-client'
 import { describeBirthday } from '@/lib/birthday'
-import { formatTurn, numberTurns } from '@/lib/transcript'
+import { formatTurn, numberTurns, PHOTO_TAG } from '@/lib/transcript'
 import type { ChatEngine, DateRecord } from '@/types/date'
 import {
   LEARNED_HEADING,
@@ -262,7 +262,12 @@ function transcriptSegments(record: DateRecord): ContentSegment[] {
     : [{ text: '(no conversation recorded yet)' }]
   turns[turns.length - 1]!.cache = true
 
-  const closing = ['</transcript>', contextEntryNote(record), coachEntryNote(record)]
+  const closing = [
+    '</transcript>',
+    contextEntryNote(record),
+    coachEntryNote(record),
+    photoEntryNote(record),
+  ]
     .filter(Boolean)
     .join('\n\n')
   return [{ text: '<transcript>' }, ...turns, { text: closing }]
@@ -299,6 +304,25 @@ Read the pair. If their next message is one of the drafts you offered, close to 
 Say so when something you tried didn't land. Repeating a move that already failed in this same thread is the specific failure to avoid here.
 
 Your own advice is not evidence about either person. It is what you said, not something that happened. Only their replies and the user's notes are material.`
+}
+
+/**
+ * Same gating rule again: nothing until a record holds a photo, so a transcript
+ * without one is byte-identical to what it was before the feature existed.
+ *
+ * What the model has to be told is that this line is second-hand twice over. Someone
+ * looked at a picture and a model put it into words, and the coach never sees the
+ * picture at all — so a detail it leans on ("she's in a green coat, so she was
+ * outside") is a reading of a reading. The last two sentences are the ones a
+ * careless run breaks: what someone chose to send is behaviour, exactly as a
+ * message is, but the *sentences* belong to a describer and say nothing about how
+ * either of them writes.
+ */
+function photoEntryNote(record: DateRecord): string | null {
+  if (!record.turns.some((t) => t.photo)) return null
+  return `Lines starting ${PHOTO_TAG} are not words anyone typed. Each is a description of a picture, written by a vision model from the image alone - you never see the image. The speaker is whose picture it is: one they sent, one the user sent, or, under NOTE, one the user was shown. Numbered and citable like any other line.
+
+Take what a description says as reported, not verified. It can misread a place, a face or a word, and a detail your advice would lean on is worth asking the user to confirm rather than assuming. Someone choosing to send a picture, and what they chose, is evidence about them in the way a message is. The wording of the description is not: it says nothing about how either person writes.`
 }
 
 /**
