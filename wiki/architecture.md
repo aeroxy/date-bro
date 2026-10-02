@@ -70,8 +70,11 @@ paste / upload ─► lib/image.prepareImage   (≤2576px, always JPEG; a scroll
                     └─► the description lands in the composer's box, for the user to check
 ```
 
-It runs from the app page like everything else, holds no lock (it isn't a per-person run) and
-stores nothing itself: what is kept is whatever the user adds to the conversation afterwards.
+It runs from the app page like everything else and stores nothing itself: what is kept is whatever the
+user adds to the conversation afterwards. **It belongs to the person, like a run does**: each person has a
+photo session (`lib/photo-session.ts`) that lives outside the panel showing them, so switching to someone
+else leaves the read running and the description waiting for when the panel comes back ([lib.md](lib.md#photo-sessionts)).
+It holds no lock — two people can be reading at once — and the rail shows who is.
 
 **Why Qwen is bridged and the keyed backends aren't.** Both `chrome.cookies` and
 `declarativeNetRequest` are reachable from the app page, so the bridge isn't about permissions — it's

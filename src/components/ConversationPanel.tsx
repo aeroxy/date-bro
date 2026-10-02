@@ -78,8 +78,16 @@ export function ConversationPanel({
   const [importing, setImporting] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   // What each does to the box, and why, is in `addDescription` / `removeDescription`.
+  //
+  // The read is this person's, not this panel's (`personId`): switching to someone
+  // else unmounts the panel but not the read, and the description is handed back to
+  // the next panel's box. It can therefore arrive twice — once live, once on coming
+  // back — and React's development double-mount does the same, so the box keeps one
+  // copy rather than stacking a second under the first.
   const reader = usePhotoReader({
-    onDescribed: (description) => setText((prev) => addDescription(prev, description)),
+    personId: record.id,
+    onDescribed: (description) =>
+      setText((prev) => (prev.includes(description) ? prev : addDescription(prev, description))),
     onDiscarded: (description) => setText((prev) => removeDescription(prev, description)),
   })
 

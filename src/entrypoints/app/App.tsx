@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { AlertCircle, Heart, RotateCw, Settings, Sparkles, Square, Trash2, User, UserRound, X } from 'lucide-react'
 
 import { ago } from '@/lib/ago'
@@ -18,6 +18,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { chatAboutProfile, rebuildPersonContext, rebuildSelfContext, suggestMove } from '@/coach/run'
 import { useDates } from '@/hooks/useDates'
 import { cn } from '@/lib/cn'
+import { endPhotoSession, photoStatusStore } from '@/lib/photo-session'
 import { applyProposalTo, movedSince, undoProposalIn } from '@/lib/proposals'
 import { applyResearchNotes } from '@/lib/research-notes'
 import { adviceTurn } from '@/lib/transcript'
@@ -110,6 +111,9 @@ export default function App() {
    * profile streamed last, and switching to the other would show its thoughts.
    */
   const [runs, setRuns] = useState<Record<string, Tab>>({})
+  // Not React state: a photo's read lives in a session per person (`lib/photo-session`),
+  // which outlives the panel that started it. This only reads who has one going.
+  const photos = useSyncExternalStore(photoStatusStore.subscribe, photoStatusStore.getSnapshot)
   const [errors, setErrors] = useState<Record<string, { tab: Tab; message: string }>>({})
   const [activity, setActivity] = useState<Record<string, string[]>>({})
   const [thinking, setThinking] = useState<Record<string, ThinkingSummary>>({})
@@ -690,6 +694,9 @@ export default function App() {
         dates={dates}
         activeId={activeId}
         running={new Set(Object.keys(runs))}
+        // Photos being read, or waiting to be checked, for anyone — a read belongs to
+        // its person and carries on when you switch away, so the rail is where it shows.
+        photos={photos}
         // No reset: the selection is theirs, and switching to someone with none
         // already lands on their newest.
         onSelect={setActiveId}
@@ -1102,6 +1109,9 @@ export default function App() {
             // panel can reach it, and it comes back at the end to write a
             // profile onto a person who isn't there.
             stop(active.id)
+            // Same for a photo they were reading: the answer would arrive for
+            // someone who isn't there, with no panel to show it on.
+            endPhotoSession(active.id)
             persist(remove(active.id), tab)
           }}
         />

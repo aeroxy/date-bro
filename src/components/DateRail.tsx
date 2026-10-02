@@ -7,6 +7,7 @@ import { Button } from './ui/Button'
 import { Input } from './ui/Field'
 import { Eyebrow } from './ui/Card'
 import { Spinner } from './ui/Spinner'
+import type { PhotoState } from '@/lib/photo-attachment'
 import { STAGES, type DateRecord } from '@/types/date'
 
 const stageLabel = (record: DateRecord) =>
@@ -19,6 +20,7 @@ export function DateRail({
   onCreate,
   createError,
   running,
+  photos,
 }: {
   dates: DateRecord[]
   activeId: string | null
@@ -33,6 +35,13 @@ export function DateRail({
    * the panel that can stop it.
    */
   running?: Set<string>
+  /**
+   * Who has a photo being read, or read and waiting to be checked. The same case as
+   * `running`, one level down: the read belongs to the person and carries on when
+   * you switch away, so without this a photo you started and left has nothing on
+   * screen saying it is still going, or that it finished.
+   */
+  photos?: ReadonlyMap<string, PhotoState['status']>
 }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
@@ -93,6 +102,17 @@ export function DateRail({
         {dates.map((d) => {
           const active = d.id === activeId
           const busy = running?.has(d.id) ?? false
+          const photo = photos?.get(d.id)
+          // A run outranks a photo in the row's one line, and each is the only thing it says.
+          const summary = busy
+            ? 'thinking…'
+            : photo === 'reading'
+              ? 'reading a photo…'
+              : photo === 'read'
+                ? 'photo ready to check'
+                : photo === 'failed'
+                  ? "couldn't read a photo"
+                  : `${stageLabel(d)} · ${d.turns.length} turns · ${ago(d.updatedAt)}`
           return (
             <button
               key={d.id}
@@ -119,11 +139,17 @@ export function DateRail({
                 >
                   {d.name}
                 </span>
-                <span className="block truncate text-[11px] text-fg-3">
-                  {busy ? 'thinking…' : `${stageLabel(d)} · ${d.turns.length} turns · ${ago(d.updatedAt)}`}
+                <span
+                  className={cn(
+                    'block truncate text-[11px] text-fg-3',
+                    !busy && photo === 'read' && 'font-medium text-action-700',
+                    !busy && photo === 'failed' && 'text-no',
+                  )}
+                >
+                  {summary}
                 </span>
               </span>
-              {busy ? <Spinner className="mt-1.5 flex-none text-action" /> : null}
+              {busy || photo === 'reading' ? <Spinner className="mt-1.5 flex-none text-action" /> : null}
             </button>
           )
         })}
