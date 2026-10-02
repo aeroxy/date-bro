@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { ImagePlus, RotateCw, X } from 'lucide-react'
 
 import { describePhoto } from '@/coach/photo'
 import { imageFromClipboard } from '@/lib/clipboard-image'
 import { prepareImage } from '@/lib/image'
+import { thumbnailsKind, type PhotoAttachment, type PhotoState } from '@/lib/photo-attachment'
 import {
-  createPhotoAttachment,
-  thumbnailsKind,
-  type PhotoAttachment,
-  type PhotoState,
-} from '@/lib/photo-attachment'
+  createPhotoSession,
+  photoSessionFor,
+  type PhotoSession,
+  type PhotoSink,
+} from '@/lib/photo-session'
 import { getPhotoConfig } from '@/lib/storage'
 import { Button } from './ui/Button'
 import { Spinner } from './ui/Spinner'
@@ -18,10 +19,34 @@ export interface PhotoReader extends Pick<PhotoAttachment, 'attach' | 'retry' | 
   photo: PhotoState
 }
 
+/** The real resize and the real model call, which a session is given rather than imports. */
+const REAL = {
+  prepare: prepareImage,
+  describe: async (
+    images: Parameters<typeof describePhoto>[1],
+    signal: AbortSignal,
+    onReader: (reader?: string) => void,
+  ) => {
+    const config = await getPhotoConfig()
+    onReader(config.model || undefined)
+    return describePhoto(config, images, signal)
+  },
+}
+
 /**
- * `createPhotoAttachment` bound to a component: its state becomes React state, the
- * real resize and the real model call are wired in, and the paste handler is added.
- * The logic is over there, where it can be tested without a DOM.
+ * A `PhotoSession` bound to a component: its state becomes what the component
+ * renders, the real resize and model call are wired in, and the paste handler is
+ * added. The logic is in `lib/photo-attachment.ts` and `lib/photo-session.ts`,
+ * where it can be tested without a DOM.
+ *
+ * **Whose read it is depends on where the reader lives.** The composer passes
+ * `personId` and gets that person's session, which outlives this component: the
+ * panel is keyed on the person, so switching to someone else unmounts it, and a read
+ * that died with the panel was a request already paid for, its answer thrown away
+ * and nothing on screen to say so. Unmounting only *unbinds*; the description waits
+ * for the next panel (`createPhotoSession` has the details). A reader inside a dialog
+ * passes no id and gets a session of its own, which stops with the dialog — there
+ * is no one to come back to it.
  *
  * **Pasting is listened for on the document**, not on the composer. A photo copied
  * in another tab is pasted with focus nowhere in particular — ⌘V on coming back,
@@ -38,38 +63,40 @@ export interface PhotoReader extends Pick<PhotoAttachment, 'attach' | 'retry' | 
  * reader must be the one that takes it — exactly one of them, whichever is
  * showing, so a paste is never read twice. The edit dialog has one, because the
  * turns that most need a picture read into them were imported as a bare `[image]`.
- *
- * Created once per mount, and the latest callbacks are read through a ref so the
- * caller can pass fresh closures every render without the attachment being rebuilt
- * under a read in flight.
  */
 export function usePhotoReader(options: {
+  /** This composer's person: their read outlives the panel showing it. Absent in a dialog. */
+  personId?: string
   /** This reader belongs to a modal that is open for as long as it exists: take pastes even though a dialog is up. */
   inModal?: boolean
+  /** May be handed the same description twice — see `createPhotoSession` — so it must keep one copy. */
   onDescribed: (description: string) => void
   /** Given back the text `onDescribed` was given, to take out of the box again. */
   onDiscarded: (description: string) => void
 }): PhotoReader {
-  const [photo, setPhoto] = useState<PhotoState>({ status: 'idle' })
+  const { personId } = options
+  const own = useRef<PhotoSession | null>(null)
+  let session: PhotoSession
+  if (personId) {
+    session = photoSessionFor(personId, REAL)
+  } else {
+    own.current ??= createPhotoSession(REAL)
+    session = own.current
+  }
+  const photo = useSyncExternalStore(session.subscribe, session.getState)
   const latest = useRef(options)
   latest.current = options
-  const made = useRef<PhotoAttachment | null>(null)
-  made.current ??= createPhotoAttachment({
-    prepare: prepareImage,
-    describe: async (images, signal, onReader) => {
-      const config = await getPhotoConfig()
-      onReader(config.model || undefined)
-      return describePhoto(config, images, signal)
-    },
-    onState: setPhoto,
-    onDescribed: (description) => latest.current.onDescribed(description),
-    onDiscarded: (description) => latest.current.onDiscarded(description),
-  })
-  const attachment = made.current
 
-  // A person switched away mid-read. The panel is keyed on them, so this is an
-  // unmount, and there is nobody left for the description to land with.
-  useEffect(() => () => attachment.stop(), [attachment])
+  useEffect(() => {
+    const sink: PhotoSink = {
+      describe: (description) => latest.current.onDescribed(description),
+      discard: (description) => latest.current.onDiscarded(description),
+    }
+    return session.bind(sink)
+  }, [session])
+
+  // Only a reader nobody can come back to is stopped on unmount.
+  useEffect(() => (personId ? undefined : () => session.stop()), [session, personId])
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -78,18 +105,18 @@ export function usePhotoReader(options: {
       const file = imageFromClipboard(e.clipboardData)
       if (!file) return
       e.preventDefault()
-      void attachment.attach(file)
+      void session.attach(file)
     }
     document.addEventListener('paste', onPaste)
     return () => document.removeEventListener('paste', onPaste)
-  }, [attachment])
+  }, [session])
 
   return {
     photo,
-    attach: attachment.attach,
-    retry: attachment.retry,
-    clear: attachment.clear,
-    discard: attachment.discard,
+    attach: session.attach,
+    retry: session.retry,
+    clear: session.clear,
+    discard: session.discard,
   }
 }
 

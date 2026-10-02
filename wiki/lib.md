@@ -346,6 +346,16 @@ platform is the thing to check if a paste ever misbehaves.
 Where a paste is heard is `usePhotoReader`'s business, not this module's: on the document, anywhere on
 the page, except while a modal is open. See [components.md](components.md#feature-components).
 
+## `photo-session.ts`
+
+A `createPhotoAttachment` that does not belong to whatever is on screen. A read takes seconds, the conversation panel is keyed on the person, and a read owned by the panel therefore died when the user switched to someone else: the request was already paid for, its answer was thrown away, and the rail said nothing. So the read belongs to the **person** — as every other run in the app does — in a session the panel merely *binds* to while it is showing. `bind(sink)` hands the session a box (`describe`, `discard`); the unbind it returns is not a stop.
+
+What the panel loses on a switch is its box, which is local state and always was; what the session keeps is what the box was for. A description that finishes while nobody is bound waits, and `bind` brings it to the next box that appears. So does one that had already been delivered to a box since thrown away: a session in `read` *is* a description waiting to be checked. Anything typed around it, and any edits to it, went with the old box — what comes back is what the model wrote. Delivery therefore happens more than once, and **a sink must take the same description twice and keep one copy**: the composer's does (`prev.includes(description)`), and React's development double-mount (bind, unbind, bind) would stack two otherwise. `unbind` only unplugs *its own* box, because an old panel's cleanup can land after the new one has bound.
+
+The registry is `photoSessionFor(id)` (made on first ask) and `endPhotoSession(id)`, called when a person is deleted: an answer arriving for someone who is no longer there has nowhere to be shown, and the same reasoning already stopped a rebuild at that moment. `photoStatusStore` is the external store the rail reads — who has a photo reading, read, or failed, idle people omitted — replaced rather than mutated so `getSnapshot` is stable between changes. A reader inside a dialog uses `createPhotoSession` directly and `stop()`s on unmount; nothing registers it.
+
+Tested with the panel absent when each slow step finishes: unbinding does not abort (the bug), a description finishing unbound waits and is brought back, a thrown-away box gets it again, a stale unbind does not unplug a newer box, a failure while away is waiting as a failure with Retry, discard reaches the box it is now in, two people read independently, and ending a person aborts their read and lands nothing. Each rule was removed in turn to confirm a test fails — except one that turned out to be unobservable and was deleted instead (clearing the waiting description when the picture goes: `bind` only looks while the state is `read`, and every way into `read` writes it first).
+
 ## `agent.ts` + `tools/`
 
 Only `suggestMove` uses this — the two rebuild engines are pure transcript analysis and deliberately
