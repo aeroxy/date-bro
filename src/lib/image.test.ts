@@ -1,11 +1,12 @@
 // See the note at the top of `coach/profile.test.ts` about the reference below.
 /// <reference types="bun" />
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 
-import { fitWithin, MAX_EDGE, MAX_TILES, OVERLAP, planImage } from './image'
+import { fitWithin, MAX_EDGE, MAX_TILES, OVERLAP, planImage, prepareImage } from './image'
 
 // `prepareImage` is canvas and decode, which only a browser has; what can be
-// wrong without one is the arithmetic, so that is what's pinned here.
+// wrong without one is the arithmetic, and the check it makes before decoding
+// anything, so those are what's pinned here.
 describe('fitWithin', () => {
   test('scales the longest side down to the limit and keeps the shape', () => {
     expect(fitWithin(4032, 3024)).toEqual({ width: MAX_EDGE, height: 1932 })
@@ -139,5 +140,56 @@ describe('planImage: a scrolled capture', () => {
 
   test('keeps full width up to the point MAX_TILES can carry it', () => {
     expect(planImage(1170, 19000).width).toBe(1170)
+  })
+})
+
+describe('prepareImage: what it refuses before it decodes anything', () => {
+  // The decoder is replaced, so these test the check and not what Bun happens to
+  // have: whether a blob got as far as the decoder is the whole question.
+  const realDecoder = globalThis.createImageBitmap
+  afterEach(() => {
+    globalThis.createImageBitmap = realDecoder
+  })
+  const decoderThat = (outcome: 'cannot-decode') => {
+    const asked: Blob[] = []
+    globalThis.createImageBitmap = (async (source: Blob) => {
+      asked.push(source)
+      throw new Error(outcome)
+    }) as unknown as typeof createImageBitmap
+    return asked
+  }
+
+  test('a blob that says it is something else never reaches the decoder', async () => {
+    const asked = decoderThat('cannot-decode')
+    await expect(prepareImage(new Blob(['hello'], { type: 'text/plain' }))).rejects.toThrow(
+      'That file is not an image.',
+    )
+    await expect(prepareImage(new Blob(['%PDF'], { type: 'application/pdf' }))).rejects.toThrow(
+      'That file is not an image.',
+    )
+    expect(asked).toHaveLength(0)
+  })
+
+  test('a blob with no type at all is handed to the decoder, which reads the bytes, not the name', async () => {
+    // An extensionless screenshot, or an extension the OS has no MIME for, arrives
+    // with `type === ''` and opens fine — it was being refused as "not an image".
+    const asked = decoderThat('cannot-decode')
+    const unlabelled = new Blob(['x'])
+    expect(unlabelled.type).toBe('')
+    await expect(prepareImage(unlabelled)).rejects.toThrow(/Couldn't open that image/)
+    expect(asked).toEqual([unlabelled])
+  })
+
+  test('and when the decoder cannot open it, the message says so rather than calling it a non-image', async () => {
+    decoderThat('cannot-decode')
+    await expect(prepareImage(new Blob(['not a picture']))).rejects.not.toThrow('That file is not an image.')
+  })
+
+  test('a blob that says it is an image goes to the decoder, whatever it really is', async () => {
+    const asked = decoderThat('cannot-decode')
+    await expect(prepareImage(new Blob(['x'], { type: 'image/heic' }))).rejects.toThrow(
+      /Couldn't open that image/,
+    )
+    expect(asked).toHaveLength(1)
   })
 })

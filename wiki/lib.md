@@ -275,7 +275,12 @@ Two details that fail silently: it is **drawn on white first**, since a transpar
 JPEG encoding black and a describer told the picture is black has been told something false; and it
 asks for `imageOrientation: 'from-image'` by name, because a phone stores a portrait shot sideways with
 a flag saying so and a decode that ignores the flag hands the model a picture on its side (checked with
-a hand-built orientation-6 JPEG: 200×100 in, 100×200 out). What Chrome can't decode — HEIC above all,
+a hand-built orientation-6 JPEG: 200×100 in, 100×200 out). Only a blob that *says* it is something else
+(`text/plain`, a PDF) is refused before decoding; one with **no type at all** — an extensionless screenshot, or an
+extension the OS has no MIME for, which reaches here by upload since a paste is already filtered to `image/*` — goes to
+the decoder, which reads the bytes and not the name. It used to be turned away as "not an image", which contradicted the
+point of the module: whatever Chrome can decode, it can send. (If it really isn't a picture the decoder says so, in its
+own words.) What Chrome can't decode — HEIC above all,
 or a capture too tall to decode — throws a message that says so.
 
 ## `photo-attachment.ts`
