@@ -122,7 +122,12 @@ export function planImage(width: number, height: number): ImagePlan {
  * on its side to describe.
  */
 export async function prepareImage(source: Blob): Promise<ImagePart[]> {
-  if (!source.type.startsWith('image/')) throw new Error('That file is not an image.')
+  // Refused up front only when the blob *says* it is something else. A file with no
+  // type at all — no extension, or one the OS has no name for — goes to the decoder,
+  // which reads the bytes and not the name: an extensionless screenshot opens fine,
+  // and calling it "not an image" from a missing label would turn away pictures
+  // Chrome can read. (If it really isn't one, the decoder says so.)
+  if (source.type && !source.type.startsWith('image/')) throw new Error('That file is not an image.')
 
   let bitmap: ImageBitmap
   try {
