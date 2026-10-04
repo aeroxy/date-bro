@@ -216,6 +216,9 @@ function turnBlock(record: DateRecord, turn: NumberedTurn): string {
     // Tagged, as in the prompt: this file is read by someone who was not there,
     // and a paragraph under her name that she never wrote is the thing to mark.
     quote(turn.photo ? `${PHOTO_TAG} ${turn.text}` : turn.text),
+    // Under the quote and not in it, for the same reader: a reaction at the end of
+    // the quoted words is the end of what was said.
+    turn.reactions?.trim() ? `_Reaction: ${turn.reactions.trim()}_` : null,
     turn.note?.trim() ? `_Your note: ${turn.note.trim()}_` : null,
     drafts(turn),
   ]

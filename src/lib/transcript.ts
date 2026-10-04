@@ -152,8 +152,11 @@ export function formatTurn(record: Pick<DateRecord, 'name'>, turn: NumberedTurn)
     .filter(Boolean)
     .join(', ')
   const head = `[${turn.number}] ${speakerLabel(record, turn.speaker)}${meta ? ` (${meta})` : ''}:`
+  // On a line of its own, as the note is: a reaction appended to the text reads as
+  // the end of the sentence, which is what it used to be taken for.
+  const reaction = turn.reactions?.trim() ? `\n    (reaction: ${turn.reactions.trim()})` : ''
   const note = turn.note?.trim() ? `\n    (user's note: ${turn.note.trim()})` : ''
-  return `${head} ${turn.photo ? `${PHOTO_TAG} ` : ''}${turn.text.trim()}${note}`
+  return `${head} ${turn.photo ? `${PHOTO_TAG} ` : ''}${turn.text.trim()}${reaction}${note}`
 }
 
 /**
@@ -233,12 +236,59 @@ export function logLineReader(theirName: string): (line: string) => LogLine | nu
   }
 }
 
+// A custom emoji (`:party_parrot:`), or a run of the characters an emoji is built
+// from — pictographs, skin tones, flag halves, and the joiners between them. Global
+// because it is only ever used to strip.
+const EMOJI_TOKENS =
+  /:\w+:|[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\uFE0F\u200D\u20E3]+/gu
+
+// Telegram shows a count beside the emoji, so digits and spaces are allowed to
+// remain; anything else — a letter, a punctuation mark — is a word, and a bracket
+// holding one is the person's own.
+function isEmojiList(s: string): boolean {
+  const rest = s.replace(EMOJI_TOKENS, '')
+  return rest.length < s.length && /^[\s\d]*$/.test(rest)
+}
+
+const REACTION_LABEL = /^\s*reactions?:\s*/i
+
+/**
+ * A reaction written at the end of a line, taken off it.
+ *
+ * Two spellings, one rule. `[reaction: ❤️]` is what the importers write
+ * (`import/render.ts`): the source knows it is a reaction, so the line says so
+ * rather than leaving it to be guessed. A bare `[❤️]` is what they wrote before,
+ * and still turns up in logs and records from then; it is taken only when the whole
+ * bracket is emoji, so `[1]` and `[laughs]` remain the words they are.
+ *
+ * Only off the end, and only when something is left in front of it. A line that is
+ * nothing but a bracket is the message, and a reaction with no message under it is
+ * not a turn.
+ */
+export function splitReaction(text: string): { text: string; reactions?: string } {
+  const whole = text.trimEnd()
+  const open = whole.lastIndexOf('[')
+  if (open < 0 || !whole.endsWith(']')) return { text }
+  const inner = whole.slice(open + 1, -1)
+  const labelled = REACTION_LABEL.test(inner)
+  const reactions = (labelled ? inner.replace(REACTION_LABEL, '') : inner).trim()
+  const rest = whole.slice(0, open).trimEnd()
+  if (!reactions || !rest || inner.includes(']')) return { text }
+  if (!labelled && !isEmojiList(reactions)) return { text }
+  return { text: rest, reactions }
+}
+
 /**
  * Parse a pasted chat log into turns. Handles `Name: text` lines with the
  * common label variants plus the date's own name, and an optional bracketed
  * timestamp right after the label (`Name [Tue 9pm]: text`). Unprefixed lines
  * continue the previous turn, so multi-line texts survive. Anything before
  * the first recognised label is dropped.
+ *
+ * A reaction at the end of a message (`sure [reaction: ❤️]`) comes out as
+ * `Turn.reactions`, not as the last words of the text. Looked for once the turn is
+ * whole rather than on its own line, because a hand-typed multi-line message
+ * carries it on its last line.
  */
 export function parsePastedLog(raw: string, theirName: string): Turn[] {
   const read = logLineReader(theirName)
@@ -261,6 +311,12 @@ export function parsePastedLog(raw: string, theirName: string): Turn[] {
     } else if (current) {
       current.text = `${current.text}\n${trimmed}`.trim()
     }
+  }
+
+  for (const turn of turns) {
+    const { text, reactions } = splitReaction(turn.text)
+    turn.text = text
+    if (reactions) turn.reactions = reactions
   }
 
   return turns.filter((t) => t.text.length > 0)

@@ -166,6 +166,17 @@ in an uncached segment below it.
   And the description's wording is not evidence about how either person writes — the one a careless
   run breaks, by taking the describer's sentences for her voice. The speaker is whose picture it is:
   one they sent, one the user sent, or (under NOTE) one the user was shown.
+- **A `(reaction: …)` line is tapped, not typed.** A turn with `Turn.reactions` renders its emoji on an
+  indented line under the message, the way the user's note is, and `reactionEntryNote` says what that is —
+  only when some turn has one, in the same uncached closing segment, so a transcript without any is
+  byte-identical to before. It exists because of how the same emoji used to arrive: the importers
+  appended `[❤️]` to the text, `parsePastedLog` kept it, and the model read a sentence ending in a
+  bracketed emoji as something the person typed. The note says it is not part of what the message says
+  and the sender did not write it, and states the one fact the importers can't supply: *whose* it is.
+  Instagram and Telegram don't say in what is read, so the note gives the one-to-one default once — a
+  reaction under a ME line is theirs, one under a line from them is the user's — rather than stamping a
+  guess on every line, which would put it in the list this app treats as fact. It is a response to that
+  one message and nothing more: not a reply, and nothing about how either person writes.
 - **Open questions are askable, not just readable.** Both schemas already end a run by naming what
   the engine doesn't know (`open_questions` — 3-6 for them, 2-5 for the user). `ContextView` renders
   each as a button: answer it in a few words and the answer lands in the pool as a `context` turn

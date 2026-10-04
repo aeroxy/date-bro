@@ -59,3 +59,56 @@ describe('the photo note', () => {
     expect(s.some((x) => x.text.includes('Lines starting [photo]'))).toBe(true)
   })
 })
+
+const reacted: Turn = { id: 'c', speaker: 'them', text: 'made it to the lake', reactions: '❤️' }
+
+describe('the reaction note', () => {
+  test('is absent from a transcript with none, and so are the lines', () => {
+    const text = persons([said, photo]).map((s) => s.text).join('\n')
+    expect(text).not.toContain('(reaction:')
+    expect(text).not.toContain('emoji reaction')
+  })
+
+  test('a blank one does not summon it', () => {
+    const blank: Turn = { ...said, reactions: '  ' }
+    expect(persons([blank]).map((s) => s.text).join('\n')).not.toContain('emoji reaction')
+  })
+
+  test('appears once, and the reaction is a line under the words, not part of them', () => {
+    const all = persons([said, reacted]).map((s) => s.text)
+    expect(all).toContain('[2] MIRA: made it to the lake\n    (reaction: ❤️)')
+    expect(all.filter((t) => t.includes('emoji reaction on that message'))).toHaveLength(1)
+  })
+
+  test('says whose it is, since the importers cannot', () => {
+    const note = persons([reacted]).find((s) => s.text.includes('emoji reaction'))!.text
+    expect(note).toContain('a reaction under a ME line is theirs')
+  })
+
+  test('sits below the last cache mark, in the uncached closing segment', () => {
+    const s = persons([said, reacted])
+    const note = s.findIndex((x) => x.text.includes('emoji reaction'))
+    const lastMark = s.map((x) => x.cache).lastIndexOf(true)
+    expect(note).toBeGreaterThan(lastMark)
+  })
+
+  test('adding one leaves every turn above it byte-identical', () => {
+    // The prefix cache reads by longest matching prefix. Only the line that gained
+    // a reaction may differ; everything before it has to stay as it was.
+    const turnsOf = (turns: Turn[]) => {
+      const all = persons(turns).map((s) => s.text)
+      const from = all.indexOf('<transcript>') + 1
+      return all.slice(from, from + turns.length)
+    }
+    const before = turnsOf([said, said, said])
+    const after = turnsOf([said, said, { ...said, reactions: '👍' }])
+    expect(before).toHaveLength(3)
+    expect(after.slice(0, 2)).toEqual(before.slice(0, 2))
+    expect(after[2]).toBe(`${before[2]}\n    (reaction: 👍)`)
+  })
+
+  test('reaches the next-move engine too, which reads the same transcript', () => {
+    const s = strata(buildSuggestionMessages(record([said, reacted]), '', '', '', false, false))
+    expect(s.some((x) => x.text.includes('emoji reaction on that message'))).toBe(true)
+  })
+})
