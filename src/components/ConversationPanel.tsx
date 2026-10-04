@@ -349,6 +349,19 @@ export function ConversationPanel({
                       {turn.text}
                     </div>
                   )}
+                  {/* Under the bubble rather than inside it: it is something
+                      tapped, not typed, and inside it would read as the end of
+                      the sentence — which is how it was mistaken for one. */}
+                  {turn.reactions?.trim() ? (
+                    <div className={cn('mt-1', mine && 'text-right')}>
+                      <span
+                        className="inline-block rounded-full border border-border bg-surface px-2 py-px text-[12px] leading-snug shadow-xs"
+                        title="A reaction on this message, not something that was said"
+                      >
+                        {turn.reactions.trim()}
+                      </span>
+                    </div>
+                  ) : null}
                   <div
                     className={cn(
                       'mt-1 flex items-center gap-2 text-[10.5px] text-fg-3',
@@ -653,7 +666,14 @@ function EditTurnModal({
               onChange={(next) =>
                 setDraft(
                   next === 'context'
-                    ? { ...draft, speaker: next, channel: undefined, note: undefined }
+                    ? {
+                        ...draft,
+                        speaker: next,
+                        channel: undefined,
+                        note: undefined,
+                        // A reaction is on a message; a note has nothing to react to.
+                        reactions: undefined,
+                      }
                     : { ...draft, speaker: next as Speaker, asked: undefined },
                 )
               }
@@ -672,12 +692,23 @@ function EditTurnModal({
           </Field>
         </div>
         {isNote ? null : (
-          <Field label="Your note" hint="tone, body language, what didn't make it into text">
-            <Input
-              value={draft.note ?? ''}
-              onChange={(e) => setDraft({ ...draft, note: e.target.value })}
-            />
-          </Field>
+          <>
+            {/* Its own field because it is not part of what was said: the
+                importers used to leave it on the end of the text, and the coach
+                read it as the end of the sentence. */}
+            <Field label="Reaction" hint="emoji left on this message, not part of what was said">
+              <Input
+                value={draft.reactions ?? ''}
+                onChange={(e) => setDraft({ ...draft, reactions: e.target.value || undefined })}
+              />
+            </Field>
+            <Field label="Your note" hint="tone, body language, what didn't make it into text">
+              <Input
+                value={draft.note ?? ''}
+                onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+              />
+            </Field>
+          </>
         )}
       </div>
     </Modal>
@@ -1367,6 +1398,11 @@ function ImportModal({
               </Chip>
               {t.at ? <span className="flex-none text-[11px] text-fg-3">{t.at}</span> : null}
               <span className="line-clamp-1 text-fg-2">{t.text}</span>
+              {t.reactions ? (
+                <span className="flex-none" title="A reaction on this message">
+                  {t.reactions}
+                </span>
+              ) : null}
             </div>
           ))}
           {parsed.length > 6 ? (

@@ -265,3 +265,25 @@ describe('recordToMarkdown and photos', () => {
     expect(md).not.toContain('> [photo] look at this!')
   })
 })
+
+describe('recordToMarkdown and reactions', () => {
+  test('puts a reaction under the quote, not at the end of what was said', () => {
+    const turns: Turn[] = [
+      { id: 'm', number: 1, speaker: 'them', text: 'made it to the lake', reactions: '❤️' },
+      { id: 'n', number: 2, speaker: 'me', text: 'nice' },
+    ]
+    const md = recordToMarkdown(record({ turns, nextTurnNumber: 3 }), NOW)
+    expect(md).toContain('> made it to the lake\n\n_Reaction: ❤️_')
+    expect(md).not.toContain('lake ❤️')
+    // A turn without one is untouched.
+    expect(md.match(/_Reaction:/g)).toHaveLength(1)
+  })
+
+  test('sits between the quote and the user\'s note', () => {
+    const turns: Turn[] = [
+      { id: 'm', number: 1, speaker: 'them', text: 'sure', reactions: '👍', note: 'flat' },
+    ]
+    const md = recordToMarkdown(record({ turns, nextTurnNumber: 2 }), NOW)
+    expect(md).toContain('> sure\n\n_Reaction: 👍_\n\n_Your note: flat_')
+  })
+})

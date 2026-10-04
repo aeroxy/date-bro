@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type { ProfileProposal, Suggestion } from '@/types/coach'
 import type { DateRecord, Turn } from '@/types/date'
-import { migrateProposals } from './db'
+import { migrateProposals, migrateReactions } from './db'
 
 const update = { changed: true as const, sections: [{ heading: 'Right now', mode: 'append' as const, content: '- x' }] }
 
@@ -54,5 +54,76 @@ describe('migrateProposals', () => {
     const plain = { id: 't1', speaker: 'them', text: 'hey' } as Turn
     const out = migrateProposals(record([plain, legacy({ target: 'them', update })]))
     expect(out.turns[0]).toBe(plain)
+  })
+})
+
+// What this rewrites is stored message text, on a pattern. The cases it must
+// leave alone matter as much as the one it lifts.
+describe('migrateReactions', () => {
+  const said = (text: string, over: Partial<Turn> = {}): Turn =>
+    ({ id: 't1', speaker: 'them', text, ...over }) as Turn
+
+  const only = (out: DateRecord) => out.turns[0]!
+
+  test('lifts the bracketed emoji an old import left on the end of the text', () => {
+    const out = migrateReactions(record([said('sure [❤️]')]))
+    expect(only(out).text).toBe('sure')
+    expect(only(out).reactions).toBe('❤️')
+  })
+
+  test('lifts it from either side, and from a captionless photo line', () => {
+    const out = migrateReactions(
+      record([said('haha [😂]', { speaker: 'me' }), said('[photo] [👍 2]', { id: 't2' })]),
+    )
+    expect(out.turns.map((t) => [t.text, t.reactions])).toEqual([
+      ['haha', '😂'],
+      ['[photo]', '👍 2'],
+    ])
+  })
+
+  test('keeps everything else about the turn', () => {
+    const turn = said('sure [❤️]', { number: 7, at: 'Tue 9pm', note: 'flat' })
+    expect(only(migrateReactions(record([turn])))).toEqual({
+      id: 't1',
+      speaker: 'them',
+      number: 7,
+      at: 'Tue 9pm',
+      note: 'flat',
+      text: 'sure',
+      reactions: '❤️',
+    })
+  })
+
+  test('leaves a bracket that holds a word, or a number, as the words they are', () => {
+    for (const text of ['see [1]', 'and then [laughs]', 'look [sticker 😂]', '[❤️] first', '[❤️]']) {
+      const turn = said(text)
+      const already = record([turn])
+      expect(migrateReactions(already)).toBe(already)
+    }
+  })
+
+  test('does not read a NOTE, a coach turn or a photo description', () => {
+    const turns = [
+      said('learned this from a friend [❤️]', { id: 'n', speaker: 'context' }),
+      said('Get a evening on the table [❤️]', { id: 'c', speaker: 'coach' }),
+      said('A selfie by a lake [❤️]', { id: 'p', photo: true }),
+    ]
+    const already = record(turns)
+    expect(migrateReactions(already)).toBe(already)
+  })
+
+  test('does not overwrite a reaction the turn already has', () => {
+    const already = record([said('sure [❤️]', { reactions: '👍' })])
+    expect(migrateReactions(already)).toBe(already)
+  })
+
+  test('is idempotent, and returns the record itself once there is nothing left to lift', () => {
+    const once = migrateReactions(record([said('sure [❤️]')]))
+    expect(migrateReactions(once)).toBe(once)
+  })
+
+  test('returns a record with nothing to lift by identity', () => {
+    const already = record([said('hey you'), said('how was your day', { speaker: 'me', id: 't2' })])
+    expect(migrateReactions(already)).toBe(already)
   })
 })

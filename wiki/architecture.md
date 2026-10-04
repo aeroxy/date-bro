@@ -115,7 +115,7 @@ Plus one background → app page broadcast, `QWEN_CHAT_THINKING` (`{ requestId, 
 | `chrome.storage.local` | `dateBroImportLast` | the "last N messages" the previous import fetched with; blank (the default) means the whole history |
 | `chrome.storage.local` | `qwen_device_id` | cached device id for the Qwen fingerprint |
 
-`normalize` in `lib/db.ts` runs four migrations and then `numberTurns`, on every read, under the same
+`normalize` in `lib/db.ts` runs its migrations and then `numberTurns`, on every read, under the same
 rule: **derive everything, mint nothing** — with one deliberate exception, the last step, where the
 thing allocated is derived from the array's own order and so comes out the same on every pass.
 `normalize` runs on reads, not once at startup, so a record can be read a hundred times before its
@@ -146,6 +146,14 @@ turns.
 - `migrateContexts` — records carrying the retired `themContext`/`meContext` schemas get them
   rendered into the markdown profiles by `personToMarkdown` / `selfToMarkdown`, with the structured
   half (`interest_read`, flags, `goal_read`, open questions) lifted into the profile's `judgment`.
+- `migrateReactions` — a reaction used to be the end of a turn's text (`sure [❤️]`), because the
+  importers rendered it there and the parser kept it. It is lifted into `Turn.reactions` by the same
+  `splitReaction` the parser uses, so a pasted log and a stored record can't disagree about what counts. The
+  bare form is only taken when the whole bracket is emoji — `[1]` and `[laughs]` stay as they were, and
+  a turn that was nothing but a bracket stays a turn — and only on `them`/`me` turns without a photo or a
+  reaction already. It rewrites stored text on a pattern, which is why it is one of two migrations exported
+  for a test. Idempotent, and returns the record by identity when nothing moves. It commutes with the rest,
+  so it sits just before `numberTurns` without a reason to be anywhere else.
 - `numberTurns` (`lib/transcript.ts`) — last, and the one step that allocates rather than derives. A
   turn written before `Turn.number` existed hasn't got one, so it gets one here, counted from 1 in
   the order the **migrated** array ends up in. That is exactly what the positional numbering this
@@ -195,6 +203,16 @@ since no source log can contain it. A string test on the text would be a guess a
 
 **The flag is sticky on purpose.** It is decided by whether a photo was attached when the turn was added, not by whether the text still matches what the model wrote, because correcting the description is exactly what the user is asked to do and any edit would otherwise drop the flag. The two ways to be wrong aren't equal. Set on words the user typed, it tags their sentence and leaves it out of a word count — visible at once in the bubble, and undone with the checkbox the edit modal shows on a flagged turn. Missing from a description, it files a model's paragraph as something a person said, which is the conflation the flag exists to prevent and which nothing on screen would show. So when unsure it stays set, and the user, who is the only one who can tell, owns it. (A review proposed computing it as `text.includes(description)`; that fails the second way on every correction.) Adding
 one bumps `turnsUpdatedAt` like any message does: what she chose to send is evidence.
+
+**A reaction is a field too — `Turn.reactions`, the emoji left on a `them` or `me` message.** Tapped,
+not typed, so it can't live in `text`: there it was read as the end of what the person said, counted as
+a word in `transcriptStats`, and indistinguishable from a bracketed emoji they really typed. As a field
+the prompt says once what it is (`reactionEntryNote`, [coach.md](coach.md)), the stats leave it out, the
+bubble shows it under the message rather than inside it, and the user can edit or clear it. It is the
+display string the source showed — `❤️😂`, Telegram's `❤️ 2`, a Discord `:custom:` — not parsed further.
+*Whose* it is isn't recorded: Instagram and Telegram don't say in what the importers read, and a guess
+stamped on every line would be a claim about a person in the one list this app treats as fact, so the
+prompt carries the one-to-one default instead.
 
 **`turnsUpdatedAt` tracks evidence, not writes to `turns`.** Adding a `context` entry or a message
 bumps it and marks every existing read stale, which is right — a new fact is exactly what should

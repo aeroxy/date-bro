@@ -7,7 +7,7 @@ import {
   selfJudgment,
   selfToMarkdown,
 } from '@/coach/profile'
-import { adviceTurn, numberTurns } from '@/lib/transcript'
+import { adviceTurn, numberTurns, splitReaction } from '@/lib/transcript'
 import type { PersonContext, ProfileProposal, SelfContext, Suggestion } from '@/types/coach'
 import type { DateRecord } from '@/types/date'
 
@@ -203,19 +203,59 @@ export function migrateProposals(record: DateRecord): DateRecord {
   }
 }
 
+/**
+ * A reaction used to be the end of a turn's text. The importers rendered `[❤️]`
+ * after the words and `parsePastedLog` kept it there, so every record imported
+ * before `Turn.reactions` holds one inside the message it reacted to, where the
+ * model reads it as part of what was typed.
+ *
+ * Lifted by the reading the parser uses (`splitReaction`), so a pasted log and a
+ * stored record cannot disagree about what counts as one. That reading is strict
+ * about the bare form — all emoji, or it is left alone — which is what makes it fit
+ * to run unasked over stored text: `[1]` and `[laughs]` stay as they were, and a
+ * turn that was nothing but a bracket stays a turn.
+ *
+ * Said turns only. A NOTE is the user's own prose, a `coach` turn is derived from a
+ * suggestion, and a photo's text is a model's description; none of them ever had a
+ * reaction rendered into it. And never over a turn that already has one — a record
+ * saved since the field existed is not in the old shape.
+ *
+ * The price of running on every read: a message someone *types* ending in a
+ * bracketed emoji is lifted on its next load as well. It is the same emoji, shown as
+ * a chip and editable in the dialog, so nothing is lost.
+ *
+ * Exported for its test, with `migrateProposals`: this one rewrites stored message
+ * text on a pattern rather than on a field, so the cases it must leave alone are
+ * written down.
+ */
+export function migrateReactions(record: DateRecord): DateRecord {
+  let changed = false
+  const turns = record.turns.map((turn) => {
+    if ((turn.speaker !== 'me' && turn.speaker !== 'them') || turn.photo || turn.reactions) return turn
+    const { text, reactions } = splitReaction(turn.text)
+    if (!reactions) return turn
+    changed = true
+    return { ...turn, text, reactions }
+  })
+  // By identity when nothing moved, like `numberTurns`: a hundred reads render the
+  // same bytes and nothing below re-renders for them.
+  return changed ? { ...record, turns } : record
+}
+
 // Every default below reads from `migrated`, never from `record`. Reading the
 // original would quietly undo whatever a migration just did — a default built
 // from the untouched record restores exactly what a migration was there to
 // move, leaving the same content in two places forever.
 //
-// The order of the six is not arbitrary in three places. `migrateSectionNames`
+// The order of the seven is not arbitrary in three places. `migrateSectionNames`
 // rewrites headings inside `themProfile` / `meProfile`, and for a legacy record
 // `migrateContexts` is what creates those — run the rename first and it finds
 // nothing to rename in exactly the documents it exists for. `migrateProposals`
 // runs after `migrateSuggestions`, which is what turns a retired suggestion into
 // an advice turn — and a suggestion old enough to be in that array is old enough
 // to carry the single-`profile` shape. And `numberTurns` runs last, after both
-// of the ones that add turns; see below.
+// of the ones that add turns; see below. `migrateReactions` is the one with no
+// place to be: it reads said turns' text and nothing any other step writes.
 function normalize(record: DateRecord): DateRecord {
   // `numberTurns` last of the turn-touching migrations, and that order is
   // load-bearing. `migrateSeed` *prepends* the old seed blobs as notes, and the
@@ -225,7 +265,9 @@ function normalize(record: DateRecord): DateRecord {
   // reproduces exactly that. Numbering first and letting the notes arrive
   // afterwards would number the same prose two turns off.
   const migrated = numberTurns(
-    migrateProposals(migrateSuggestions(migrateSectionNames(migrateContexts(migrateSeed(record))))),
+    migrateReactions(
+      migrateProposals(migrateSuggestions(migrateSectionNames(migrateContexts(migrateSeed(record))))),
+    ),
   )
   return {
     ...migrated,

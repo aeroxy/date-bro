@@ -4,7 +4,15 @@ import { describe, expect, test } from 'bun:test'
 
 import type { Suggestion } from '@/types/coach'
 import type { DateRecord, Turn } from '@/types/date'
-import { adviceTurn, formatTurn, numberTurns, speakerLabel, transcriptStats } from './transcript'
+import {
+  adviceTurn,
+  formatTurn,
+  numberTurns,
+  parsePastedLog,
+  speakerLabel,
+  splitReaction,
+  transcriptStats,
+} from './transcript'
 
 const suggestion = (over: Partial<Suggestion> = {}): Suggestion => ({
   id: 'sug-1',
@@ -269,6 +277,146 @@ describe('photo turns', () => {
     expect(stats.total).toBe(2)
     expect(stats.themTurns).toBe(2)
     expect(stats.themWords).toBe(2)
+    expect(stats.themQuestions).toBe(0)
+  })
+})
+
+// A reaction is tapped, not typed. It rode in `text` as a trailing `[❤️]`, so the
+// model read the end of a sentence; it is a field now, and every place that
+// handled the text has to treat it as something other than words.
+describe('reactions', () => {
+  describe('splitReaction', () => {
+    test('takes the labelled form off the end', () => {
+      expect(splitReaction('sure [reaction: ❤️]')).toEqual({ text: 'sure', reactions: '❤️' })
+      expect(splitReaction('sure [reactions: ❤️😂]')).toEqual({ text: 'sure', reactions: '❤️😂' })
+    })
+
+    test('takes the labelled form whatever is inside it', () => {
+      // The importer knows what it wrote; the label is what makes this safe.
+      expect(splitReaction('sure [reaction: love it]')).toEqual({ text: 'sure', reactions: 'love it' })
+    })
+
+    test('takes the old bare form when it is all emoji', () => {
+      expect(splitReaction('sure [❤️]')).toEqual({ text: 'sure', reactions: '❤️' })
+      expect(splitReaction('sure [❤️😂]')).toEqual({ text: 'sure', reactions: '❤️😂' })
+      // Telegram's count, and a skin tone, a flag and a joined family, which are
+      // several code points each.
+      expect(splitReaction('sure [👍🏽 2 🇳🇱 👨‍👩‍👧]')).toEqual({
+        text: 'sure',
+        reactions: '👍🏽 2 🇳🇱 👨‍👩‍👧',
+      })
+      // Discord's custom emoji, by name.
+      expect(splitReaction('sure [:party_parrot:👍]')).toEqual({
+        text: 'sure',
+        reactions: ':party_parrot:👍',
+      })
+    })
+
+    test('leaves a bare bracket alone when anything in it is a word', () => {
+      expect(splitReaction('see note [1]')).toEqual({ text: 'see note [1]' })
+      expect(splitReaction('and then [laughs]')).toEqual({ text: 'and then [laughs]' })
+      expect(splitReaction('look [sticker 😂]')).toEqual({ text: 'look [sticker 😂]' })
+      expect(splitReaction('sure [2]')).toEqual({ text: 'sure [2]' })
+    })
+
+    test('keeps what came before it exactly, including its other brackets', () => {
+      expect(splitReaction('[re: you free?] [shared] bbc.com [reaction: 👍]')).toEqual({
+        text: '[re: you free?] [shared] bbc.com',
+        reactions: '👍',
+      })
+    })
+
+    test('only reads the end of the text', () => {
+      expect(splitReaction('[❤️] sure')).toEqual({ text: '[❤️] sure' })
+      expect(splitReaction('sure [reaction: ❤️] and then more')).toEqual({
+        text: 'sure [reaction: ❤️] and then more',
+      })
+    })
+
+    test('does not turn a message into nothing', () => {
+      // A bracket that is the whole line is the message; a reaction needs one
+      // under it.
+      expect(splitReaction('[❤️]')).toEqual({ text: '[❤️]' })
+      expect(splitReaction('[reaction: ❤️]')).toEqual({ text: '[reaction: ❤️]' })
+      expect(splitReaction('sure [reaction: ]')).toEqual({ text: 'sure [reaction: ]' })
+    })
+
+    test('returns the text it was given when there is nothing to take', () => {
+      expect(splitReaction('hey you')).toEqual({ text: 'hey you' })
+      expect(splitReaction('hey you  ')).toEqual({ text: 'hey you  ' })
+    })
+  })
+
+  describe('parsePastedLog', () => {
+    test('lifts it off a one-line message', () => {
+      const [turn] = parsePastedLog('Mira [Tue 9pm]: sure [reaction: ❤️]', 'Mira')
+      expect(turn).toMatchObject({ speaker: 'them', at: 'Tue 9pm', text: 'sure', reactions: '❤️' })
+    })
+
+    test('lifts it off the last line of a message that runs over several', () => {
+      const [turn] = parsePastedLog('Me: first line\nsecond line [reaction: 😂]', 'Mira')
+      expect(turn!.text).toBe('first line\nsecond line')
+      expect(turn!.reactions).toBe('😂')
+    })
+
+    test('lifts it off a continuation line of its own', () => {
+      const [turn] = parsePastedLog('Me: first line\nsecond line\n[reaction: 😂]', 'Mira')
+      expect(turn!.text).toBe('first line\nsecond line')
+      expect(turn!.reactions).toBe('😂')
+    })
+
+    test('gives each turn its own, and leaves the rest without the key', () => {
+      const turns = parsePastedLog('Me: a [reaction: ❤️]\nMira: b\nMe: c [reaction: 👍]', 'Mira')
+      expect(turns.map((t) => t.reactions)).toEqual(['❤️', undefined, '👍'])
+      expect(turns[1]).not.toHaveProperty('reactions')
+    })
+
+    test('keeps a turn whose text is only a bracket', () => {
+      const [turn] = parsePastedLog('Me: [reaction: ❤️]', 'Mira')
+      expect(turn!.text).toBe('[reaction: ❤️]')
+      expect(turn).not.toHaveProperty('reactions')
+    })
+  })
+
+  describe('formatTurn', () => {
+    const said = (over: Partial<Turn> = {}) => ({
+      id: 'a',
+      number: 12,
+      speaker: 'them' as const,
+      text: 'sure',
+      ...over,
+    })
+
+    test('puts it on a line of its own, not on the end of the words', () => {
+      expect(formatTurn(record([]), said({ reactions: '❤️' }))).toBe(
+        '[12] MIRA: sure\n    (reaction: ❤️)',
+      )
+    })
+
+    test('sits between the words and the user\'s note', () => {
+      expect(formatTurn(record([]), said({ reactions: '❤️', note: 'flat tone' }))).toBe(
+        "[12] MIRA: sure\n    (reaction: ❤️)\n    (user's note: flat tone)",
+      )
+    })
+
+    test('is on the line whoever said it, and does not touch the label', () => {
+      expect(formatTurn(record([]), said({ speaker: 'me', at: 'Tue 9pm', reactions: '😂' }))).toBe(
+        '[12] ME (Tue 9pm): sure\n    (reaction: 😂)',
+      )
+    })
+
+    test('leaves a turn without one byte-identical, blank or absent', () => {
+      expect(formatTurn(record([]), said())).toBe('[12] MIRA: sure')
+      expect(formatTurn(record([]), said({ reactions: '   ' }))).toBe('[12] MIRA: sure')
+    })
+  })
+
+  test('are not words: a message answered with one is still one word', () => {
+    const stats = transcriptStats(
+      record([{ id: '1', speaker: 'them', text: 'sure', reactions: '❤️ 2 👍 are three more' }]),
+    )
+    expect(stats.themTurns).toBe(1)
+    expect(stats.themWords).toBe(1)
     expect(stats.themQuestions).toBe(0)
   })
 })

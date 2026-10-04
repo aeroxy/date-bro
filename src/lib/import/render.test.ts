@@ -48,7 +48,11 @@ describe('renderLog', () => {
 
   test('brackets the asides around the text', () => {
     const line = renderLog([msg({ text: 'sure', reply: 'you free thursday?', reactions: '❤️' })])
-    expect(line).toEndWith(': [re: you free thursday?] sure [❤️]')
+    expect(line).toEndWith(': [re: you free thursday?] sure [reaction: ❤️]')
+  })
+
+  test('drops a reaction on a message with nothing else to show', () => {
+    expect(renderLog([msg({ text: '', reactions: '❤️' })])).toBe('')
   })
 
   test('does not repeat a shared link the text already carries', () => {
@@ -78,6 +82,33 @@ describe('round trip', () => {
     const turns = parsePastedLog(renderLog(messages), 'Bara')
     expect(turns[0]!.at).toBe('Sat Aug 8, 8:59pm')
     expect(turns[2]!.at).toBe('~Sat Aug 8, 9:32pm')
+  })
+
+  // The bug this exists for: a reaction was rendered as `[❤️]` after the words and
+  // parsed back as part of them, so the model read "sure [❤️]" as what the person typed.
+  // It has to come back as a field, with the text left exactly as it was said.
+  test('a reaction comes back as a field, not as the end of the message', () => {
+    const [turn] = parsePastedLog(renderLog([msg({ out: false, text: 'sure', reactions: '❤️' })]), 'Bara')
+    expect(turn!.text).toBe('sure')
+    expect(turn!.reactions).toBe('❤️')
+  })
+
+  test('each source\'s spelling of one survives the trip', () => {
+    // Instagram runs them together, Telegram adds a count, Discord names a custom one.
+    const spellings = ['❤️😂', '❤️ 2 👍', ':party_parrot:👍']
+    const turns = parsePastedLog(
+      renderLog(spellings.map((reactions, i) => msg({ id: `r${i}`, order: i, text: 'sure', reactions }))),
+      'Bara',
+    )
+    expect(turns.map((t) => t.reactions)).toEqual(spellings)
+    expect(turns.every((t) => t.text === 'sure')).toBe(true)
+  })
+
+  test('the asides around it stay in the text, and only the reaction leaves', () => {
+    const line = renderLog([msg({ text: 'sure', reply: 'you free thursday?', via: 'forwarded', reactions: '❤️' })])
+    const [turn] = parsePastedLog(line, 'Bara')
+    expect(turn!.text).toBe('[forwarded] [re: you free thursday?] sure')
+    expect(turn!.reactions).toBe('❤️')
   })
 })
 

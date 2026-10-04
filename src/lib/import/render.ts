@@ -94,7 +94,10 @@ function body(m: RawMessage): string | null {
   if (!text) return null
   if (m.reply) text = `[re: ${clip(m.reply, 40)}] ${text}`
   if (m.via) text = `[${m.via}] ${text}`
-  if (m.reactions) text = `${text} [${m.reactions}]`
+  // Labelled, and last: a bare `[❤️]` after the words reads as the end of the
+  // sentence — to the person reviewing the box, and to the model once it was kept
+  // as the end of the turn. `parsePastedLog` lifts it into `Turn.reactions`.
+  if (m.reactions) text = `${text} [reaction: ${m.reactions}]`
   // One turn per line is the whole format, and shared-post titles arrive with
   // newlines in them.
   return text.replace(/\s+/g, ' ').trim()

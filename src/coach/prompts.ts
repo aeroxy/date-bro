@@ -267,6 +267,7 @@ function transcriptSegments(record: DateRecord): ContentSegment[] {
     contextEntryNote(record),
     coachEntryNote(record),
     photoEntryNote(record),
+    reactionEntryNote(record),
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -323,6 +324,24 @@ function photoEntryNote(record: DateRecord): string | null {
   return `Lines starting ${PHOTO_TAG} are not words anyone typed. Each is a description of a picture, written by a vision model from the image alone - you never see the image. The speaker is whose picture it is: one they sent, one the user sent, or, under NOTE, one the user was shown. Numbered and citable like any other line.
 
 Take what a description says as reported, not verified. It can misread a place, a face or a word, and a detail your advice would lean on is worth asking the user to confirm rather than assuming. Someone choosing to send a picture, and what they chose, is evidence about them in the way a message is. The wording of the description is not: it says nothing about how either person writes.`
+}
+
+/**
+ * Same gating rule: nothing until a turn carries one, so a transcript without any
+ * is byte-identical to what it was.
+ *
+ * It says what the line is *not* first, because the failure it exists for is the
+ * old rendering - a bracketed emoji on the end of the message - being read as the
+ * end of what was typed. The second paragraph is the one fact the importers cannot
+ * supply: whose it is. Instagram and Telegram don't say in what is read, and
+ * stamping a guess on every line would put it in the list this app treats as fact,
+ * so it is stated here once, as the likely case rather than a certainty.
+ */
+function reactionEntryNote(record: DateRecord): string | null {
+  if (!record.turns.some((t) => t.reactions?.trim())) return null
+  return `A line followed by (reaction: ...) has an emoji reaction on that message. It was tapped, not typed: it is not part of what the message says, and the sender did not write it.
+
+Whose it is isn't recorded. In a one-to-one chat it is almost always the other person's - a reaction under a ME line is theirs, one under a line from them is the user's - so read it that way unless the user's note says otherwise. Take it as a response to that one message and nothing more. It is not a reply, and it says nothing about how either person writes.`
 }
 
 /**

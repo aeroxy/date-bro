@@ -102,6 +102,23 @@ export interface Turn {
    */
   photo?: true
   /**
+   * The emoji left on this message, as the source showed them — "❤️", "😂❤️",
+   * Telegram's "❤️ 2". Something tapped, not typed: it is not part of `text`, and
+   * the sender did not write it.
+   *
+   * It used to be. The importers rendered it as a trailing `[❤️]`, which
+   * `parsePastedLog` kept as the end of the message, so the model read a sentence
+   * ending in a bracketed emoji and took it for something the person said. It is
+   * a field for the reason `photo` is: the prompt has to say once what the line
+   * is, `transcriptStats` must not count it as words, and none of that can rest on
+   * guessing at the text.
+   *
+   * Whose it is isn't recorded — Instagram and Telegram don't say in what the
+   * importers read. In a one-to-one thread it is nearly always the other person's,
+   * which the prompt states once rather than stamping a guess on every line.
+   */
+  reactions?: string
+  /**
    * `coach` entries only: the whole suggestion this line is the summary of.
    *
    * Stored on the turn rather than in a list the turn points at, because the
