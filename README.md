@@ -67,7 +67,9 @@ unreadable, and read as one. The description lands in the box for you to check a
 correct, then goes into the conversation as a turn from her, from you, or as a note. Only the text is
 kept, never the photo. A chat imported with its photos as `[image]` placeholders can be fixed the same
 way: open **Edit** on that line and paste or upload the picture there, and the description replaces
-the placeholder. Which profile
+the placeholder. You can also write the description yourself, with no model involved: tick **This
+describes a photo** under the box, or **A description of a photo** when you edit any turn or note. It is
+filed the same way, and it's the way in when your main profile is Qwen. Which profile
 reads photos is a separate choice in Settings ("Photo reader"), because the model that writes the
 coach's answers isn't always one that can see: **Qwen can't read images**, so if it's your main
 profile, add a second profile with a vision-capable model and pick that.

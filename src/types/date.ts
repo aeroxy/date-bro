@@ -73,9 +73,12 @@ export interface Turn {
    */
   asked?: string
   /**
-   * `text` is a description of a picture, written by a vision model and checked
-   * by the user, not words anyone typed. `speaker` is whose picture it is: one
-   * she sent, one you did, or — as a NOTE — one you were shown.
+   * `text` is a description of a picture, not words anyone typed — written by a
+   * vision model and checked by the user, or by the user outright when nothing
+   * could read it or they know what it shows. Nothing records which, and nothing
+   * needs to: either is a second-hand report of an image the coach never sees.
+   * `speaker` is whose picture it is: one she sent, one you did, or — as a NOTE —
+   * one you were shown.
    *
    * A flag rather than a prefix inside `text`, because the description is the one
    * thing in the pool nobody said, and three places have to know: the prompt
@@ -89,13 +92,13 @@ export interface Turn {
    * text, so what survives is the description — which is also the part the user
    * can correct.
    *
-   * **Sticky on purpose.** It is decided by whether a photo was attached when the
-   * turn was added, not by whether the text still matches what the model wrote —
-   * because correcting the description is what the user is asked to do, and any
-   * edit would then drop the flag. The two ways to be wrong are not equal. Set on
-   * words the user typed, it tags their sentence and leaves it out of a word
-   * count: visible at once in the bubble, and undone with the checkbox in the
-   * edit modal. Missing from a description, it files a model's paragraph as
+   * **Sticky on purpose.** It is decided when the turn is added — a photo was
+   * attached, or the user said so — not by whether the text still matches what the
+   * model wrote, because correcting the description is what the user is asked to
+   * do, and any edit would then drop the flag. The two ways to be wrong are not
+   * equal. Set on words the user typed, it tags their sentence and leaves it out of
+   * a word count: visible at once in the bubble, and undone with the checkbox in
+   * the edit modal. Missing from a description, it files a model's paragraph as
    * something a person said — the conflation this flag exists to prevent, and one
    * nothing on screen would show. So when in doubt it stays set, and the user,
    * who is the only one who can tell, owns it.
