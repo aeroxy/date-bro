@@ -188,9 +188,11 @@ records once and writes each mutation straight through.
   gets three drafts and later requests pay for two lines.
 
 **A photo isn't a fifth speaker — it is a flag (`Turn.photo`) on a `them`, `me` or `context` turn.**
-`text` is a vision model's description of a picture, checked by the user, and `speaker` says whose
-picture it is: one she sent, one you did, or (as a NOTE) one you were shown. Only the description is
-stored. The record is text, the coach only reads text, and the description is the part the user can
+`text` is a description of a picture — a vision model's, checked by the user, or one the user wrote by
+hand — and `speaker` says whose picture it is: one she sent, one you did, or (as a NOTE) one you were
+shown. Nothing records which wrote it and nothing downstream needs to: either is a second-hand report of
+an image the coach never sees, so the flag, the prompt note, the stats and the export treat them alike.
+Only the description is stored. The record is text, the coach only reads text, and the description is the part the user can
 correct — a stored image would need a second store, a migration, and a place in the export, and buy
 nothing the coach can use.
 
@@ -201,7 +203,7 @@ a turn but adds no words and no questions, or a hundred-word paragraph she never
 being talkative; and `findOverlap` leaves it out of the eight turns an import is matched against,
 since no source log can contain it. A string test on the text would be a guess at all three.
 
-**The flag is sticky on purpose.** It is decided by whether a photo was attached when the turn was added, not by whether the text still matches what the model wrote, because correcting the description is exactly what the user is asked to do and any edit would otherwise drop the flag. The two ways to be wrong aren't equal. Set on words the user typed, it tags their sentence and leaves it out of a word count — visible at once in the bubble, and undone with the checkbox the edit modal shows on a flagged turn. Missing from a description, it files a model's paragraph as something a person said, which is the conflation the flag exists to prevent and which nothing on screen would show. So when unsure it stays set, and the user, who is the only one who can tell, owns it. (A review proposed computing it as `text.includes(description)`; that fails the second way on every correction.) Adding
+**The flag is sticky on purpose.** It is decided when the turn is added — a photo was attached, or the user ticked it — not by whether the text still matches what the model wrote, because correcting the description is exactly what the user is asked to do and any edit would otherwise drop the flag. The two ways to be wrong aren't equal. Set on words the user typed, it tags their sentence and leaves it out of a word count — visible at once in the bubble, and undone with the checkbox the edit modal shows on every turn. Missing from a description, it files a model's paragraph as something a person said, which is the conflation the flag exists to prevent and which nothing on screen would show. So when unsure it stays set, and the user, who is the only one who can tell, owns it. (A review proposed computing it as `text.includes(description)`; that fails the second way on every correction.) Adding
 one bumps `turnsUpdatedAt` like any message does: what she chose to send is evidence.
 
 **A reaction is a field too — `Turn.reactions`, the emoji left on a `them` or `me` message.** Tapped,

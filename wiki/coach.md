@@ -156,8 +156,10 @@ in an uncached segment below it.
   off. Both are worth having, and neither costs anything to collect. Two guards ride with it —
   don't repeat a move that already failed in this thread, and *your own advice is not evidence about
   either person*. A run that has just read its own confident advice will otherwise cite itself.
-- **`[photo]` lines are second-hand twice over.** A turn with `Turn.photo` is a vision model's
-  description of a picture the coach never sees, and `photoEntryNote` says so — only when the record
+- **`[photo]` lines are second-hand twice over.** A turn with `Turn.photo` is a description of a
+  picture the coach never sees: a vision model's reading, or the user's own account when they wrote it
+  by hand. The note names both and the flag doesn't say which, since either is reported and neither is
+  verified. `photoEntryNote` says so — only when the record
   has one, the same gating as the two above, and in the uncached closing segment, so a transcript
   without photos is byte-identical to before and the note never sits inside a cached prefix. It says
   three things. This isn't typed, so read a detail as *reported*, not verified — a place, a face or a

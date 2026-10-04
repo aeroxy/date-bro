@@ -66,6 +66,9 @@ export function ConversationPanel({
   const [at, setAt] = useState('')
   const [channel, setChannel] = useState<Channel>('text')
   const [note, setNote] = useState('')
+  // The entry being composed is a description of a photo that the user is writing
+  // themselves, rather than one the model read. Same flag either way — see below.
+  const [asPhoto, setAsPhoto] = useState(false)
   const [editing, setEditing] = useState<Turn | null>(null)
   // A note belongs where it happened, not wherever the composer happens to be.
   // The id is minted when the gap is clicked rather than during render, so the
@@ -153,12 +156,16 @@ export function ConversationPanel({
       at: at.trim() || undefined,
       channel: isNote || channel === 'text' ? undefined : channel,
       note: isNote ? undefined : note.trim() || undefined,
-      photo: reader.photo.status === 'read' ? true : undefined,
+      photo: asPhoto || reader.photo.status === 'read' ? true : undefined,
     }
     onChange([...record.turns, turn])
     setText('')
     setNote('')
     reader.clear()
+    // Reset with the rest of what described the entry just added. Left ticked it
+    // would file the next thing typed as a description of a picture, which nothing
+    // in the box would show until it landed italic in the thread.
+    setAsPhoto(false)
     // `at` too. It describes the message just added, not the next one, and
     // leaving it filled meant the following turn silently inherited a timestamp
     // that was only ever right for the one before it.
@@ -489,9 +496,11 @@ export function ConversationPanel({
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) add()
             }}
             placeholder={
-              isNote
-                ? `Something you know that isn't in the messages — ${record.name} said it on a call, a friend mentioned it, you remembered it.   (⌘↵ to add — or paste a photo)`
-                : `What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add — or paste a photo)`
+              asPhoto
+                ? 'What the photo shows…   (⌘↵ to add)'
+                : isNote
+                  ? `Something you know that isn't in the messages — ${record.name} said it on a call, a friend mentioned it, you remembered it.   (⌘↵ to add — or paste a photo)`
+                  : `What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add — or paste a photo)`
             }
             className="flex-1"
           />
@@ -500,6 +509,33 @@ export function ConversationPanel({
             {isNote ? 'Add note' : 'Add turn'}
           </Button>
         </div>
+        {/* The hand-written way in. A model reads a picture (the button above, or
+            paste), but the one that is set up may not be able to — Qwen can't read
+            images at all — and the user often knows what a picture shows anyway.
+            It is the same kind of entry either way, so it is the same flag: filed
+            as a description, read by the coach as a report, kept out of the word
+            count. While a picture is attached the model's reading is what makes it
+            one, so the box shows that and doesn't offer a choice it would ignore. */}
+        <label
+          className={cn(
+            'mt-2 flex w-fit items-center gap-2 text-[11.5px]',
+            asPhoto || reader.photo.status === 'read' ? 'text-fg-2' : 'text-fg-3',
+            reader.photo.status === 'reading' || reader.photo.status === 'read'
+              ? 'cursor-default'
+              : 'cursor-pointer',
+          )}
+          title="Files this as a description of a photo rather than something anyone said: the coach reads it as a report, and it isn't counted as words they wrote."
+        >
+          <input
+            type="checkbox"
+            checked={asPhoto || reader.photo.status === 'read'}
+            disabled={reader.photo.status === 'reading' || reader.photo.status === 'read'}
+            onChange={(e) => setAsPhoto(e.target.checked)}
+            className="h-3.5 w-3.5 accent-[var(--color-action)]"
+          />
+          <ImageIcon size={11} />
+          This describes a photo
+        </label>
       </div>
 
       {/* Keyed by turn, so reopening one you cancelled starts from the saved text. */}
@@ -592,6 +628,15 @@ function EditTurnModal({
     },
   })
   const reading = reader.photo.status === 'reading'
+  const read = reader.photo.status === 'read'
+  // What the box would do if clicked, so it reads right whichever way it is set.
+  // Nothing while a photo is held: the box is locked on, and a hint to untick a
+  // box that won't untick is worse than none.
+  const photoHint = read
+    ? ''
+    : draft.photo
+      ? 'Untick it if this is actually their message.'
+      : 'Tick it if this describes a picture rather than something said.'
 
   return (
     <Modal
@@ -637,24 +682,27 @@ function EditTurnModal({
             onChange={(e) => setDraft({ ...draft, text: e.target.value })}
           />
         </Field>
-        {/* The flag is the user's to own once the turn exists — see `Turn.photo` for
-            why it is sticky when it is set. Keyed on the turn as opened rather than
-            the draft, so unticking it doesn't make the box disappear before Save. */}
-        {turn.photo ? (
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
-              checked={!!draft.photo}
-              onChange={(e) => setDraft({ ...draft, photo: e.target.checked ? true : undefined })}
-              className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-action)]"
-            />
-            <span className="text-[12.5px] leading-relaxed text-fg-2">
-              <span className="font-semibold text-fg">A description of a photo</span> — not words
-              anyone typed, so the coach reads it as a report and it isn't counted as something
-              they said. Untick it if this is actually their message.
-            </span>
-          </label>
-        ) : null}
+        {/* The flag is the user's to own — see `Turn.photo` for why it is sticky once
+            set. Offered on every turn, not only on one that is already a photo: this
+            is how a description written by hand gets filed as one, and how a turn
+            imported as a bare `[image]` becomes a description with no model involved.
+            A photo read into this dialog flags the turn on Save whatever the box
+            says, so while one is held it shows that rather than offering a choice it
+            would ignore. */}
+        <label className={cn('flex items-start gap-2.5', read ? 'cursor-default' : 'cursor-pointer')}>
+          <input
+            type="checkbox"
+            checked={!!draft.photo || read}
+            disabled={read}
+            onChange={(e) => setDraft({ ...draft, photo: e.target.checked ? true : undefined })}
+            className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-action)]"
+          />
+          <span className="text-[12.5px] leading-relaxed text-fg-2">
+            <span className="font-semibold text-fg">A description of a photo</span> — not words
+            anyone typed, so the coach reads it as a report and it isn't counted as something
+            they said. {photoHint}
+          </span>
+        </label>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Who">
             <Select

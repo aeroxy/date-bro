@@ -13,7 +13,7 @@ happens only when the user asks for one, in a tab they are already signed into.
    read straight out of an open WhatsApp Web, Telegram, Instagram, RED (小红书) or Discord tab
    (`lib/import/`) — plus
    `NOTE` entries for anything the user knows that nobody typed, and photos, which enter as a
-   vision model's written description of the picture (the picture itself is never kept). One pool — there is no separate
+   written description of the picture — a vision model's, or one the user types themselves (the picture itself is never kept). One pool — there is no separate
    "what you know about them" field, and no fact about the connection lives outside this list. The
    one thing that does is `goal`, which isn't a fact about them: it's what the user is asking the
    coach to optimise for, so nothing the conversation does can make it stale.

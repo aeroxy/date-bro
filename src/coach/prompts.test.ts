@@ -47,6 +47,16 @@ describe('the photo note', () => {
     expect(all.filter((t) => t.includes('Lines starting [photo]'))).toHaveLength(1)
   })
 
+  // A description can be typed by the user as well as read by a model, and the flag
+  // does not say which. A note claiming a model wrote every line would be false of
+  // the ones the user wrote.
+  test('does not say a vision model wrote every description', () => {
+    const note = persons([said, photo]).find((x) => x.text.includes('Lines starting [photo]'))!.text
+    expect(note).toContain("a vision model's reading of the image alone")
+    expect(note).toContain("the user's own account of it")
+    expect(note).not.toContain('written by a vision model')
+  })
+
   test('sits below the last cache mark, in the uncached closing segment', () => {
     const s = persons([said, photo])
     const note = s.findIndex((x) => x.text.includes('Lines starting [photo]'))

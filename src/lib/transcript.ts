@@ -331,9 +331,9 @@ export function parsePastedLog(raw: string, theirName: string): Turn[] {
  * took, and that includes `total`, which gates whether counts appear at all.
  *
  * A photo *is* a turn — sending one is something a person did — but its text is a
- * vision model's description, so it counts as a turn and adds no words and no
- * questions. A hundred-word paragraph she never wrote would otherwise read as her
- * being talkative.
+ * description (a vision model's, or the user's own), so it counts as a turn and
+ * adds no words and no questions. A hundred-word paragraph she never wrote would
+ * otherwise read as her being talkative.
  */
 export function transcriptStats(record: DateRecord) {
   const them = record.turns.filter((t) => t.speaker === 'them')
