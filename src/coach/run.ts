@@ -63,20 +63,28 @@ function resolveSuggestionOutput(config: LLMConfig): { tools: ToolDefinition[]; 
 /**
  * The wire shape into the stored one. Two fixed slots in, an array of nought to
  * two proposals out — the slot is what says which document each aims at, so
- * nothing here has to be dropped for being unaimable.
+ * there is no target here to have been named wrongly.
  *
  * `changed: false` is the usual answer for a slot and becomes nothing at all,
  * which is what keeps the field off the stored suggestion — and off the advice
  * turn — on every run that had nothing to say. An empty array is stored as
  * absent for the same reason.
+ *
+ * A slot aimed at a profile nobody has built yet becomes nothing too. There is
+ * no document for it to amend and `applyProposalTo` won't invent one, so what
+ * would be stored is a card offering something that does nothing. This is the
+ * only place that is dealt with: `validateProposal` lets it through, because
+ * refusing it costs a retry and then the whole run. `bases` are the two
+ * profiles as the run was built from them, the same strings `validate` got.
  */
 function toProposals(
   them: ProfileUpdate | undefined,
   me: ProfileUpdate | undefined,
+  bases: { them: string; me: string },
 ): ProfileProposal[] | undefined {
   const proposals: ProfileProposal[] = []
-  if (them?.changed) proposals.push({ target: 'them', update: them })
-  if (me?.changed) proposals.push({ target: 'me', update: me })
+  if (them?.changed && bases.them.trim()) proposals.push({ target: 'them', update: them })
+  if (me?.changed && bases.me.trim()) proposals.push({ target: 'me', update: me })
   return proposals.length ? proposals : undefined
 }
 
@@ -280,13 +288,14 @@ export async function suggestMove(
   // an `edit` is checked against the text the model was actually shown. The two
   // profiles are exactly what `profileBlock` put in the prompt. The mind write
   // below re-reads deliberately, and an edit that stops fitting in between is
-  // dropped by `applyProfileUpdate` rather than landing somewhere else.
-  const validate = (r: object) =>
-    validateSuggestion(r, {
-      mind,
-      them: record.themProfile?.markdown ?? '',
-      me: record.meProfile?.markdown ?? '',
-    })
+  // dropped by `applyProfileUpdate` rather than landing somewhere else. Empty
+  // is a profile nobody has built: nothing for an amendment to land in.
+  const bases = {
+    mind,
+    them: record.themProfile?.markdown ?? '',
+    me: record.meProfile?.markdown ?? '',
+  }
+  const validate = (r: object) => validateSuggestion(r, bases)
   const { mind: amendment, profile_them: proposedThem, profile_me: proposedMe, ...result } =
     tools.length > 0
       ? await runAgentWithValidation<Raw>(config, messages, {
@@ -311,7 +320,7 @@ export async function suggestMove(
   // a field of the record, so its merge belongs to the caller that owns the
   // record: the app applies these in the same transaction that stores the
   // advice, keeping what an Undo would need. `lib/proposals.ts` is both halves.
-  const proposals = toProposals(proposedThem, proposedMe)
+  const proposals = toProposals(proposedThem, proposedMe, bases)
 
   // The coach amending itself. Written here rather than handed back for the
   // caller to store, unlike the profile amendments: the mind isn't a field of any

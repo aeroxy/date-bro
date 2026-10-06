@@ -809,13 +809,36 @@ describe('the suggestion contract', () => {
   })
 
   // The app refuses to invent a profile no rebuild has produced, so a proposal
-  // against one would render an offer that does nothing when clicked.
-  test('a proposal against a profile that does not exist yet is rejected', () => {
+  // against one goes nowhere — `suggestMove` drops it. Refusing it instead spent
+  // the run's retry and then the whole run, advice included, on the one field
+  // whose right answer is nothing; `run.test.ts` has that end to end.
+  test('a proposal against a profile that does not exist yet passes, to be dropped', () => {
+    const append = change([{ heading: 'Who you are', mode: 'append', content: '- x' }])
+    // An `edit` quotes text from a document, and there is none to quote from, so
+    // this is the shape that would fail the quote check if it were still run.
+    const edit = change([
+      { heading: 'Who you are', mode: 'edit', old: '- Between jobs', content: '- Started at Verde' },
+    ])
+
+    for (const proposal of [append, edit]) {
+      expect(validateSuggestion({ ...ok(), profile_me: proposal }, { them: DOC, me: '' })).toBeNull()
+      expect(validateSuggestion({ ...ok(), profile_me: proposal }, { them: DOC, me: ' \n' })).toBeNull()
+      expect(validateSuggestion({ ...ok(), profile_them: proposal }, { them: '', me: DOC })).toBeNull()
+    }
+  })
+
+  // Passing is only for the document that is missing: the other slot is held to
+  // the same standard it always was.
+  test('a missing profile does not excuse a bad proposal against the other one', () => {
+    const bad = change([
+      { heading: 'Right now', mode: 'edit', old: '- Not in the document', content: '- x' },
+    ])
     const proposal = {
       ...ok(),
-      profile_me: change([{ heading: 'Who you are', mode: 'append', content: '- x' }]),
+      profile_them: change([{ heading: 'Who you are', mode: 'append', content: '- x' }]),
+      profile_me: bad,
     }
-    expect(validateSuggestion(proposal, { them: DOC, me: '' })).toContain("isn't one yet")
+    expect(validateSuggestion(proposal, { them: '', me: DOC })).toContain('profile_me')
   })
 
   test('a well-formed mind amendment passes', () => {
