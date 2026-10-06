@@ -452,6 +452,19 @@ slot's `edit` quotes against its own base. What the single slot was doing accide
 the bar by scarcity — now has to be said out loud, so `proposalInstructions` states it per slot: one
 good offer and one `changed: false` beats two adequate ones.
 
+**A slot aimed at a profile nobody has built yet is dropped, not refused.** It used to be a
+validation complaint ("there isn't one yet — return `changed: false`"), and that took the whole run
+down: the complaint spends the one retry, a second takes the run, and the read and drafts the user
+asked for go with it, over the one field whose right answer is nothing. It happens on exactly the
+record that has never been rebuilt, because `profileBlock` shows no profile there and nothing in the
+prompt says there isn't one to amend — while a note about the person is what the model most wants to
+file. So `validateProposal` lets it through (skipping the quote check, since there's no document to
+quote from) and `toProposals` discards it, keyed on the same trimmed-empty `bases` the validator got.
+Dropped rather than stored because `applyProposalTo` would decline it, leaving a card that offers
+something that does nothing. The other slot is unaffected: a missing `profile_them` doesn't excuse a
+bad `profile_me`. `run.test.ts` runs it end to end on both the plain-completion and research-agent
+paths.
+
 **Applied on the way in, undoable on the way out.** `App.tsx` runs each proposal through
 `applyProposalTo` in the same `update()` that appends the advice turn, so there is no moment where
 the turn exists and the profile hasn't caught up. `SuggestionView` renders one card per proposal at

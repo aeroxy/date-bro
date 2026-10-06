@@ -489,14 +489,22 @@ export interface SuggestionBases {
 
 /**
  * One of the two proposal slots. Which document it aims at is the slot it
- * arrived in, so there is no target to check and no way to aim one at a document
- * that doesn't exist — the failure the old single `profile` field, with its
+ * arrived in, so there is no target to check and no way to name a document that
+ * isn't one of the two — the failure the old single `profile` field, with its
  * `target` alongside, had to validate its way out of.
  *
- * The empty-document case is a complaint rather than a shrug because the app
- * cannot apply it: `applyProposal` refuses to invent a profile that no rebuild
- * has produced, so a proposal against one would render an offer that does
- * nothing when clicked.
+ * A proposal against a document nobody has built yet passes, and it used to be
+ * a complaint. The app cannot apply one — `applyProposalTo` refuses to invent a
+ * profile no rebuild has produced — so `suggestMove` drops it (`toProposals`),
+ * and what it said is no loss worth a retry. A complaint is: it spends the run's
+ * one retry, and a second takes the whole run with it, the read and the drafts
+ * the user opened the app for, thrown away over the one field whose right answer
+ * is nothing. And a record that has never been rebuilt is where it happens, since
+ * the model is shown no profile there and nothing tells it there is not one to
+ * amend — while a note about the person is exactly what it wants to file.
+ *
+ * Passing also skips the quote check: there is no document for an `edit` to be
+ * quoted from, and the proposal is going nowhere either way.
  */
 function validateProposal(value: unknown, target: 'them' | 'me', base?: string): string | null {
   const field = target === 'them' ? 'profile_them' : 'profile_me'
@@ -506,9 +514,7 @@ function validateProposal(value: unknown, target: 'them' | 'me', base?: string):
   if ((value as { changed?: unknown }).changed !== true) {
     return validateProfileUpdate(value, field)
   }
-  if (base !== undefined && !base.trim()) {
-    return `"${field}" amends the ${target === 'them' ? "person's" : "user's"} profile, and there isn't one yet — it has to be built before it can be amended, so return changed: false`
-  }
+  if (base !== undefined && !base.trim()) return null
   return validateProfileUpdate(value, field, base)
 }
 
