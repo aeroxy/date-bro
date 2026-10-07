@@ -54,12 +54,21 @@ export function ConversationPanel({
   onChange,
   viewingAdvice,
   onOpenAdvice,
+  jumpTo,
+  onJumped,
 }: {
   record: DateRecord
   onChange: (turns: Turn[]) => void
   /** Which coach turn the insight panel is currently showing, if any. */
   viewingAdvice?: string | null
   onOpenAdvice?: (id: string) => void
+  /**
+   * A turn to bring into view, because a search result in the rail was opened at
+   * it. Handed back through `onJumped` once done — found or not — so it's a
+   * one-off rather than somewhere the panel is held.
+   */
+  jumpTo?: string | null
+  onJumped?: () => void
 }) {
   const [speaker, setSpeaker] = useState<Speaker>('them')
   const [text, setText] = useState('')
@@ -96,6 +105,10 @@ export function ConversationPanel({
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
+  const jumpRef = useRef<HTMLLIElement>(null)
+  // The turn a jump just landed on, lit for a moment so the eye finds which line
+  // it was among forty that look alike.
+  const [lit, setLit] = useState<string | null>(null)
   const prevTurnCount = useRef(0)
   const prevScrollHeight = useRef(0)
 
@@ -137,6 +150,40 @@ export function ConversationPanel({
     observer.observe(sentinel)
     return () => observer.disconnect()
   }, [hiddenCount])
+
+  // Older turns render in a page at a time, so a search hit from months back is
+  // usually not on the page at all: render back far enough to include it, then
+  // bring it to the middle of the view. Declared after the scroll-to-bottom on
+  // mount, because it has to run after it — opening someone at a hit is the one
+  // mount that doesn't start at the bottom.
+  useLayoutEffect(() => {
+    if (!jumpTo) return
+    const index = record.turns.findIndex((t) => t.id === jumpTo)
+    if (index >= 0 && visibleCount < record.turns.length - index) {
+      // With a page above it: rendered back to exactly this turn, it is the
+      // first one on the page and can only sit at the top of the view, however
+      // far it is asked to scroll. This runs again once it is there.
+      setVisibleCount(record.turns.length - index + PAGE_SIZE)
+      return
+    }
+    const box = scrollRef.current
+    const row = jumpRef.current
+    if (box && row) {
+      // Set on this box alone. `scrollIntoView` scrolls every ancestor that can
+      // scroll, `overflow: hidden` ones included, and the app shell is one.
+      const top = row.getBoundingClientRect().top - box.getBoundingClientRect().top
+      // Centred, or from its top when it's taller than the view.
+      box.scrollTop += top - Math.max(0, (box.clientHeight - row.offsetHeight) / 2)
+      setLit(jumpTo)
+    }
+    onJumped?.()
+  }, [jumpTo, visibleCount, record.turns])
+
+  useEffect(() => {
+    if (!lit) return
+    const timer = setTimeout(() => setLit(null), 1600)
+    return () => clearTimeout(timer)
+  }, [lit])
 
   const stats = transcriptStats(record)
 
@@ -256,9 +303,13 @@ export function ConversationPanel({
             return (
               <li
                 key={turn.id}
+                ref={turn.id === jumpTo ? jumpRef : undefined}
                 className={cn(
-                  'group relative flex min-w-0 gap-3',
+                  'group relative flex min-w-0 gap-3 rounded-lg',
                   centred ? 'flex-row justify-center' : mine ? 'flex-row-reverse' : 'flex-row',
+                  // On at once, then fading: the transition is only there on the
+                  // way out.
+                  lit === turn.id ? 'bg-action-soft ring-6 ring-action-soft' : 'transition duration-1000',
                 )}
               >
                 {/* Sits in the gap above this line and inserts before it, so

@@ -148,6 +148,11 @@ export default function App() {
   // key can't miss a route. One slot for all of them would also mean two people
   // amended at once and only the one that finished last got a reply.
   const [edits, setEdits] = useState<Record<string, { tab: ChatEngine } & ProfileEdit>>({})
+  // A turn the conversation should bring into view, because a search result in
+  // the rail was opened at it. The panel clears it once it has scrolled there, so
+  // it is something a click does rather than a place the panel is held at: coming
+  // back to this person later lands at the bottom, as it always has.
+  const [jump, setJump] = useState<string | null>(null)
   /**
    * What's half-typed in the footer box, under the same key the box is mounted
    * on: person, tab and mode. The box used to hold this alone, so switching to a
@@ -699,7 +704,10 @@ export default function App() {
         photos={photos}
         // No reset: the selection is theirs, and switching to someone with none
         // already lands on their newest.
-        onSelect={setActiveId}
+        onSelect={(id, turn) => {
+          setActiveId(id)
+          setJump(turn ?? null)
+        }}
         createError={createError}
         onCreate={(name) => {
           // Surfaces on the current panel when there is one, and in the rail's
@@ -791,6 +799,8 @@ export default function App() {
               setViewingAdvice((prev) => ({ ...prev, [active.id]: id }))
               setTab('next')
             }}
+            jumpTo={jump}
+            onJumped={() => setJump(null)}
           />
 
             <aside className="flex h-full w-[440px] flex-none flex-col border-l border-border bg-surface">
