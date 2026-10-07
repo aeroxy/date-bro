@@ -484,6 +484,29 @@ staleness lines both call it. Tiers: `never` for a missing or zero timestamp, th
 had grown separate copies that disagreed at the tail — the rail's stopped at days, so the same
 timestamp read `45d ago` in one place and `2mo ago` in the other.
 
+## `search.ts`
+
+`searchDates(dates, query)` → everyone whose name or conversation contains the query, in the order
+given (the rail's newest-updated-first), each with their name marked and/or the newest matching turn
+cut to one line and the number of turns that match. A phrase, not a set of words, as in the
+browser's own find. "Conversation" is what the panel shows as words: `text`, the user's `note`, and
+the `asked` question a NOTE answers — not reactions.
+
+**Case and accents fold**, so "jose" finds "José" — the leniency `asLabel` gives a log's speaker
+labels. Testing a turn folds its whole string once, which is fast (about 40ms per query over 9MB —
+twenty people, 5,000 turns each — under `bun`, and the rail defers the query anyway). Marking the
+match is different: it needs offsets into the *original*, and folding changes lengths (a decomposed
+accent, a Hangul syllable into three jamo), so `locate` folds a character at a time and remembers
+where each folded unit came from. The two folds must agree, and `toLowerCase` makes exactly one
+mapping by context — a capital sigma at the end of a word becomes `ς` — so `fold` maps `ς` to `σ`
+everywhere. Without that, the whole-string test and the per-character `locate` disagree about
+whether "ΟΔΟΣ" contains "οδος", in V8 and JavaScriptCore alike.
+
+**The line is cut for a row that truncates on the right** (`cut`): twelve Latin letters of lead into
+the match, from the start of a word when there is one, behind a `…`. CJK characters and emoji count
+double — RED conversations are mostly Chinese, and twelve of its characters pushed the match to the
+edge of the row. Walked by code point, so an emoji is never split.
+
 ## `birthday.ts`
 
 `describeBirthday(text, now)` → `"14 March 1997 — 29 years old, and it is in 9 days"` for a full ISO
