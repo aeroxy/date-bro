@@ -771,6 +771,43 @@ describe('the suggestion contract', () => {
     expect(validateSuggestion(idle, { them: DOC, me: DOC })).toBeNull()
   })
 
+  // A slot proposes something by being an object that says `changed: true`, and
+  // nothing else can carry one. What a model writes for "nothing" is not always
+  // that object — `""`, `[]`, `false`, a word — and refusing it spent the run's
+  // retry and then the run, drafts included, on a field with nothing in it.
+  // `run.test.ts` has that end to end.
+  test('a slot that is not an object proposes nothing, and passes', () => {
+    for (const nothing of ['', '  ', [], false, 0, 'none', 'no profile yet']) {
+      for (const slot of ['profile_them', 'profile_me']) {
+        expect(validateSuggestion({ ...ok(), [slot]: nothing }, { them: DOC, me: DOC })).toBeNull()
+        // A record nobody has rebuilt, which is where it happens.
+        expect(validateSuggestion({ ...ok(), [slot]: nothing }, { them: '', me: '' })).toBeNull()
+        expect(validateSuggestion({ ...ok(), [slot]: nothing })).toBeNull()
+      }
+    }
+  })
+
+  // The leniency is for what cannot be applied. An object is an attempt, and an
+  // attempt that is malformed still gets its complaint and its retry.
+  test('an object that is malformed is still refused', () => {
+    const noBool = { changed: 'yes', sections: [], rewrite: '' }
+    const empty = { changed: true, sections: [], rewrite: '' }
+
+    expect(validateSuggestion({ ...ok(), profile_them: noBool }, { them: DOC })).toContain(
+      'profile_them',
+    )
+    expect(validateSuggestion({ ...ok(), profile_me: empty }, { me: DOC })).toContain('profile_me')
+  })
+
+  test('a slot that says nothing does not excuse a bad proposal in the other one', () => {
+    const bad = change([
+      { heading: 'Right now', mode: 'edit', old: '- Not in the document', content: '- x' },
+    ])
+    const proposal = { ...ok(), profile_them: '', profile_me: bad }
+
+    expect(validateSuggestion(proposal, { them: DOC, me: DOC })).toContain('profile_me')
+  })
+
   // The slot is the target, so an amendment can no longer be aimed at nothing —
   // the case the old single `profile` field needed a `target` enum to catch.
   test('each slot is checked against its own document', () => {

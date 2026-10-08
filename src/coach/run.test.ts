@@ -135,6 +135,58 @@ const configure = async (tools: boolean) => {
   })
 }
 
+// The reported failure: `"profile_them" must be an object`. A slot with nothing
+// in it is an object in the schema and not always on the wire — the model writes
+// `""` or `false` for "no amendment", is told it must be an object, says the same
+// thing again, and the whole run goes, advice included.
+describe('a profile slot that says nothing without being an object', () => {
+  for (const { name, tools } of paths) {
+    describe(name, () => {
+      for (const nothing of ['', [], false, 'none']) {
+        test(`${JSON.stringify(nothing)} costs the user nothing`, async () => {
+          await configure(tools)
+          modelSays(answer({ profile_them: nothing, profile_me: nothing }), tools)
+
+          // Both profiles exist, so this is not the dropped-proposal path.
+          const result = await suggestMove(record({ themProfile, meProfile }), '')
+
+          expect(result.read).toBe('The thread is young and warm.')
+          expect(result.options).toHaveLength(2)
+          // Accepted first time: a retry is a whole extra run for an empty field.
+          expect(calls).toBe(1)
+          expect(result.profiles).toBeUndefined()
+        })
+      }
+
+      // A record nobody has rebuilt is where the model has the least to put in
+      // either slot, and the case the report was about.
+      test('on a record with no profile at all', async () => {
+        await configure(tools)
+        modelSays(answer({ profile_them: '', profile_me: '' }), tools)
+
+        const result = await suggestMove(record(), 'she is a landscape architect')
+
+        expect(result.options).toHaveLength(2)
+        expect(calls).toBe(1)
+        expect(result.profiles).toBeUndefined()
+      })
+
+      test('does not stop the other slot landing', async () => {
+        await configure(tools)
+        modelSays(
+          answer({ profile_them: '', profile_me: append('Who you are', '- Starting at Verde') }),
+          tools,
+        )
+
+        const result = await suggestMove(record({ themProfile, meProfile }), '')
+
+        expect(calls).toBe(1)
+        expect(result.profiles?.map((p) => p.target)).toEqual(['me'])
+      })
+    })
+  }
+})
+
 describe('a profile amendment aimed at a profile nobody has built yet', () => {
   for (const { name, tools } of paths) {
     describe(name, () => {

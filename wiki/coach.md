@@ -465,6 +465,18 @@ something that does nothing. The other slot is unaffected: a missing `profile_th
 bad `profile_me`. `run.test.ts` runs it end to end on both the plain-completion and research-agent
 paths.
 
+**A slot that isn't an object proposes nothing, and passes.** The same failure by another door:
+`"profile_them" must be an object`. A slot proposes by being an object that says `changed: true`, but
+what a model writes for "nothing" is not always that object — `""`, `[]`, `false`, "none" — and the
+retry's complaint didn't move it. Refusing it took the run, drafts included, for a field with nothing
+in it, so `validateProposal` now lets any non-object through and `toProposals` drops it without a
+check of its own: `.changed` of a string or a boolean is `undefined`. The cost is the rare slot that was
+a real amendment in the wrong clothes, which is lost along with the retry that might have recovered
+it; one finding against the whole run is the same trade the slot order makes. **An object is still an
+attempt**, so `{ changed: 'yes' }`, or `changed: true` with nothing in it, gets its complaint and its
+retry, and each slot is judged alone: an empty `profile_them` doesn't excuse a bad `profile_me`.
+`mind` is unchanged and still refuses a non-object.
+
 **Applied on the way in, undoable on the way out.** `App.tsx` runs each proposal through
 `applyProposalTo` in the same `update()` that appends the advice turn, so there is no moment where
 the turn exists and the profile hasn't caught up. `SuggestionView` renders one card per proposal at
