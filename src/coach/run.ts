@@ -76,6 +76,10 @@ function resolveSuggestionOutput(config: LLMConfig): { tools: ToolDefinition[]; 
  * only place that is dealt with: `validateProposal` lets it through, because
  * refusing it costs a retry and then the whole run. `bases` are the two
  * profiles as the run was built from them, the same strings `validate` got.
+ *
+ * So does a slot that isn't an object at all (`""`, `false`, "none"), which
+ * `validateProposal` also lets through. Nothing here checks for one: `.changed`
+ * of a string or a boolean is `undefined`, which is what drops it.
  */
 function toProposals(
   them: ProfileUpdate | undefined,

@@ -505,12 +505,20 @@ export interface SuggestionBases {
  *
  * Passing also skips the quote check: there is no document for an `edit` to be
  * quoted from, and the proposal is going nowhere either way.
+ *
+ * A slot that is not an object passes too. It used to be `"profile_them" must be
+ * an object`, and it went the same way as the case above: a slot proposes by
+ * being an object that says `changed: true`, so what a model writes for "nothing"
+ * in some other spelling — `""`, `[]`, `false`, "none" — proposes nothing, and
+ * refusing it spent the retry and then the run on a field with nothing in it.
+ * What is lost if one of these was a real amendment in the wrong clothes is that
+ * one finding; the schema puts the slots last so a derailed one costs only
+ * itself, and a complaint here would have it cost the drafts as well. An object
+ * is still held to the standard below, because an object is an attempt.
  */
 function validateProposal(value: unknown, target: 'them' | 'me', base?: string): string | null {
   const field = target === 'them' ? 'profile_them' : 'profile_me'
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return `"${field}" must be an object`
-  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   if ((value as { changed?: unknown }).changed !== true) {
     return validateProfileUpdate(value, field)
   }
