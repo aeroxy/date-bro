@@ -7,6 +7,7 @@ import type { DateRecord, Turn } from '@/types/date'
 import {
   adviceTurn,
   formatTurn,
+  latestAdvice,
   moveTurn,
   numberTurns,
   parsePastedLog,
@@ -235,6 +236,42 @@ describe('formatTurn cites the turn number, not the position', () => {
 
 // The array is the chronology and the number the identity, so a move reorders the
 // first and never touches the second.
+describe('latestAdvice', () => {
+  const advice = (id: string, generatedAt: number) => adviceTurn(suggestion({ id, generatedAt }))
+  const said = (id: string): Turn => ({ id, speaker: 'them', text: 'hey' })
+
+  // A coach turn can be moved, and an older one moved below a newer one is not
+  // the latest advice — the Next move tab would open on it.
+  test('goes by when the advice was generated, not where it sits', () => {
+    const turns = [advice('new', 2000), said('t1'), advice('old', 1000)]
+    expect(latestAdvice(turns)?.id).toBe('new')
+  })
+
+  test('only coach turns that carry advice count', () => {
+    const bare: Turn = { id: 'bare', speaker: 'coach', text: 'x' }
+    expect(latestAdvice([advice('a', 1000), said('t1'), bare])?.id).toBe('a')
+  })
+
+  test('a tie goes to the later position, as the last one did before turns moved', () => {
+    expect(latestAdvice([advice('first', 1000), advice('second', 1000)])?.id).toBe('second')
+  })
+
+  // Suggestions stored by older versions may have no usable time. Compared as
+  // they are, `x >= undefined` is false both ways round and the answer would
+  // depend on which one came first.
+  test('an untimed one counts as the oldest, and among only those position decides', () => {
+    const untimed = (id: string, at: unknown) => advice(id, at as number)
+    expect(latestAdvice([advice('timed', 1000), untimed('none', undefined)])?.id).toBe('timed')
+    expect(latestAdvice([untimed('none', undefined), advice('timed', 1000)])?.id).toBe('timed')
+    expect(latestAdvice([untimed('a', null), untimed('b', undefined)])?.id).toBe('b')
+  })
+
+  test('none at all', () => {
+    expect(latestAdvice([said('t1')])).toBeUndefined()
+    expect(latestAdvice([])).toBeUndefined()
+  })
+})
+
 describe('moveTurn', () => {
   const turns = [turn('a', 1), turn('b', 2), turn('c', 3), turn('d', 4)]
   const ids = (ts: Turn[]) => ts.map((t) => t.id)

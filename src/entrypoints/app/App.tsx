@@ -21,7 +21,7 @@ import { cn } from '@/lib/cn'
 import { endPhotoSession, photoStatusStore } from '@/lib/photo-session'
 import { applyProposalTo, movedSince, undoProposalIn } from '@/lib/proposals'
 import { applyResearchNotes } from '@/lib/research-notes'
-import { adviceTurn } from '@/lib/transcript'
+import { adviceTurn, latestAdvice } from '@/lib/transcript'
 import type { ProfileProposal, ThinkingSummary } from '@/types/coach'
 import { STAGES, type ChatEngine, type DateRecord, type Engine, type Turn } from '@/types/date'
 
@@ -612,10 +612,11 @@ export default function App() {
   // The advice history *is* the conversation now — no parallel list, no cap, no
   // pills. Reading it back out of `turns` keeps one source: delete the bubble
   // and the suggestion is gone with it, because they were never two things.
+  // With nothing chosen it is the newest by when it was given, not the last in
+  // the list: a coach turn can be moved below a later one.
   const adviceTurns = active?.turns.filter((t) => t.speaker === 'coach' && t.advice) ?? []
   const viewing = activeId ? viewingAdvice[activeId] : undefined
-  const shownAdvice =
-    adviceTurns.find((t) => t.id === viewing) ?? adviceTurns[adviceTurns.length - 1]
+  const shownAdvice = adviceTurns.find((t) => t.id === viewing) ?? latestAdvice(adviceTurns)
   const suggestion = shownAdvice?.advice
   /**
    * Whether an offer can be taken right now, asked per target because a turn can
