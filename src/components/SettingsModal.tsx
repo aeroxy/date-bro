@@ -614,7 +614,7 @@ export function SettingsModal({
 
           {/* Coach-wide, like house rules, so it sits outside the profile being
               edited above. */}
-          <Field label="Photo reader" hint="which model turns a pasted photo into text">
+          <Field label="Photo reader" hint="which model turns a photo into text">
             <Select
               value={photoReader}
               onChange={setPhotoId}

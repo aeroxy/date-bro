@@ -324,8 +324,8 @@ export function ConversationPanel({
               is the only place the coach reads from, so everything lives here.
             </p>
             <p className="mt-3 text-[13.5px] leading-relaxed text-fg-3">
-              Paste a photo or a screenshot — of their profile, say — anywhere on this page, and
-              it's read into text for you to check.
+              Paste or drop a photo or a screenshot — of their profile, say — anywhere on this
+              page, and it's read into text for you to check.
             </p>
           </div>
         ) : null}
@@ -584,8 +584,8 @@ export function ConversationPanel({
         ) : null}
       </div>
 
-      {/* Photos are pasted from anywhere on the page, not just into this box: the
-          listener is on the document (see `usePhotoReader`). */}
+      {/* Photos are pasted or dropped anywhere on the page, not just into this box:
+          the listeners are on the document (see `usePhotoReader`). */}
       <div className="border-t border-border bg-surface-sunken px-5 py-3">
         <div className="mb-2 flex items-center gap-2">
           <div className="flex overflow-hidden rounded-md border border-border">
@@ -645,8 +645,8 @@ export function ConversationPanel({
               asPhoto
                 ? 'What the photo shows…   (⌘↵ to add)'
                 : isNote
-                  ? `Something you know that isn't in the messages — ${record.name} said it on a call, a friend mentioned it, you remembered it.   (⌘↵ to add — or paste a photo)`
-                  : `What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add — or paste a photo)`
+                  ? `Something you know that isn't in the messages — ${record.name} said it on a call, a friend mentioned it, you remembered it.   (⌘↵ to add — or paste or drop a photo)`
+                  : `What ${speaker === 'me' ? 'you' : record.name} said…   (⌘↵ to add — or paste or drop a photo)`
             }
             className="flex-1"
           />
@@ -655,8 +655,8 @@ export function ConversationPanel({
             {isNote ? 'Add note' : 'Add turn'}
           </Button>
         </div>
-        {/* The hand-written way in. A model reads a picture (the button above, or
-            paste), but the one that is set up may not be able to — Qwen can't read
+        {/* The hand-written way in. A model reads a picture (the button above, a
+            paste or a drop), but the one that is set up may not be able to — Qwen can't read
             images at all — and the user often knows what a picture shows anyway.
             It is the same kind of entry either way, so it is the same flag: filed
             as a description, read by the coach as a report, kept out of the word

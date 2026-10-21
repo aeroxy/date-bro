@@ -1,8 +1,9 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ImagePlus, RotateCw, X } from 'lucide-react'
 
 import { describePhoto } from '@/coach/photo'
 import { imageFromClipboard } from '@/lib/clipboard-image'
+import { downloadImage, imageFromDrop, mightBeAPicture } from '@/lib/drop-image'
 import { prepareImage } from '@/lib/image'
 import { thumbnailsKind, type PhotoAttachment, type PhotoState } from '@/lib/photo-attachment'
 import {
@@ -17,11 +18,14 @@ import { Spinner } from './ui/Spinner'
 
 export interface PhotoReader extends Pick<PhotoAttachment, 'attach' | 'retry' | 'clear' | 'discard'> {
   photo: PhotoState
+  /** Something that might be a picture is being dragged over the page, and this reader would take it. */
+  dragging: boolean
 }
 
 /** The real resize and the real model call, which a session is given rather than imports. */
 const REAL = {
-  prepare: prepareImage,
+  prepare: async (source: Blob | URL) =>
+    prepareImage(source instanceof URL ? await downloadImage(source) : source),
   describe: async (
     images: Parameters<typeof describePhoto>[1],
     signal: AbortSignal,
@@ -33,10 +37,18 @@ const REAL = {
   },
 }
 
+/** Whether the reader that lives here is the one on show: a dialog's, or the page's with no dialog over it. */
+const showing = (inModal?: boolean) =>
+  inModal || !document.querySelector('[role="dialog"][aria-modal="true"]')
+
+/** A text box, which takes drops of its own. */
+const intoText = (target: EventTarget | null) =>
+  target instanceof Element && target.matches('textarea, input')
+
 /**
  * A `PhotoSession` bound to a component: its state becomes what the component
- * renders, the real resize and model call are wired in, and the paste handler is
- * added. The logic is in `lib/photo-attachment.ts` and `lib/photo-session.ts`,
+ * renders, the real resize and model call are wired in, and the paste and drop
+ * handlers are added. The logic is in `lib/photo-attachment.ts` and `lib/photo-session.ts`,
  * where it can be tested without a DOM.
  *
  * **Whose read it is depends on where the reader lives.** The composer passes
@@ -63,6 +75,11 @@ const REAL = {
  * reader must be the one that takes it — exactly one of them, whichever is
  * showing, so a paste is never read twice. The edit dialog has one, because the
  * turns that most need a picture read into them were imported as a bare `[image]`.
+ *
+ * **Dropping is the same again**: heard on the document, so a photo dropped
+ * anywhere on the page lands in the box, and taken by whichever reader is showing.
+ * What a drop carries is `imageFromDrop`'s business (`lib/drop-image.ts`): a file,
+ * or for an image dragged out of another tab its address, which the read downloads.
  */
 export function usePhotoReader(options: {
   /** This composer's person: their read outlives the panel showing it. Absent in a dialog. */
@@ -101,7 +118,7 @@ export function usePhotoReader(options: {
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (e.defaultPrevented || !e.clipboardData) return
-      if (!latest.current.inModal && document.querySelector('[role="dialog"][aria-modal="true"]')) return
+      if (!showing(latest.current.inModal)) return
       const file = imageFromClipboard(e.clipboardData)
       if (!file) return
       e.preventDefault()
@@ -111,8 +128,56 @@ export function usePhotoReader(options: {
     return () => document.removeEventListener('paste', onPaste)
   }, [session])
 
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => {
+    const carried = (e: DragEvent) => !!e.dataTransfer && mightBeAPicture(e.dataTransfer.types)
+    // The highlight is held up by `dragover`, which keeps firing on a timer while
+    // anything is over the page, and goes when it stops. A cancelled drag is not
+    // reliably followed by a `dragleave` (driven through the DevTools protocol, it
+    // never was), and a highlight left up says a drop is coming that isn't.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const done = () => {
+      clearTimeout(timer)
+      setDragging(false)
+    }
+    // Accepting the drag is what makes the drop fire at all, and it keeps Chrome
+    // from doing its own thing with it: opening the file, or the link, in a new tab
+    // it switches to. Not over a text box, which accepts drops itself — the drop
+    // still fires there, and a link left alone types its address as it always did.
+    // Accepted there, a dropped link typed nothing (checked in Chrome).
+    const onOver = (e: DragEvent) => {
+      if (!carried(e)) return
+      if (!intoText(e.target)) e.preventDefault()
+      if (!showing(latest.current.inModal)) return
+      setDragging(true)
+      clearTimeout(timer)
+      timer = setTimeout(done, 1000)
+    }
+    // Only off the page: within it, leaving one element is entering the next.
+    const onLeave = (e: DragEvent) => {
+      if (carried(e) && !e.relatedTarget) done()
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!carried(e)) return
+      done()
+      const image = imageFromDrop(e.dataTransfer!)
+      if (image || !intoText(e.target)) e.preventDefault()
+      if (image && showing(latest.current.inModal)) void session.attach(image)
+    }
+    document.addEventListener('dragover', onOver)
+    document.addEventListener('dragleave', onLeave)
+    document.addEventListener('drop', onDrop)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('dragover', onOver)
+      document.removeEventListener('dragleave', onLeave)
+      document.removeEventListener('drop', onDrop)
+    }
+  }, [session])
+
   return {
     photo,
+    dragging,
     attach: session.attach,
     retry: session.retry,
     clear: session.clear,
@@ -121,8 +186,8 @@ export function usePhotoReader(options: {
 }
 
 /**
- * The button that opens the file picker. Paste needs no control; this is the other
- * way in. `compact` is the labelled one for a modal's field header, where an icon
+ * The button that opens the file picker. Paste and drop need no control; this is
+ * the other way in. `compact` is the labelled one for a modal's field header, where an icon
  * alone beside a label reads as decoration.
  */
 export function PhotoPicker({ reader, compact }: { reader: PhotoReader; compact?: boolean }) {
@@ -149,7 +214,7 @@ export function PhotoPicker({ reader, compact }: { reader: PhotoReader; compact?
         className={compact ? 'h-6 flex-none gap-1 px-2 text-[11px]' : 'w-10 flex-none px-0'}
         onClick={() => input.current?.click()}
         disabled={held}
-        title="Add a photo — it is read into a description you can check before it goes in. You can also paste one."
+        title="Add a photo — it is read into a description you can check before it goes in. You can also paste or drop one."
         aria-label="Add a photo"
       >
         <ImagePlus size={compact ? 12 : 15} />
@@ -166,6 +231,18 @@ export function PhotoPicker({ reader, compact }: { reader: PhotoReader; compact?
  */
 export function PhotoStrip({ reader }: { reader: PhotoReader }) {
   const { photo } = reader
+  // Mid-drag, where it will land — or, with a picture already held, why it won't.
+  if (reader.dragging) {
+    const held = photo.status === 'reading' || photo.status === 'read'
+    return (
+      <div className="mb-2 flex items-center justify-center gap-2 rounded-md border border-dashed border-action-300 bg-action-soft px-3 py-4 text-[12px] text-action-700">
+        <ImagePlus size={15} />
+        {held
+          ? 'One photo at a time — add this one or discard it first.'
+          : "Drop it anywhere — it's read into text you can check."}
+      </div>
+    )
+  }
   if (photo.status === 'idle') return null
   const slices = photo.previews?.length ?? 0
   const lead = thumbnailsKind(photo)
@@ -179,6 +256,8 @@ export function PhotoStrip({ reader }: { reader: PhotoReader }) {
             <img
               key={i}
               src={src}
+              // Not a picture to drop back in: dragged onto the page, it would be.
+              draggable={false}
               alt={
                 slices > 1
                   ? `Slice ${i + 1} of ${slices} of the photo being described`
