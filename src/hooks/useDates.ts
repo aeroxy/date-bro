@@ -101,11 +101,11 @@ export function useDates() {
       patch: Partial<DateRecord> | ((current: DateRecord) => Partial<DateRecord>),
       /**
        * `evidence: false` for a write that touches `turns` without changing
-       * what either person said or did. Appending the coach's own advice is the
-       * only case, and it matters: staleness is a claim about the *evidence*, so
-       * without this every "What do I say?" would immediately mark both profiles
-       * "conversation has moved on" — off the back of a line the coach wrote
-       * itself.
+       * what either person said or did — the coach's own advice being appended,
+       * deleted or moved. It matters: staleness is a claim about the *evidence*,
+       * so without this every "What do I say?" would immediately mark both
+       * profiles "conversation has moved on" — off the back of a line the coach
+       * wrote itself.
        */
       opts?: { evidence?: boolean },
     ): Promise<DateRecord | null> => {

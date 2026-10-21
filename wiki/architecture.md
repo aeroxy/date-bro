@@ -178,7 +178,8 @@ records once and writes each mutation straight through.
 - **`context`** — something the user knows that nobody typed. It lives in the same array so there is
   one chronology and one numbering to cite, and so a fact learned today lands where it was learned.
   Chronology is the array's job; identity is `Turn.number`'s, handed out once from
-  `DateRecord.nextTurnNumber` and never reused — so the two can't drift when a turn is inserted.
+  `DateRecord.nextTurnNumber` and never reused — so the two can't drift when a turn is inserted or
+  moved.
 - **`coach`** — what this app advised, at the point it advised it, carrying the whole `Suggestion` in
   `Turn.advice`. It replaced `DateRecord.suggestions`, a parallel history with its own pills, its own
   20-cap and its own delete button, all describing a timeline the conversation was already keeping.
@@ -237,8 +238,8 @@ on".
 **Why not `updatedAt`.** `updatedAt` moves on *every* write, so comparing against it marked a read
 stale when the user rebuilt the other tab, saved the profile, or merged in research notes — in
 normal use at least one tab was always wrongly flagged. `turnsUpdatedAt` is stamped when a write carries
-`turns` *as evidence* — a write may pass `{ evidence: false }` to say it doesn't, and appending or
-deleting a `coach` turn does, because the coach's own line is not something either person said.
+`turns` *as evidence* — a write may pass `{ evidence: false }` to say it doesn't, and appending,
+deleting or moving a `coach` turn does, because the coach's own line is not something either person said.
 Without that, asking "what do I say?" marked both profiles stale the moment it answered. So the signal
 means what it says. Comparing two turn-stamps rather than a turn-stamp against
 a wall-clock time also catches the case where a turn was added *during* the run: the model didn't see

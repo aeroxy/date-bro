@@ -786,7 +786,7 @@ export default function App() {
           <ConversationPanel
             key={active.id}
             record={active}
-            onChange={(turns) => persist(update(active.id, { turns }), tab)}
+            onChange={(turns, opts) => persist(update(active.id, { turns }, opts), tab)}
             // A coach bubble is the summary; the panel holds the rest of it.
             // Switching tab as well, because a click that visibly changes
             // nothing reads as a dead control — the full version is over there.

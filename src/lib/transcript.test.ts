@@ -7,6 +7,7 @@ import type { DateRecord, Turn } from '@/types/date'
 import {
   adviceTurn,
   formatTurn,
+  moveTurn,
   numberTurns,
   parsePastedLog,
   speakerLabel,
@@ -229,6 +230,47 @@ describe('formatTurn cites the turn number, not the position', () => {
     const cited = numberTurns(inserted).turns.map((t) => formatTurn(inserted, t).split(']')[0])
     expect(cited).toEqual(['[60', '[62', '[61'])
     expect(new Set(cited).size).toBe(cited.length)
+  })
+})
+
+// The array is the chronology and the number the identity, so a move reorders the
+// first and never touches the second.
+describe('moveTurn', () => {
+  const turns = [turn('a', 1), turn('b', 2), turn('c', 3), turn('d', 4)]
+  const ids = (ts: Turn[]) => ts.map((t) => t.id)
+
+  test('moves a turn up, to just above the anchor', () => {
+    expect(ids(moveTurn(turns, 'd', 'b'))).toEqual(['a', 'd', 'b', 'c'])
+  })
+
+  // The direction an index-based splice gets wrong by one: taking the turn out
+  // shifts everything after it up a place, the anchor included.
+  test('moves a turn down, to just above the anchor', () => {
+    expect(ids(moveTurn(turns, 'a', 'd'))).toEqual(['b', 'c', 'a', 'd'])
+  })
+
+  test('moves a turn to the end when there is no anchor', () => {
+    expect(ids(moveTurn(turns, 'b', null))).toEqual(['a', 'c', 'd', 'b'])
+  })
+
+  // Deliberately the out-of-order assertion, as in `numberTurns`: the turn takes
+  // its citation with it, and the next read renumbers nothing to tidy the gutter.
+  test('leaves every number with its turn', () => {
+    const moved = moveTurn(turns, 'd', 'b')
+    expect(moved.map((t) => t.number)).toEqual([1, 4, 2, 3])
+    const read = numberTurns({ ...record(moved), nextTurnNumber: 5 })
+    expect(read.turns.map((t) => t.number)).toEqual([1, 4, 2, 3])
+  })
+
+  test('hands the list back as it was when there is nothing to move or nowhere to put it', () => {
+    expect(moveTurn(turns, 'gone', 'b')).toBe(turns)
+    expect(moveTurn(turns, 'b', 'gone')).toBe(turns)
+    expect(moveTurn(turns, 'b', 'b')).toBe(turns)
+  })
+
+  test('does not touch the list it was given', () => {
+    moveTurn(turns, 'd', 'a')
+    expect(ids(turns)).toEqual(['a', 'b', 'c', 'd'])
   })
 })
 
