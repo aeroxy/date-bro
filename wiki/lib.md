@@ -293,6 +293,8 @@ by hand, and they are where this goes wrong: a paste, a cancel and a slow reply 
 own schedule. `attach` takes a `Blob` or a `URL` — the address of an image dragged out of another tab —
 and passes either to `prepare`: downloading is part of preparing, so the strip shows it working and a
 download that fails fails like a picture that would not open, with the error alone and nothing to retry.
+`prepare` is handed the attempt's own `AbortSignal`, so a discard, cancel or stop mid-download stops the
+download rather than leaving it to finish for nobody.
 
 Two rules carry it. **One picture at a time, and a second is ignored rather than replacing the first**
 — replacing would leave two descriptions in one turn or quietly discard one the user hadn't added yet;
@@ -368,10 +370,18 @@ Chrome hands over an image dragged out of a page as a URL and the image's own ma
 taken is the markup's first `<img src>`, with the `&amp;` between query parameters undone. A plain link
 has no `<img>` and gives `null`, so dropped into a text box it types its address as it always did.
 
-`downloadImage(url)` fetches it from the extension's own page, which the host permission lets read any
+`downloadImage(url, signal)` fetches it from the extension's own page, which the host permission lets read any
 site, with `credentials: 'include'` as `read_page` has. A `blob:` address belongs to the page that made
 it and can't be fetched from here, so every failure says the same thing — copy the image there and
-paste it — because that works for all of them.
+paste it — because that works for all of them. Except an abort: a download stopped on purpose is not one
+that failed, so it comes through as the `AbortError` it is (checked in Chrome: cancelling mid-download
+closes the connection).
+
+**Not taken: a drag carrying only `text/html`.** Chrome writes every image drag with its URL, so a drag
+with markup and no URL is a text selection being dragged, and a selection with a picture in it is text
+the user meant — the reason `imageFromClipboard` refuses the same shape. Accepting it would also have
+to happen on `dragover`, which sees the types and not the data, so the drop zone would come up for
+every word dragged into a box.
 
 Tested by shape, as the clipboard is: Finder files, several files, an untyped file, a non-image, a file
 beside its URL (Windows and Linux carry the image itself), an `<img>` alone and inside a link, quoting

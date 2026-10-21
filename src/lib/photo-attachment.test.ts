@@ -37,7 +37,7 @@ function setup() {
   const states: PhotoState[] = []
   const described: string[] = []
   const discarded: string[] = []
-  const prepares: ReturnType<typeof deferred<ImagePart[]>>[] = []
+  const prepares: (ReturnType<typeof deferred<ImagePart[]>> & { signal: AbortSignal })[] = []
   const describes: {
     images: ImagePart[]
     signal: AbortSignal
@@ -46,9 +46,9 @@ function setup() {
   }[] = []
 
   const attachment = createPhotoAttachment({
-    prepare: () => {
+    prepare: (_file, signal) => {
       const d = deferred<ImagePart[]>()
-      prepares.push(d)
+      prepares.push({ ...d, signal })
       return d.promise
     },
     describe: (images, signal, onReader) => {
@@ -178,6 +178,16 @@ describe('a read that fails', () => {
 })
 
 describe('cancelling', () => {
+  // Preparing an image dragged out of another tab is downloading it, and a
+  // discarded photo should leave nothing running.
+  test('while it is being prepared, the signal it was handed is aborted, so a download stops too', async () => {
+    const t = setup()
+    void t.attachment.attach(file)
+    expect(t.prepares[0]!.signal.aborted).toBe(false)
+    t.attachment.discard()
+    expect(t.prepares[0]!.signal.aborted).toBe(true)
+  })
+
   test('while it is being resized: never reads, and frees the slot', async () => {
     const t = setup()
     void t.attachment.attach(file)

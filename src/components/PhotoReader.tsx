@@ -25,8 +25,8 @@ export interface PhotoReader extends Pick<PhotoAttachment, 'attach' | 'retry' | 
 
 /** The real resize and the real model call, which a session is given rather than imports. */
 const REAL = {
-  prepare: async (source: Blob | URL) =>
-    prepareImage(source instanceof URL ? await downloadImage(source) : source),
+  prepare: async (source: Blob | URL, signal: AbortSignal) =>
+    prepareImage(source instanceof URL ? await downloadImage(source, signal) : source),
   describe: async (
     images: Parameters<typeof describePhoto>[1],
     signal: AbortSignal,
