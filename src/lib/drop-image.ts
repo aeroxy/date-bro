@@ -53,12 +53,17 @@ const COPY_INSTEAD =
  * the user's cookies as `read_page` is, so a photo behind their login comes too.
  * A `blob:` address belongs to the page that made it and can't be fetched from
  * here; copying the image still works, which is why the error says to.
+ *
+ * Stops when `signal` does, so a photo discarded mid-download leaves nothing
+ * running — and that abort comes through as itself, since a download stopped on
+ * purpose is not one that failed.
  */
-export async function downloadImage(url: URL): Promise<Blob> {
+export async function downloadImage(url: URL, signal?: AbortSignal): Promise<Blob> {
   let response: Response
   try {
-    response = await fetch(url, { credentials: 'include' })
-  } catch {
+    response = await fetch(url, { credentials: 'include', signal })
+  } catch (e) {
+    if (signal?.aborted) throw e
     throw new Error(COPY_INSTEAD)
   }
   if (!response.ok) throw new Error(`${COPY_INSTEAD} (${url.host} answered ${response.status}.)`)

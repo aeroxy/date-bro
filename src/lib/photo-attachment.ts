@@ -20,9 +20,10 @@ export interface PhotoAttachmentDeps {
    * A file the user gave us → the images that carry it (see `prepareImage`). Or
    * the address of one, for an image dragged out of another tab: downloading it is
    * part of preparing it, so the strip shows it working and a failed download fails
-   * like a picture that would not open.
+   * like a picture that would not open. `signal` is the attempt's own, aborted by a
+   * discard, a cancel or a stop, so a download in flight stops with it.
    */
-  prepare: (file: Blob | URL) => Promise<ImagePart[]>
+  prepare: (file: Blob | URL, signal: AbortSignal) => Promise<ImagePart[]>
   /**
    * The description of those images. `onReader` is told which model is doing the
    * reading as soon as that is known, which is before the answer is.
@@ -131,7 +132,7 @@ export function createPhotoAttachment(deps: PhotoAttachmentDeps): PhotoAttachmen
     show({ status: 'reading' })
     let prepared: ImagePart[]
     try {
-      prepared = await deps.prepare(file)
+      prepared = await deps.prepare(file, controller.signal)
     } catch (e) {
       if (controller.signal.aborted) return
       occupied = false

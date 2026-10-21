@@ -105,6 +105,25 @@ describe('downloadImage', () => {
     expect(blob.size).toBe(8)
   })
 
+  test('stopped on purpose is not a failed download: the signal reaches fetch, and its abort comes through', async () => {
+    // Bun's own fetch resolves a data: URL even with an aborted signal. A browser's
+    // rejects, which is the case that matters, so this stands in for it.
+    const real = globalThis.fetch
+    let seen: AbortSignal | null | undefined
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      seen = init?.signal
+      if (init?.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError')
+      return new Response('x')
+    }) as unknown as typeof fetch
+    try {
+      const signal = AbortSignal.abort()
+      await expect(downloadImage(new URL(PHOTO), signal)).rejects.toMatchObject({ name: 'AbortError' })
+      expect(seen).toBe(signal)
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+
   test("another page's blob: address fails with what to do instead", async () => {
     await expect(downloadImage(new URL('blob:https://example.com/0f6c'))).rejects.toThrow('Copy Image')
   })
