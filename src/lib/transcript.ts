@@ -48,6 +48,23 @@ export function adviceTurn(suggestion: Suggestion): Turn {
 }
 
 /**
+ * The advice given last, by when it was generated rather than where it sits. A
+ * coach turn can be moved, and an older one moved below a newer one is not the
+ * latest advice. A tie goes to the later position, which is what "the last one"
+ * meant before turns could move. A suggestion stored with no usable time counts
+ * as the oldest: compared as it is, `x >= undefined` is false both ways round.
+ */
+export function latestAdvice(turns: readonly Turn[]): Turn | undefined {
+  const when = (t: Turn) => (Number.isFinite(t.advice?.generatedAt) ? t.advice!.generatedAt : -Infinity)
+  let latest: Turn | undefined
+  for (const t of turns) {
+    if (t.speaker !== 'coach' || !t.advice) continue
+    if (!latest || when(t) >= when(latest)) latest = t
+  }
+  return latest
+}
+
+/**
  * Shaped like the timestamps the user types into the same field — "Mon Jul 27,
  * 1:02pm" — so a stamped coach turn reads as one of the transcript's own lines
  * rather than as machine output, in the prompt and in the export alike.
