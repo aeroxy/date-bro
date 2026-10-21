@@ -3,6 +3,9 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Eyebrow } from './Card'
 
+/** Whether a dialog is open. Every one goes through `Modal`, which marks itself so. */
+export const dialogOpen = () => !!document.querySelector('[role="dialog"][aria-modal="true"]')
+
 export function Modal({
   open,
   onClose,

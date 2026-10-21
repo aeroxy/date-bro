@@ -14,6 +14,7 @@ import {
 } from '@/lib/photo-session'
 import { getPhotoConfig } from '@/lib/storage'
 import { Button } from './ui/Button'
+import { dialogOpen } from './ui/Modal'
 import { Spinner } from './ui/Spinner'
 
 export interface PhotoReader extends Pick<PhotoAttachment, 'attach' | 'retry' | 'clear' | 'discard'> {
@@ -38,8 +39,7 @@ const REAL = {
 }
 
 /** Whether the reader that lives here is the one on show: a dialog's, or the page's with no dialog over it. */
-const showing = (inModal?: boolean) =>
-  inModal || !document.querySelector('[role="dialog"][aria-modal="true"]')
+const showing = (inModal?: boolean) => inModal || !dialogOpen()
 
 /** A text box, which takes drops of its own. */
 const intoText = (target: EventTarget | null) =>
