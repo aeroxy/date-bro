@@ -541,8 +541,15 @@ export function ConversationPanel({
                       >
                         <MoveVertical size={11} />
                       </button>
+                      {/* Not evidence for a coach turn, as the insight panel's
+                          delete of the same advice isn't: the coach's own line is
+                          not something either person said. */}
                       <button
-                        onClick={() => onChange(record.turns.filter((t) => t.id !== turn.id))}
+                        onClick={() =>
+                          onChange(record.turns.filter((t) => t.id !== turn.id), {
+                            evidence: turn.speaker !== 'coach',
+                          })
+                        }
                         className="rounded p-0.5 hover:text-no"
                         title="Delete"
                       >
