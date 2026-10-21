@@ -124,6 +124,27 @@ export function numberTurns(record: DateRecord): NumberedRecord {
 }
 
 /**
+ * `turns` with the one whose id is `id` taken out and put back above `before`, or
+ * last when `before` is null. The array is the chronology and `Turn.number` the
+ * identity, so a move changes the first and leaves the second alone: the turn keeps
+ * its number and every citation of it still lands, and the gutter reading out of
+ * sequence afterwards is correct (see `numberTurns`).
+ *
+ * The input comes back as it was when there is nothing to move or nowhere to put
+ * it — no such turn, or an anchor that isn't in the list, itself included. A
+ * missing anchor isn't read as "the end", the way it is for an insert: a new turn
+ * has to land somewhere, and a moved one can stay where it was.
+ */
+export function moveTurn(turns: Turn[], id: string, before: string | null): Turn[] {
+  const moving = turns.find((t) => t.id === id)
+  const rest = turns.filter((t) => t.id !== id)
+  const at = before === null ? rest.length : rest.findIndex((t) => t.id === before)
+  if (!moving || at < 0) return turns
+  rest.splice(at, 0, moving)
+  return rest
+}
+
+/**
  * One turn as the model sees it. Numbered so the model can cite a specific one
  * as evidence instead of paraphrasing vaguely — `context` entries included,
  * since a fact the user recorded is as citable as a message. What a `NOTE:`

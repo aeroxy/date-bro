@@ -10,6 +10,7 @@ import {
 import {
   Download,
   Image as ImageIcon,
+  MoveVertical,
   Pencil,
   Phone,
   Plus,
@@ -29,7 +30,7 @@ import {
   type SourceId,
 } from '@/lib/import/sources'
 import { addDescription, placeDescription, removeDescription } from '@/lib/photo-attachment'
-import { parsePastedLog, speakerLabel, transcriptStats } from '@/lib/transcript'
+import { moveTurn, parsePastedLog, speakerLabel, transcriptStats } from '@/lib/transcript'
 import type { Channel, DateRecord, Speaker, Turn } from '@/types/date'
 import { PhotoPicker, PhotoStrip, usePhotoReader } from './PhotoReader'
 import { Button } from './ui/Button'
@@ -49,6 +50,9 @@ const CHANNEL_ICON = {
 // rather than all at mount, so long imported transcripts stay smooth.
 const PAGE_SIZE = 40
 
+const MOVE_PILL =
+  'flex items-center gap-1 rounded-full border border-action-300 bg-action-soft px-2 py-0.5 text-[10px] font-semibold text-action-700 transition hover:border-action'
+
 export function ConversationPanel({
   record,
   onChange,
@@ -58,7 +62,8 @@ export function ConversationPanel({
   onJumped,
 }: {
   record: DateRecord
-  onChange: (turns: Turn[]) => void
+  /** `evidence: false` for a change to `turns` that isn't evidence — see `useDates.update`. */
+  onChange: (turns: Turn[], opts?: { evidence?: boolean }) => void
   /** Which coach turn the insight panel is currently showing, if any. */
   viewingAdvice?: string | null
   onOpenAdvice?: (id: string) => void
@@ -87,6 +92,10 @@ export function ConversationPanel({
   // and spent after a modal round trip is the one thing here that couldn't
   // survive the list changing underneath it.
   const [inserting, setInserting] = useState<{ before: string; turn: Turn } | null>(null)
+  // The turn being moved, by id for the same reason. Looked up in the list on every
+  // render, so deleting it, or clearing the lot, ends the move without anything
+  // having to remember to.
+  const [moving, setMoving] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   // What each does to the box, and why, is in `addDescription` / `removeDescription`.
@@ -114,6 +123,21 @@ export function ConversationPanel({
 
   const visibleTurns = record.turns.slice(-visibleCount)
   const hiddenCount = record.turns.length - visibleTurns.length
+  const movingIndex = moving ? record.turns.findIndex((t) => t.id === moving) : -1
+  const movingTurn = movingIndex < 0 ? undefined : record.turns[movingIndex]
+  const isMoving = movingTurn !== undefined
+
+  // Escape puts it down — but not while a dialog is open over the list: `Modal`
+  // listens for Escape on the window too, and one press would close the dialog and
+  // drop the move with it.
+  useEffect(() => {
+    if (!isMoving || editing || inserting || importing) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoving(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isMoving, editing, inserting, importing])
 
   // Scroll to the bottom on mount, and whenever a turn is appended (add or
   // import) — but not when older turns page in at the top, or a turn is
@@ -224,6 +248,20 @@ export function ConversationPanel({
     // in the other person's mouth in the one list this app treats as fact.
   }
 
+  // `before` null is the end. Evidence like any other change to the order — who
+  // answered what is part of what the coach reads — except for a coach turn, for
+  // the reason adding or deleting one isn't.
+  const moveTo = (before: string | null) => {
+    if (!movingTurn) return
+    onChange(moveTurn(record.turns, movingTurn.id, before), {
+      evidence: movingTurn.speaker !== 'coach',
+    })
+    setMoving(null)
+    // Lit where it lands, as a jump is: the eye is on the gap, and the turn now
+    // sitting in it looks like the forty around it.
+    setLit(movingTurn.id)
+  }
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-5 py-2.5">
@@ -253,6 +291,24 @@ export function ConversationPanel({
           <Download size={13} /> Import
         </Button>
       </div>
+
+      {/* Outside the list, so it stays in view however far away the place the turn
+          belongs is scrolled. */}
+      {movingTurn ? (
+        <div className="flex items-center gap-2 border-b border-border bg-action-soft px-5 py-1.5 text-[12px] text-action-700">
+          <MoveVertical size={12} className="flex-none" />
+          <span className="min-w-0 flex-1 truncate">
+            Moving turn {movingTurn.number}: hover the gap where it belongs and click{' '}
+            <span className="font-semibold">Move here</span>. Esc cancels.
+          </span>
+          <button
+            onClick={() => setMoving(null)}
+            className="rounded-md px-2 py-0.5 font-semibold transition hover:bg-surface"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
 
       <div ref={scrollRef} className="scroll-slim flex-1 overflow-y-auto px-5 py-4">
         {record.turns.length === 0 ? (
@@ -290,7 +346,8 @@ export function ConversationPanel({
         ) : null}
 
         <ol className="space-y-2.5">
-          {visibleTurns.map((turn) => {
+          {visibleTurns.map((turn, i) => {
+            const index = hiddenCount + i
             const mine = turn.speaker === 'me'
             // Neither side said it, so it sits in the middle and doesn't wear a
             // bubble — a note that looked like a message would be read back as
@@ -308,8 +365,11 @@ export function ConversationPanel({
                   'group relative flex min-w-0 gap-3 rounded-lg',
                   centred ? 'flex-row justify-center' : mine ? 'flex-row-reverse' : 'flex-row',
                   // On at once, then fading: the transition is only there on the
-                  // way out.
-                  lit === turn.id ? 'bg-action-soft ring-6 ring-action-soft' : 'transition duration-1000',
+                  // way out. A turn being moved wears it until it lands, then
+                  // fades from where it landed.
+                  lit === turn.id || moving === turn.id
+                    ? 'bg-action-soft ring-6 ring-action-soft'
+                    : 'transition duration-1000',
                 )}
               >
                 {/* Sits in the gap above this line and inserts before it, so
@@ -319,24 +379,35 @@ export function ConversationPanel({
                     a modal round trip to correct something the thread could just
                     have asked for. Invisible isn't gone: without
                     pointer-events-none they stay clickable across the full width
-                    while reading as absent. */}
+                    while reading as absent.
+
+                    While a turn is being moved, the gap offers to put it there
+                    instead — except the two either side of it, where it already
+                    is. */}
                 <span className="pointer-events-none absolute -top-2.5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 opacity-0 transition focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
-                  {(['them', 'me', 'context'] as Speaker[]).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() =>
-                        setInserting({
-                          before: turn.id,
-                          turn: { id: crypto.randomUUID(), speaker: s, text: '' },
-                        })
-                      }
-                      title={`Insert ${s === 'context' ? 'a note' : `a turn from ${speakerLabel(record, s)}`} here`}
-                      className="flex items-center gap-0.5 rounded-full border border-dashed border-border bg-surface px-2 py-0.5 text-[10px] text-fg-3 transition hover:border-action hover:text-action"
-                    >
-                      <Plus size={9} />
-                      {speakerLabel(record, s)}
+                  {!isMoving ? (
+                    (['them', 'me', 'context'] as Speaker[]).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() =>
+                          setInserting({
+                            before: turn.id,
+                            turn: { id: crypto.randomUUID(), speaker: s, text: '' },
+                          })
+                        }
+                        title={`Insert ${s === 'context' ? 'a note' : `a turn from ${speakerLabel(record, s)}`} here`}
+                        className="flex items-center gap-0.5 rounded-full border border-dashed border-border bg-surface px-2 py-0.5 text-[10px] text-fg-3 transition hover:border-action hover:text-action"
+                      >
+                        <Plus size={9} />
+                        {speakerLabel(record, s)}
+                      </button>
+                    ))
+                  ) : index === movingIndex || index === movingIndex + 1 ? null : (
+                    <button onClick={() => moveTo(turn.id)} className={MOVE_PILL}>
+                      <MoveVertical size={9} />
+                      Move here
                     </button>
-                  ))}
+                  )}
                 </span>
                 {/* The same number the model cites this turn by — `formatTurn`
                     renders `turn.number` into the prompt, so a `[14]` in a
@@ -464,6 +535,13 @@ export function ConversationPanel({
                         </button>
                       )}
                       <button
+                        onClick={() => setMoving(moving === turn.id ? null : turn.id)}
+                        className={cn('rounded p-0.5 hover:text-fg', moving === turn.id && 'text-action-700')}
+                        title={moving === turn.id ? 'Cancel the move' : 'Move'}
+                      >
+                        <MoveVertical size={11} />
+                      </button>
+                      <button
                         onClick={() => onChange(record.turns.filter((t) => t.id !== turn.id))}
                         className="rounded p-0.5 hover:text-no"
                         title="Delete"
@@ -487,6 +565,16 @@ export function ConversationPanel({
             )
           })}
         </ol>
+        {/* The one place no gap reaches: there's no line below the last to sit
+            above. */}
+        {isMoving && movingIndex < record.turns.length - 1 ? (
+          <div className="mt-2.5 flex justify-center">
+            <button onClick={() => moveTo(null)} className={MOVE_PILL}>
+              <MoveVertical size={9} />
+              Move to the end
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Photos are pasted from anywhere on the page, not just into this box: the
