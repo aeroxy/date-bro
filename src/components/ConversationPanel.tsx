@@ -38,7 +38,7 @@ import { Chip, Eyebrow } from './ui/Card'
 import { Field, Input, Textarea } from './ui/Field'
 import { Select } from './ui/Select'
 import { Spinner } from './ui/Spinner'
-import { Modal } from './ui/Modal'
+import { dialogOpen, Modal } from './ui/Modal'
 
 const CHANNEL_ICON = {
   text: null,
@@ -127,17 +127,20 @@ export function ConversationPanel({
   const movingTurn = movingIndex < 0 ? undefined : record.turns[movingIndex]
   const isMoving = movingTurn !== undefined
 
-  // Escape puts it down — but not while a dialog is open over the list: `Modal`
-  // listens for Escape on the window too, and one press would close the dialog and
-  // drop the move with it.
+  // Escape puts it down — but not while any dialog is open, this panel's or the
+  // app's (Settings, the profile): `Modal` listens for Escape on the window too,
+  // and one press would close the dialog and drop the move with it. Captured, so
+  // this asks before `Modal`'s own listener runs: React takes a closed dialog out
+  // of the page between one listener and the next, and asked after, the dialog
+  // the Escape was for would already be gone.
   useEffect(() => {
-    if (!isMoving || editing || inserting || importing) return
+    if (!isMoving) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMoving(null)
+      if (e.key === 'Escape' && !dialogOpen()) setMoving(null)
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [isMoving, editing, inserting, importing])
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [isMoving])
 
   // Scroll to the bottom on mount, and whenever a turn is appended (add or
   // import) — but not when older turns page in at the top, or a turn is
