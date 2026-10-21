@@ -376,9 +376,9 @@ paste it — because that works for all of them.
 Tested by shape, as the clipboard is: Finder files, several files, an untyped file, a non-image, a file
 beside its URL (Windows and Linux carry the image itself), an `<img>` alone and inside a link, quoting
 and look-alike attributes (`data-src`, `srcset`), a `data:` image, a plain link, a bare URL, a relative
-`src`. Whether a real drag from another tab on a Mac carries the `<img>` markup is how Chromium writes
-an image drag, not something a real cross-tab drag has been checked against: the DevTools protocol
-injects a drag's data directly and goes nowhere near the OS pasteboard.
+`src`. That a real drag from another tab carries the `<img>` markup through the OS pasteboard is
+checked only by hand, on a Mac, where it does: the DevTools protocol injects a drag's data directly
+and goes nowhere near the pasteboard, so the automated checks can't reach that hop.
 
 ## `photo-session.ts`
 
