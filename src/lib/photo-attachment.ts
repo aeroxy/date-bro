@@ -16,8 +16,13 @@ export interface PhotoState {
 }
 
 export interface PhotoAttachmentDeps {
-  /** A file the user gave us → the images that carry it (see `prepareImage`). */
-  prepare: (file: Blob) => Promise<ImagePart[]>
+  /**
+   * A file the user gave us → the images that carry it (see `prepareImage`). Or
+   * the address of one, for an image dragged out of another tab: downloading it is
+   * part of preparing it, so the strip shows it working and a failed download fails
+   * like a picture that would not open.
+   */
+  prepare: (file: Blob | URL) => Promise<ImagePart[]>
   /**
    * The description of those images. `onReader` is told which model is doing the
    * reading as soon as that is known, which is before the answer is.
@@ -37,7 +42,7 @@ export interface PhotoAttachmentDeps {
 
 export interface PhotoAttachment {
   /** Read a picture and hand its description to `onDescribed`. One at a time. */
-  attach: (file: Blob) => Promise<void>
+  attach: (file: Blob | URL) => Promise<void>
   /** Re-send the pictures that failed, without asking for the file again. */
   retry: () => void
   /**
@@ -117,7 +122,7 @@ export function createPhotoAttachment(deps: PhotoAttachmentDeps): PhotoAttachmen
     }
   }
 
-  async function attach(file: Blob) {
+  async function attach(file: Blob | URL) {
     if (occupied) return
     occupied = true
     const controller = new AbortController()

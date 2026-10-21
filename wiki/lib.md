@@ -277,7 +277,7 @@ asks for `imageOrientation: 'from-image'` by name, because a phone stores a port
 a flag saying so and a decode that ignores the flag hands the model a picture on its side (checked with
 a hand-built orientation-6 JPEG: 200×100 in, 100×200 out). Only a blob that *says* it is something else
 (`text/plain`, a PDF) is refused before decoding; one with **no type at all** — an extensionless screenshot, or an
-extension the OS has no MIME for, which reaches here by upload since a paste is already filtered to `image/*` — goes to
+extension the OS has no MIME for, which reaches here by upload or drop since a paste is already filtered to `image/*` — goes to
 the decoder, which reads the bytes and not the name. It used to be turned away as "not an image", which contradicted the
 point of the module: whatever Chrome can decode, it can send. (If it really isn't a picture the decoder says so, in its
 own words.) What Chrome can't decode — HEIC above all,
@@ -290,7 +290,9 @@ it: `createPhotoAttachment` takes `prepare`, `describe`, `onState`, `onDescribed
 `usePhotoReader` in `components/PhotoReader.tsx` is the thin binding that supplies the real resize, the
 real model call and `setState`. It is separate so the races can be tested with two promises held open
 by hand, and they are where this goes wrong: a paste, a cancel and a slow reply each arrive on their
-own schedule.
+own schedule. `attach` takes a `Blob` or a `URL` — the address of an image dragged out of another tab —
+and passes either to `prepare`: downloading is part of preparing, so the strip shows it working and a
+download that fails fails like a picture that would not open, with the error alone and nothing to retry.
 
 Two rules carry it. **One picture at a time, and a second is ignored rather than replacing the first**
 — replacing would leave two descriptions in one turn or quietly discard one the user hadn't added yet;
@@ -351,6 +353,32 @@ platform is the thing to check if a paste ever misbehaves.
 
 Where a paste is heard is `usePhotoReader`'s business, not this module's: on the document, anywhere on
 the page, except while a modal is open. See [components.md](components.md#feature-components).
+
+## `drop-image.ts`
+
+The same question for a drop. `mightBeAPicture(types)` decides on `dragover`, when a page is shown the
+drag's types and nothing else: files, or `text/uri-list`. A text selection carries neither and is left
+to the boxes. An address is "might", because a link is one too.
+
+`imageFromDrop(data)` decides on the drop. **Files first, and any file**: the first image, else the
+first file whatever it is, as the picker takes any file — the decoder is better placed to say a file
+won't open than a drop that does nothing. **An image from another tab is its `<img>`, not its link.**
+Chrome hands over an image dragged out of a page as a URL and the image's own markup, and the URL is the
+*link* the image sits in when there is one — a profile photo that opens the profile. So the address
+taken is the markup's first `<img src>`, with the `&amp;` between query parameters undone. A plain link
+has no `<img>` and gives `null`, so dropped into a text box it types its address as it always did.
+
+`downloadImage(url)` fetches it from the extension's own page, which the host permission lets read any
+site, with `credentials: 'include'` as `read_page` has. A `blob:` address belongs to the page that made
+it and can't be fetched from here, so every failure says the same thing — copy the image there and
+paste it — because that works for all of them.
+
+Tested by shape, as the clipboard is: Finder files, several files, an untyped file, a non-image, a file
+beside its URL (Windows and Linux carry the image itself), an `<img>` alone and inside a link, quoting
+and look-alike attributes (`data-src`, `srcset`), a `data:` image, a plain link, a bare URL, a relative
+`src`. Whether a real drag from another tab on a Mac carries the `<img>` markup is how Chromium writes
+an image drag, not something a real cross-tab drag has been checked against: the DevTools protocol
+injects a drag's data directly and goes nowhere near the OS pasteboard.
 
 ## `photo-session.ts`
 
