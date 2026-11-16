@@ -489,7 +489,7 @@ to an agent that already researches on its own would be meaningless.
 
 | Module | Role |
 |---|---|
-| `qwen-service.ts` | Token lookup (cookie, falling back to a tab's localStorage), device-id resolution and refresh, session creation, SSE streaming, anti-bot retry |
+| `qwen-service.ts` | Token lookup and renewal (cached cookie while it has life left, else `auth.qwen.ai` refresh, else a tab's localStorage), device-id resolution and refresh, session creation, SSE streaming, anti-bot retry |
 | `cookie-generator.ts` | LZW-compresses a 37-field fingerprint into the `ssxmod_itna` / `ssxmod_itna2` cookies Qwen's anti-bot checks require |
 | `fingerprint.ts` | The fingerprint template, with per-platform presets |
 
@@ -509,6 +509,32 @@ split is also what keeps reasoning out of the accumulated answer string.
 either as a non-2xx or as a 200 with no `data:` deltas. `isQwenAntiBotChallenge` sniffs the markers;
 on a hit the *same* `chat_id` is re-sent after 30s with fresh cookies, up to 3 times. Session
 creation happens once up front, because the throttled request never reached the model.
+
+**Client version.** `QWEN_WEB_VERSION` / `QWEN_BX_VERSION` copy chat.qwen.ai's own `Version` /
+`bx-v` headers, and the token goes as `Authorization: Bearer`. When Qwen shipped its 0.3.x frontend
+(2026-11), the completions endpoint started refusing both a stale `Version` (0.2.63) and the old bare
+`token` header, each on its own, while `chats/new` kept accepting them, so the breakage only showed at the
+answer. The `bx-ua` / `bx-umidtoken` headers the page also sends are not needed (checked by replaying
+the request without them). After the next frontend change, compare against a live completions
+request from a chat.qwen.ai tab first.
+
+**Refusals are a 200.** A request Qwen won't take comes back as `200` with a JSON body
+(`{"success":false,"data":{"code":"Bad_Request",...}}`) instead of a stream. It used to finish as an
+empty answer and reach the engines as *"Couldn't parse the model's response as JSON"*. Any non-stream
+JSON body that isn't the anti-bot one now fails as `Qwen refused the request: …` with the body attached.
+`chats/new` refuses the same way, and `createQwenSession` throws with Qwen's words rather than
+returning null for a generic *"Failed to initialize a Qwen chat session"*.
+
+**Tokens last 15 minutes.** Since the 0.3.x frontend the access token is a 15-minute JWT that the web
+client renews through `GET https://auth.qwen.ai/api/v2/auths/refresh`. That call is authorised by a
+long-lived refresh cookie, not a Bearer header. `getQwenToken` used to return the `token` cookie as
+found. That cookie is our own cache and nothing else renews it, so a quarter-hour after it was written
+every call failed with *"Token has expired, please log in again."* It now reuses the cookie only while
+`isUsableQwenToken` gives it more than a minute, renews otherwise (one renewal shared by parallel
+callers), and falls back to a Qwen tab's own copy only if that one is still live. The refresh needs
+the header set the client sends on `/auths/` calls: `x-request-origin: https://chat.qwen.ai` (without
+it the answer is *"Missing origin"*; the real `Origin` is not what it checks), plus `version`, `source`,
+`timezone`, `x-request-id`. With only the first three it is *"Invalid request header"*.
 
 **Header timeout.** `QWEN_HEADER_TIMEOUT_MS` gives the completions endpoint **60s** to answer at all.
 It covers headers only: once a stream has started the reader's idle watchdog takes over, so a thinking

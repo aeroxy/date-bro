@@ -4,6 +4,13 @@ import type { ThinkingSummary } from '@/types/coach';
 
 const QWEN_ORIGIN = 'https://chat.qwen.ai';
 
+// The web client's own `Version` / `bx-v` headers, copied from chat.qwen.ai's
+// live requests. The completions endpoint refuses a stale `Version` — not with
+// an error status but a 200 `{"success":false,"data":{"code":"Bad_Request"}}` —
+// so when Qwen ships a new frontend, these are the first thing to re-check.
+const QWEN_WEB_VERSION = '0.3.43';
+const QWEN_BX_VERSION = '2.5.37';
+
 // Alibaba anti-bot ("tmd"/x5sec) punish + overload markers. When the
 // completions endpoint answers with one of these instead of an SSE stream, the
 // request was throttled — e.g.
@@ -94,50 +101,108 @@ async function setCookie(name: string, value: string): Promise<void> {
   });
 }
 
-/**
- * Retrieves the active JWT token from cookies or localStorage
- */
-export async function getQwenToken(): Promise<string | null> {
-  // 1. First, check the cookie jar (extremely direct). getCookie throws when
-  // the cookies API is unavailable — treat that as "no cookie" so the
-  // localStorage fallback still runs.
-  let token: string | null = null;
-  try {
-    token = await getCookie('token');
-  } catch (e) {
-    console.warn('[Qwen Service] Cookie lookup failed, falling back to localStorage:', e);
-  }
-  if (token) {
-    return token;
-  }
+// Qwen's access tokens last 15 minutes. Its web client renews them against
+// auth.qwen.ai, which reads a long-lived refresh cookie, and so do we: nothing
+// else updates the `token` cookie cached below, so trusting it without looking
+// at its expiry sends Qwen a dead token ("Token has expired, please log in").
+const QWEN_REFRESH_URL = 'https://auth.qwen.ai/api/v2/auths/refresh';
+// Renew this early, so a token can't lapse between the check and the request.
+const QWEN_TOKEN_MARGIN_MS = 60_000;
 
-  // 2. Fallback: Query active chat.qwen.ai tabs and run a script to extract from localStorage
+/** False for a JWT with less than the margin left. A token whose expiry can't be read is trusted, as before. */
+export function isUsableQwenToken(token: string | null | undefined): token is string {
+  if (!token) return false;
   try {
-    const tabs = await chrome.tabs.query({ url: `${QWEN_ORIGIN}/*`, discarded: false });
-    if (tabs.length > 0 && tabs[0].id !== undefined) {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tabs[0].id },
-        func: () => {
-          return localStorage.getItem('token');
+    const { exp } = JSON.parse(atob(token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof exp !== 'number' || exp * 1000 - Date.now() > QWEN_TOKEN_MARGIN_MS;
+  } catch {
+    return true;
+  }
+}
+
+// One renewal at a time: the engines run Qwen calls in parallel, and several
+// refreshes racing on one refresh cookie is exactly what Qwen's own client
+// serialises against.
+let refreshInFlight: Promise<string | null> | null = null;
+
+function refreshQwenToken(): Promise<string | null> {
+  refreshInFlight ??= (async () => {
+    try {
+      // The header set Qwen's client sends on `/auths/` calls, and nothing else
+      // works: without `x-request-origin` it's "Missing origin" (the real Origin
+      // is not what it reads), and with only that, `version` and `source` it's
+      // "Invalid request header". No Authorization — the cookie is the credential.
+      const response = await fetch(QWEN_REFRESH_URL, {
+        credentials: 'include',
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'application/json',
+          'source': 'web',
+          'version': QWEN_WEB_VERSION,
+          'timezone': new Date().toString().replace(/\s*\(.+\)$/, ''),
+          'x-request-id': crypto.randomUUID(),
+          'x-request-origin': QWEN_ORIGIN,
         },
       });
-      if (results && results[0]?.result) {
-        token = results[0].result;
-        if (token) {
-          try {
-            await setCookie('token', token);
-          } catch (cookieErr) {
-            console.warn('[Qwen Service] Failed to persist token cookie, continuing with extracted token:', cookieErr);
-          }
-        }
-        return token;
-      }
+      const data = await response.json().catch(() => null);
+      const token = data?.data?.access_token;
+      if (typeof token === 'string' && token) return token;
+      console.warn('[Qwen Service] Token refresh refused:', data?.data?.code ?? response.status);
+    } catch (e) {
+      console.warn('[Qwen Service] Token refresh failed:', e);
     }
+    return null;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+/** A chat.qwen.ai tab's own copy of the token, if a tab is open. */
+async function readTokenFromQwenTab(): Promise<string | null> {
+  try {
+    const tabs = await chrome.tabs.query({ url: `${QWEN_ORIGIN}/*`, discarded: false });
+    if (tabs[0]?.id === undefined) return null;
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      func: () => localStorage.getItem('token'),
+    });
+    return results?.[0]?.result ?? null;
   } catch (e) {
     console.error('[Qwen Service] Failed to extract token from localStorage:', e);
+    return null;
   }
+}
 
-  return null;
+/**
+ * A live access token: the cached cookie while it has life left, else a renewed
+ * one, else an open Qwen tab's copy if that one hasn't expired too.
+ */
+export async function getQwenToken(): Promise<string | null> {
+  // getCookie throws when the cookies API is unavailable — treat that as "no
+  // cookie" so the other sources still run.
+  let cached: string | null = null;
+  try {
+    cached = await getCookie('token');
+  } catch (e) {
+    console.warn('[Qwen Service] Cookie lookup failed:', e);
+  }
+  if (isUsableQwenToken(cached)) return cached;
+
+  let token = await refreshQwenToken();
+  if (!token) {
+    const fromTab = await readTokenFromQwenTab();
+    token = isUsableQwenToken(fromTab) ? fromTab : null;
+  }
+  if (!token) return null;
+
+  try {
+    await setCookie('token', token);
+  } catch (cookieErr) {
+    console.warn('[Qwen Service] Failed to persist token cookie, continuing with it anyway:', cookieErr);
+  }
+  return token;
 }
 
 /**
@@ -369,44 +434,45 @@ export function normalizeQwenModel(input?: string | null): QwenModel {
 export async function createQwenSession(
   token: string,
   model: QwenModel = QWEN_MODELS[0],
-): Promise<string | null> {
+): Promise<string> {
+  // Magic string 'New Chat' perfectly mirrors Qwen Studio's own native frontend
+  // behavior when creating a blank chat, ensuring our requests are indistinguishable
+  // from normal human user sessions on chat.qwen.ai.
+  const title = 'New Chat';
+  console.log('[Qwen Service] Creating fresh chat session...');
+  const response = await fetch(`${QWEN_ORIGIN}/api/v2/chats/new`, {
+    method: 'POST',
+    credentials: 'include',
+    signal: AbortSignal.timeout(15_000),
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'content-type': 'application/json',
+      'source': 'web',
+      'version': QWEN_WEB_VERSION,
+      'timezone': formatTimezone(),
+      'x-request-id': crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      title,
+      models: [model],
+      chat_mode: 'local',
+      chat_type: 't2t',
+      timestamp: Date.now(),
+    }),
+  });
+
+  // Qwen refuses with a 200 too (`{"success":false,"data":{"code":"unauthorized",
+  // "details":"Token has expired..."}}`), so the id is the test, and its words
+  // are the error — a bare "failed to initialize" gave nothing to act on.
+  const raw = await response.text();
+  let id: unknown;
   try {
-    // Magic string 'New Chat' perfectly mirrors Qwen Studio's own native frontend
-    // behavior when creating a blank chat, ensuring our requests are indistinguishable
-    // from normal human user sessions on chat.qwen.ai.
-    const title = 'New Chat';
-    console.log('[Qwen Service] Creating fresh chat session...');
-    const response = await fetch(`${QWEN_ORIGIN}/api/v2/chats/new`, {
-      method: 'POST',
-      credentials: 'include',
-      signal: AbortSignal.timeout(15_000),
-      headers: {
-        'authorization': `Bearer ${token}`,
-        'content-type': 'application/json',
-        'source': 'web',
-        'version': '0.2.63',
-        'timezone': formatTimezone(),
-        'x-request-id': crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        title,
-        models: [model],
-        chat_mode: 'local',
-        chat_type: 't2t',
-        timestamp: Date.now(),
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Session creation failed: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data?.data?.id || null;
-  } catch (e) {
-    console.error('[Qwen Service] Session creation failed:', e);
-    return null;
+    id = JSON.parse(raw)?.data?.id;
+  } catch {}
+  if (!response.ok || typeof id !== 'string' || !id) {
+    throw new Error(`Qwen wouldn't start a chat (HTTP ${response.status}): ${raw.slice(0, 300)}`);
   }
+  return id;
 }
 
 export interface QwenMessage {
@@ -616,10 +682,6 @@ export async function sendQwenChatStream(
     //    this same chat_id — the throttled request never reached the model, so
     //    the chat is still empty and there's no need to POST /chats/new again.
     const chatId = await createQwenSession(token, model);
-    if (!chatId) {
-      wrappedOnError('Failed to initialize a Qwen chat session.');
-      return;
-    }
 
     // One attempt at the completions stream. Returns a discriminated result so
     // the retry loop can tell an anti-bot/overload throttle apart from a real
@@ -669,9 +731,10 @@ export async function sendQwenChatStream(
             'accept': 'text/event-stream',
             'content-type': 'application/json',
             'source': 'web',
-            'token': token,
-            'bx-v': '2.5.36',
-            'version': '0.2.63',
+            // The bare `token` header the client used to send is refused too.
+            'authorization': `Bearer ${token}`,
+            'bx-v': QWEN_BX_VERSION,
+            'version': QWEN_WEB_VERSION,
             'timezone': formatTimezone(),
             'x-request-id': crypto.randomUUID(),
             'x-accel-buffering': 'no',
@@ -814,6 +877,15 @@ export async function sendQwenChatStream(
       // A 200 response whose body was the anti-bot/overload JSON ("被挤爆啦,
       // 请稍后重试") yields no content deltas — detect it from the sniffed head.
       if (!emittedAny && isQwenAntiBotChallenge(rawHead)) return { kind: 'rate_limited' };
+
+      // Any other 200 whose body is JSON rather than a stream is a refusal —
+      // `{"success":false,"data":{"code":"Bad_Request",...}}` is how Qwen answers
+      // a request shape it no longer accepts. Finishing "cleanly" here would hand
+      // the caller an empty answer, which surfaces as a JSON parse error that
+      // says nothing about Qwen.
+      if (!emittedAny && rawHead.trimStart().startsWith('{')) {
+        return { kind: 'error', message: `Qwen refused the request: ${rawHead.trim().slice(0, 300)}` };
+      }
 
       return { kind: 'done' };
     };
