@@ -493,6 +493,11 @@ to an agent that already researches on its own would be meaningless.
 | `cookie-generator.ts` | LZW-compresses a 37-field fingerprint into the `ssxmod_itna` / `ssxmod_itna2` cookies Qwen's anti-bot checks require |
 | `fingerprint.ts` | The fingerprint template, with per-platform presets |
 
+**Models.** `QWEN_MODELS` is the Settings picker's list: `qwen4-max`, `qwen3.8-max`, `qwen3.7-max`,
+`qwen3.7-plus`. `QWEN_MODELS[0]` is the default for a profile that never picked one, and
+`normalizeQwenModel` falls back to it for a stored value no longer in the list. A profile that saved an
+explicit choice keeps it.
+
 **Thinking phases.** We request `output_schema: 'phase'` + `thinking_format: 'summary'`, so the SSE
 stream interleaves reasoning with the answer, tagged by `delta.phase`. `handleDelta` splits them:
 `think` / `thinking_summary` events go to `onThinking` as a `QwenThinking` (the `extra.summary_title`
