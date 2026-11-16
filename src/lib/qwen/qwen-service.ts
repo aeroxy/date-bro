@@ -147,7 +147,12 @@ function refreshQwenToken(): Promise<string | null> {
       });
       const data = await response.json().catch(() => null);
       const token = data?.data?.access_token;
-      if (typeof token === 'string' && token) return token;
+      if (typeof token === 'string' && token) {
+        // Saved before the flight ends, so a caller arriving just after reads
+        // the new cookie instead of finding the old one and renewing again.
+        await persistToken(token);
+        return token;
+      }
       console.warn('[Qwen Service] Token refresh refused:', data?.data?.code ?? response.status);
     } catch (e) {
       console.warn('[Qwen Service] Token refresh failed:', e);
@@ -190,19 +195,22 @@ export async function getQwenToken(): Promise<string | null> {
   }
   if (isUsableQwenToken(cached)) return cached;
 
-  let token = await refreshQwenToken();
-  if (!token) {
-    const fromTab = await readTokenFromQwenTab();
-    token = isUsableQwenToken(fromTab) ? fromTab : null;
-  }
-  if (!token) return null;
+  const renewed = await refreshQwenToken();
+  if (renewed) return renewed;
 
+  const fromTab = await readTokenFromQwenTab();
+  if (!isUsableQwenToken(fromTab)) return null;
+  await persistToken(fromTab);
+  return fromTab;
+}
+
+/** Caches `token` in the cookie `getQwenToken` reads first. A failed write costs only the cache. */
+async function persistToken(token: string): Promise<void> {
   try {
     await setCookie('token', token);
   } catch (cookieErr) {
     console.warn('[Qwen Service] Failed to persist token cookie, continuing with it anyway:', cookieErr);
   }
-  return token;
 }
 
 /**
@@ -672,9 +680,10 @@ export async function sendQwenChatStream(
     await updateQwenCookies();
 
     // 2. Retrieve active token
-    const token = await getQwenToken();
+    const NO_TOKEN = 'Authentication token not found. Please log in to chat.qwen.ai first!';
+    let token = await getQwenToken();
     if (!token) {
-      wrappedOnError('Authentication token not found. Please log in to chat.qwen.ai first!');
+      wrappedOnError(NO_TOKEN);
       return;
     }
 
@@ -690,7 +699,7 @@ export async function sendQwenChatStream(
     // never double-emits.
     type AttemptResult = { kind: 'done' } | { kind: 'rate_limited' } | { kind: 'error'; message: string };
 
-    const runCompletionAttempt = async (): Promise<AttemptResult> => {
+    const runCompletionAttempt = async (authToken: string): Promise<AttemptResult> => {
       // Build exact Qwen v2.1 Payload aligned with recent Qwen2API commits.
       // Rebuilt per attempt so the timestamp/x-request-id stay current.
       const nowInSeconds = Math.floor(Date.now() / 1000);
@@ -732,7 +741,7 @@ export async function sendQwenChatStream(
             'content-type': 'application/json',
             'source': 'web',
             // The bare `token` header the client used to send is refused too.
-            'authorization': `Bearer ${token}`,
+            'authorization': `Bearer ${authToken}`,
             'bx-v': QWEN_BX_VERSION,
             'version': QWEN_WEB_VERSION,
             'timezone': formatTimezone(),
@@ -897,9 +906,17 @@ export async function sendQwenChatStream(
         // Regenerate fresh ssxmod_itna fingerprint cookies (new timestamp)
         // before re-sending — the chat_id is reused, only the cookies refresh.
         await updateQwenCookies();
+        // And the token: three 30s back-offs outlast the minute of life a token
+        // needs to pass the check, so the one fetched up front can lapse here.
+        const renewed = await getQwenToken();
+        if (!renewed) {
+          wrappedOnError(NO_TOKEN);
+          return;
+        }
+        token = renewed;
       }
 
-      const result = await runCompletionAttempt();
+      const result = await runCompletionAttempt(token);
 
       if (result.kind === 'done') {
         wrappedOnDone();

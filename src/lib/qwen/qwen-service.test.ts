@@ -112,6 +112,38 @@ describe('sendQwenChat', () => {
     expect(completionHeaders().authorization).toBe('Bearer renewed-token')
   })
 
+  // The anti-bot back-off is up to three 30s waits, longer than the minute of
+  // life a token needs to pass the check, so a retry can't reuse the first one.
+  test('a retry after the anti-bot back-off takes a live token, on the same chat', async () => {
+    const first = jwt(1.5)
+    cookieToken = first
+    serveQwen()
+    const served = globalThis.fetch
+    let completions = 0
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes('/chat/completions') && completions++ === 0) {
+        requests.push({ url, headers: init.headers as Record<string, string> })
+        cookieToken = jwt(-1) // lapses during the back-off
+        return new Response('{"ret":["FAIL_SYS_USER_VALIDATE"]}', { headers: { 'content-type': 'application/json' } })
+      }
+      return served(url, init)
+    }) as typeof fetch
+
+    // Skip the 30s back-off itself; every other timer keeps its real length.
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void, ms?: number) =>
+      realSetTimeout(fn, ms === 30_000 ? 0 : ms)) as typeof setTimeout
+    try {
+      expect(await sendQwenChat([{ role: 'user', content: 'x' }])).toBe('hi')
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+
+    const attempts = requests.filter((r) => r.url.includes('/chat/completions'))
+    expect(attempts.map((r) => r.headers.authorization)).toEqual([`Bearer ${first}`, 'Bearer renewed-token'])
+    expect(new Set(attempts.map((r) => r.url)).size).toBe(1)
+  })
+
   // The refusal arrives as a 200 with a JSON body. It used to finish as an
   // empty answer, which the caller then reported as unparseable JSON.
   test('rejects with Qwen\'s own words when it answers JSON instead of a stream', async () => {
