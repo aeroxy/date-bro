@@ -535,6 +535,10 @@ callers), and falls back to a Qwen tab's own copy only if that one is still live
 the header set the client sends on `/auths/` calls: `x-request-origin: https://chat.qwen.ai` (without
 it the answer is *"Missing origin"*; the real `Origin` is not what it checks), plus `version`, `source`,
 `timezone`, `x-request-id`. With only the first three it is *"Invalid request header"*.
+The renewal saves the new token to the cookie *before* its shared promise settles, so a caller arriving
+just after reads the new one instead of starting a second renewal. And each anti-bot retry takes a
+token again: three 30s back-offs outlast the one-minute margin, so the token checked up front can lapse
+before the last attempt (`chat_id` stays the same).
 
 **Header timeout.** `QWEN_HEADER_TIMEOUT_MS` gives the completions endpoint **60s** to answer at all.
 It covers headers only: once a stream has started the reader's idle watchdog takes over, so a thinking
